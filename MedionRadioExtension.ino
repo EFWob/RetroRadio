@@ -7,7 +7,7 @@ struct medionExtraPins {
   uint8_t led;
   uint8_t vol;
   uint8_t wave;
-  uint8_t capa;           //obsolete!
+//  uint8_t capa;           //obsolete!
   touch_pad_t capaPin;
   uint8_t loudUp;
   uint8_t loudDn;
@@ -16,14 +16,12 @@ struct medionExtraPins {
     .led = 26,
     .vol = 33,
     .wave = 35,
-    .capa = 0xff,       // obsolete
+//    .capa = 0xff,       // obsolete
     .capaPin = TOUCH_PAD_NUM4, //T4,
     .loudUp = TOUCH_PAD_MAX, //T5,
     .loudDn = TOUCH_PAD_MAX  //T6
   };
 
-//#include "VirtualPin.h"
-//VirtualTouchPin *capaReadPin = NULL;
 bool medionExtensionSetupDone = false;
 
 
@@ -34,7 +32,6 @@ uint16_t tpCapaRead() {
   else
     x = 0xffff;
   return x;
-//  return (capaReadPin?capaReadPin->analogRead():0xffff);
 }
 
 uint16_t tp4read() {
@@ -334,19 +331,8 @@ void readChannel() {
   {
     medionChannelLimits = medionChannelLimitsNew;
     capRead = tpCapaRead();
-//    capRead = capaReadPin->analogRead();
-//    static uint32_t lastRead = millis();
-//    if ((millis() - lastRead) > 2000) {
-//      lastRead = millis();
-//      Serial.printf("TouchRead=%d\r\n", capRead);
-//    }
   }
   
-  else if (medionPins.capa != 0xff)
-    {
-    medionChannelLimits = medionChannelLimitsOld;
-    capRead = touchRead(medionPins.capa);
-    }
   if (NULL == medionChannelLimits)      // no capaRead for frequency tuning?
     return;
 #if !defined(MEDIONCALIBRATE_CAPACITOR)
