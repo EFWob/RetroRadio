@@ -212,6 +212,10 @@
 //
 #define otaclient mp3client                   // OTA uses mp3client for connection to host
 
+
+extern uint16_t tp4read();
+
+
 //**************************************************************************************************
 // Forward declaration and prototypes of various functions.                                        *
 //**************************************************************************************************
@@ -3531,6 +3535,7 @@ void setup()
   ini_block.bat100 = 0 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
   // Rotary encoder
+  /*
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
     pinMode ( pinnr, INPUT_PULLUP ) ;                    // Input for control button
@@ -3545,8 +3550,16 @@ void setup()
       p = "LOW, probably no PULL-UP" ;                   // No Pull-up
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
+    pinMode ( pinnr, INPUT ) ;                           // switch off Pull-up (for touchRead())
   }
   readprogbuttons() ;                                    // Program the free input pins
+  */
+
+
+  for(int i = 0;i < 10;i ++ ) {
+    dbgprint ( "TouchRead: %d", tp4read());
+    delay(20);
+  }
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
@@ -3618,6 +3631,11 @@ void setup()
   }
   mk_lsan() ;                                            // Make al list of acceptable networks
   // in preferences.
+  for(int i = 0;i < 10;i ++ ) {
+    dbgprint ( "TouchRead before WiFi: %d", tp4read());
+    delay(20);
+  }
+
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
   WiFi.disconnect() ;                                    // After restart router could still
@@ -3635,6 +3653,11 @@ void setup()
   if ( NetworkFound )                                    // OTA and MQTT only if Wifi network found
   {
     dbgprint ( "Network found. Starting mqtt and OTA" ) ;
+    for(int i = 0;i < 10;i ++ ) {
+      dbgprint ( "TouchRead with WiFi: %d", tp4read());
+      delay(20);
+   }
+
     mqtt_on = ( ini_block.mqttbroker.length() > 0 ) &&   // Use MQTT if broker specified
               ( ini_block.mqttbroker != "none" ) ;
     ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
@@ -3724,6 +3747,11 @@ void setup()
     NULL,                                                 // parameter of the task
     1,                                                    // priority of the task
     &xspftask ) ;                                         // Task handle to keep track of created task
+  for(int i = 0;i < 10;i ++ ) {
+    dbgprint ( "TouchRead at setupEnd(): %d", tp4read());
+    delay(20);
+  }
+
 }
 
 
@@ -4711,9 +4739,9 @@ void loop()
     ESP.restart() ;                                 // Reboot
   }
   scanserial() ;                                    // Handle serial input
-  scanserial2() ;                                   // Handle serial input from NEXTION (if active)
-  scandigital() ;                                   // Scan digital inputs
-  scanIR() ;                                        // See if IR input
+//  scanserial2() ;                                   // Handle serial input from NEXTION (if active)
+//  scandigital() ;                                   // Scan digital inputs
+//  scanIR() ;                                        // See if IR input
   ArduinoOTA.handle() ;                             // Check for OTA
   mp3loop() ;                                       // Do more mp3 related actions
 #ifdef MEDIONRADIO
@@ -4732,10 +4760,10 @@ void loop()
     mqttclient.loop() ;                             // Handling of MQTT connection
   }
   handleSaveReq() ;                                 // See if time to save settings
-//  handleIpPub() ;                                   // See if time to publish IP
-//  handleVolPub() ;                                  // See if time to publish volume
+  handleIpPub() ;                                   // See if time to publish IP
+  handleVolPub() ;                                  // See if time to publish volume
   handleStatusPub() ;  // See if Time to publish short Statusinfo
-  chk_enc() ;                                       // Check rotary encoder functions
+//  chk_enc() ;                                       // Check rotary encoder functions
 }
 
 
@@ -5896,4 +5924,3 @@ void spftask ( void * parameter )
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }
-
