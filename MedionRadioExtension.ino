@@ -1,5 +1,16 @@
 #include <nvs.h>
 #define NVS_ERASE     true            // NVS will be completely deleted if set to true (only use for development, must be false in field SW)
+#define NUMCHANNELS   15
+#define NUMWAVEBANDS   3
+#define MP3WAVEBAND    1
+
+
+//#define TOUCHLEVEL_TONE       450     // pressed detected if below this level
+#define TOUCHLEVEL_TONEDIRECT 400     // primary area, if pressed and below that level
+
+#define TOUCHTIME_TONELONG1   400
+#define TOUCHTIME_TONELONGFF  250
+
 static uint8_t waveBand = 0; //0xff;
 static uint8_t tunedChannel = 0;
 
@@ -7,17 +18,18 @@ struct medionExtraPins {
   uint8_t led;
   uint8_t vol;
   uint8_t wave;
-//  uint8_t capa;           //obsolete!
   touch_pad_t capaPin;
-  uint8_t loudUp;
-  uint8_t loudDn;
+  touch_pad_t tonePin;
+  touch_pad_t loudUp;
+  touch_pad_t loudDn;
 } medionPins = 
   {
     .led = 26,
     .vol = 33,
     .wave = 35,
 //    .capa = 0xff,       // obsolete
-    .capaPin = TOUCH_PAD_NUM4, //T4,
+    .capaPin = TOUCH_PAD_NUM4, //T4, GPIO13
+    .tonePin = TOUCH_PAD_NUM5, //T5, GPIO12
     .loudUp = TOUCH_PAD_MAX, //T5,
     .loudDn = TOUCH_PAD_MAX  //T6
   };
@@ -40,22 +52,21 @@ uint16_t tp4read() {
 
 struct medionConfigType {
     uint8_t numChannels;
-    uint8_t touchLevel;
+//    uint16_t touchLevelTone;
     uint32_t touchDebounceTime;
     int8_t touchDebounce;
-    uint8_t waveSwitchPositions;      
+    uint8_t waveSwitchPositions, mp3Waveband;      
 }  medionConfig = 
   {
-    .numChannels = 8,
-    .touchLevel = 25,
+    .numChannels = NUMCHANNELS,
+//    .touchLevelTone = TOUCHLEVEL_TONE,
     .touchDebounceTime = 50,
     .touchDebounce = 2,
-    .waveSwitchPositions = 3
+    .waveSwitchPositions = NUMWAVEBANDS,
+    .mp3Waveband = MP3WAVEBAND
   };   
 
-#define MEDION_LOUDNESS_TOUCH_LEVEL (medionConfig.touchLevel)
 #define MEDION_WAVE_SWITCH_POSITIONS  (medionConfig.waveSwitchPositions)
-#define NUMCHANNELS (medionConfig.numChannels)
 
 uint16_t medionSwitchPositionCalibrationDefault[] = {
     3500, 4100,
@@ -68,29 +79,19 @@ enum api_event_t {
   API_EVENT_CHANNEL = 0,
   API_EVENT_WAVEBAND,
   API_EVENT_VOLUME,
+  API_EVENT_TONE_TOUCH,
+  API_EVENT_TONE_UNTOUCH,
+  API_EVENT_TONE_PRESSED,
+  API_EVENT_TONE_LONGPRESSED,
+  API_EVENT_TONE_LONGRELEASED
 };
 
 
 uint16_t *medionSwitchPositionCalibration = (uint16_t *)&medionSwitchPositionCalibrationDefault;
 
 
-
-
-uint16_t medionChannelLimitsDefaultOld[] = { 
-//    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-    6 ,7 , 
-    9, 9,
-    11, 12, 
-    15, 16, 
-    20, 22, 
-    26, 28, 
-    32, 34, 
-    37, 55};
-
-uint16_t * medionChannelLimitsOld = (uint16_t *)&medionChannelLimitsDefaultOld;        
-
-uint16_t medionChannelLimitsDefaultNew[] = { 
-//    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+#if NUMCHANNELS == 8  
+uint16_t medionChannelLimitsDefault8[NUMCHANNELS * 2] = { 
     88 ,98 , 
     105, 117,
     128, 144, 
@@ -98,15 +99,38 @@ uint16_t medionChannelLimitsDefaultNew[] = {
     204, 234, 
     252, 273, 
     294, 310, 
-    326, 342};
+    326, 342
+};
+uint16_t * medionChannelLimitsNew = (uint16_t *)&medionChannelLimitsDefault8;        
 
-uint16_t * medionChannelLimitsNew = (uint16_t *)&medionChannelLimitsDefaultNew;        
+#elif NUMCHANNELS == 15
+uint16_t medionChannelLimitsDefault15[NUMCHANNELS * 2] = { 
+    80 ,97 , 
+    100, 103,
+    109, 114, 
+    119, 124, 
+    132, 140, 
+    147, 156, 
+    161, 171, 
+    181, 202,
+    215 ,229 , 
+    239, 254,
+    260, 271, 
+    282, 298, 
+    304, 315, 
+    320, 330, 
+    336, 362
+};
+uint16_t * medionChannelLimitsNew = (uint16_t *)&medionChannelLimitsDefault15;        
+
+#endif
+
 
 #define MEDION_DEBUGAPI
 //#define MEDIONCALIBRATE_VOLUME
 //#define MEDIONCALIBRATE_WAVEBAND
 //#define MEDIONCALIBRATE_CAPACITOR
-//#define MEDIONCALIBRATE_TONE
+#define MEDIONCALIBRATE_TONE
 
 
 
@@ -114,27 +138,117 @@ uint16_t * medionChannelLimitsNew = (uint16_t *)&medionChannelLimitsDefaultNew;
 //#define API_EVENT_WAVEBAND 1
 //#define API_EVENT_VOLUME   2
 
+void handleApiEventTone(api_event_t event, uint32_t param, char *s, bool isDebug = false) {
+uint16_t pressValue = param & 0xffff;
+uint16_t repeatCount = param >> 16;
+static bool direct = false;
+enum state_tone_t {
+  STATE_TONE_IDLE = 0,
+  STATE_TONE_DO_MUTE,
+  STATE_TONE_DONE
+};
+static state_tone_t stateTone = STATE_TONE_IDLE;
+strcpy(s, "");
+  switch (stateTone) {
+    case STATE_TONE_IDLE:
+      direct = pressValue > 90;
+      if (API_EVENT_TONE_TOUCH == event) {
+        if (muteflag) {
+          muteflag = false;
+          stateTone = STATE_TONE_DONE;  
+          strcpy(s, "Undo mute!");
+        }
+      } else if (API_EVENT_TONE_UNTOUCH != event) {
+          if (direct) {
+            if ((API_EVENT_TONE_LONGPRESSED == event) && (0 == repeatCount)) {
+              analyzeCmd("mute");  
+              stateTone = STATE_TONE_DONE;
+              strcpy(s, "Starting mute!");
+            }
+          }
+        }
+      break;
+    case STATE_TONE_DONE:
+      if (API_EVENT_TONE_UNTOUCH == event)
+        stateTone = STATE_TONE_IDLE;
+      break;
+  }
+#ifdef OOOOLD  
+  char *eventName = "";
+  switch (event) {
+    case API_EVENT_TONE_TOUCH:
+      eventName = "Tone touched";
+      direct = pressValue > 80;
+      break;
+    case API_EVENT_TONE_UNTOUCH:
+      eventName = "Tone Untouched";
+      direct = false;
+      break;
+    case API_EVENT_TONE_PRESSED:
+      if (direct)
+        analyzeCmd("mute");
+      eventName = "Tone (short) pressed";
+      break;
+    case API_EVENT_TONE_LONGPRESSED:
+      eventName = "Tone long pressed";
+      break;
+    case API_EVENT_TONE_LONGRELEASED:
+      eventName = "Tone long released";
+      break;
+  };
+  if (isDebug)
+    sprintf(s, "API event tone (direct: %d): %s (pressValue: %d, repeatCount: %d)", direct, eventName, pressValue, repeatCount);
+#endif
+}
+
+
 void handleApiEvent(api_event_t event, uint32_t param, bool init = false) {
 char s[500];  
 bool debuginfo;
 bool switchChannel = false;
+static bool playMp3 = false;
 #if defined(MEDION_DEBUGAPI)
   debuginfo = true;  
 #else
   debuginfo = false;  
 #endif
   if (event == API_EVENT_CHANNEL) {
-    sprintf(s, "API event channel: %ld", param);        
-    tunedChannel = param;
-    switchChannel = !init;
+    sprintf(s, "API event channel: %04X (from %d to %d)", param, (param & 0xff00) / 0x100, param & 0xff);        
+    tunedChannel = param & 0xff;
+    if (playMp3) {
+      switchChannel = false;
+      analyzeCmd("mp3track", "0");
+    } else
+      switchChannel = !init;
   } else if (event == API_EVENT_WAVEBAND) {
-    sprintf(s, "API event waveband: %ld", param);    
-    switchChannel = !init;
+    sprintf(s, "API event waveband: %ld", param); 
+    if (SD_okay && (0 < SD_nodecount) && ((param & 0xff) == medionConfig.mp3Waveband)) {
+      switchChannel = false;
+      analyzeCmd("mp3track", "0");  
+      playMp3 = true;
+    } else {
+      switchChannel = !init;
+      playMp3 = false;
+    }
   } else if (event == API_EVENT_VOLUME) {
-    sprintf(s, "volume=%ld", param);
-    analyzeCmd(s);
+    char s1[40];
+    sprintf(s1, "volume=%ld", param);
     sprintf(s, "API event volume: %ld", param);
-  } else
+    if (!muteflag) 
+      analyzeCmd(s1);
+    else {
+      strcat(s, " (ignored since muteflag is set!)");
+      muteflag = (param != 0);
+    }
+  } else if ((API_EVENT_TONE_TOUCH == event) ||
+             (API_EVENT_TONE_UNTOUCH == event) ||
+             (API_EVENT_TONE_PRESSED == event) ||
+             (API_EVENT_TONE_LONGPRESSED == event) ||
+             (API_EVENT_TONE_LONGRELEASED == event)
+             
+             ) 
+      handleApiEventTone(event, param, s, debuginfo);//, s, debuginfo);
+  else
     sprintf(s, "Unknown API event: %d with param: %ld\r\n", event, param);
   if (debuginfo)
     dbgprint(s);
@@ -162,6 +276,8 @@ nvs_handle nvsHandler;
   
   if (medionPins.capaPin != TOUCH_PAD_MAX)
     touch_pad_config(medionPins.capaPin, 0);
+  if (medionPins.tonePin != TOUCH_PAD_MAX)
+    touch_pad_config(medionPins.tonePin, 0);
 
     //capaReadPin = new VirtualTouchPin(medionPins.capaPin);
   if (ESP_OK == nvs_open("MEDION80806", NVS_READWRITE, &nvsHandler)) {
@@ -191,7 +307,7 @@ nvs_handle nvsHandler;
       len = medionConfig.waveSwitchPositions * sizeof(uint16_t) * 2;
       nvs_set_blob(nvsHandler, "switch", &medionSwitchPositionCalibrationDefault, len);
       len = medionConfig.numChannels * sizeof(uint16_t) * 2;
-      nvs_set_blob(nvsHandler, "capa", &medionChannelLimitsDefaultNew, len);
+      nvs_set_blob(nvsHandler, "capa", medionChannelLimitsNew, len);
 
       }
     nvs_commit(nvsHandler);  
@@ -315,168 +431,165 @@ static bool init = true;
   
 void readChannel() {
     static uint8_t lastReportedChannel = 0xff;
-    static uint8_t lastDebounceReadChannel = 0xff;
-    static uint8_t lastReportedWaveband = 0;
-    static uint32_t totalCapRead = 0;
-    static uint32_t lastCapRead = 0;
-    static uint16_t ticks = 0;
+    static uint32_t lastCapaReadTime = 0;
     uint8_t channel;
     bool hit = false;
-    bool timeToReport = false;
+//    bool timeToReport = false;
+    uint16_t * medionChannelLimits = medionChannelLimitsNew;
+    uint16_t capRead;
+    enum capa_read_state_t {
+      CAPAREAD_STATE_INIT = 0,
+      CAPAREAD_STATE_READ = 1,
+      CAPAREAD_STATE_WAIT = 2
+      
+    }
+    static capa_read_state = CAPAREAD_STATE_INIT;
 
-  uint16_t * medionChannelLimits = NULL;
-  uint16_t capRead;
-
-  if (TOUCH_PAD_MAX != medionPins.capaPin) //NULL != capaReadPin)
-  {
-    medionChannelLimits = medionChannelLimitsNew;
-    capRead = tpCapaRead();
-  }
-  
-  if (NULL == medionChannelLimits)      // no capaRead for frequency tuning?
-    return;
+    switch (capa_read_state) {
+      case CAPAREAD_STATE_INIT:
+        if (TOUCH_PAD_MAX != medionPins.capaPin)
+          capa_read_state = CAPAREAD_STATE_READ;
+        break;
+      case CAPAREAD_STATE_READ:
+        touch_pad_read_filtered(medionPins.capaPin, &capRead);
 #if !defined(MEDIONCALIBRATE_CAPACITOR)
-  if ((capRead < medionChannelLimits[0]) || (capRead > medionChannelLimits[NUMCHANNELS * 2 - 1]))
-    return;
+        if ((capRead >= medionChannelLimits[0]) || (capRead <= medionChannelLimits[NUMCHANNELS * 2 - 1])) {
 #endif
-  ticks++;  
-  totalCapRead += capRead;
-  if (ticks < 15)
-    return;
-  capRead = totalCapRead / ticks;
-  totalCapRead = 0;
-  ticks = 0;
-#if defined(MEDIONCALIBRATE_CAPACITOR)
- 
-#endif
-
-//      else if (lastCapRead > capRead)
-//        lastCapRead--;
-//      else
-//        lastCapRead++;
-//    capRead = lastCapRead;
     channel = 0;
     while (!hit && (channel < NUMCHANNELS) && (capRead >= medionChannelLimits[channel*2])) {
       hit = (capRead <= medionChannelLimits[channel * 2 + 1]);
       if (!hit)
         channel++;
     }
+    if (!hit && (0xff ==lastReportedChannel)) {
+      hit = true;
+      if (NUMCHANNELS == channel)
+        channel--;
+    }
+
 #if defined(MEDIONCALIBRATE_CAPACITOR)
- static uint32_t lastReportTime = 0;
+  static uint16_t lastCapRead = 0;  
+  static uint32_t lastReportTime = 0;
   if (millis() > lastReportTime + 2000) {
-    Serial.print("CapRead: ");Serial.println(capRead);
     if (lastCapRead == 0)
       lastCapRead = capRead;
-    else
-      if (lastCapRead == capRead) {
-//        Serial.println("No Change in CapRead!");
-        //return;        
-        };
     lastReportTime = millis();      
-    timeToReport = true;
-    Serial.printf("CapRead= %d (changed: %d), isHit(chan[%d (of %d)]) = %d\r\n", capRead, (capRead != lastCapRead), channel, NUMCHANNELS, hit);
+//    timeToReport = true;
+    dbgprint("CapRead= %d (changed: %d), isHit(chan[%d (of %d)]) = %d", capRead, (capRead != lastCapRead), channel, NUMCHANNELS, hit);
   }
   lastCapRead = capRead;
 #endif
+
     if (hit && (lastReportedChannel != channel)) {
-      handleApiEvent(API_EVENT_CHANNEL, channel, lastReportedChannel == 0xff);         
+      uint32_t channelparam = ((uint32_t)lastReportedChannel) * 256 + channel;
+      handleApiEvent(API_EVENT_CHANNEL, channelparam, lastReportedChannel == 0xff);         
+      //Serial.printf("Set lastreportetchannel= %02x (was %02x)\r\n", channel, lastReportedChannel);
       lastReportedChannel = channel;
     }
-    return;
-    if (((hit) /* && (1 == playingstat)*/ && (lastReportedChannel != channel)) ||     // either a change in channel
-        ((lastReportedWaveband != waveBand) && (lastReportedChannel != 0xff))){       // or in waveband-setting
-          char s[20];
-          if (!hit)                                                                   // change in waveband setting only?
-            channel = lastReportedChannel;                                            // just to be sure we have the right channel
-          else {
-            if ((lastDebounceReadChannel != channel) && (lastDebounceReadChannel != 0xff)) {
-              lastDebounceReadChannel = channel;
-              return;
-            }
-          }
-          lastReportedChannel = channel;
-          lastDebounceReadChannel = channel;
-          lastReportedWaveband = waveBand;  
-          channel = channel + NUMCHANNELS * waveBand;
-#if defined(MEDIONCALIBRATE_CAPACITOR)
-          Serial.print("Channel (log): ");Serial.print(channel);Serial.print(" Channel (phys): ");Serial.println(channel - NUMCHANNELS * waveBand);
+
+
+#if !defined(MEDIONCALIBRATE_CAPACITOR)
+        }
 #endif
-          toggleMedionLED(HIGH);
-          sprintf(s, "preset=%d", channel);     
-          analyzeCmd(s);    
+      lastCapaReadTime = millis();
+      capa_read_state = CAPAREAD_STATE_WAIT;
+    break;
+    case CAPAREAD_STATE_WAIT:
+      if (millis() - lastCapaReadTime > 100) {
+        capa_read_state = CAPAREAD_STATE_READ;
       }
+      break;
+    default:
+      // should not happen!
+      break;
+    }
+
 }
 
 
 void toneRead() {
-  if (medionPins.loudUp && medionPins.loudDn)
-    {
-    static int8_t x = 0;                          //Debounce-Counter. 
-    static uint32_t lastRead = 0;                 //time of last check
-    bool setChange = false;                       //User request to change Loudness-Setting qualified?
-  
-    if (lastRead == 0) {                        //Very first call. (aka setup()) Use tonela to set initial loudness
-      lastRead = 1;
-      x = ini_block.rtone[2];
-      setChange = true;
-    }
-
-    if (millis() - lastRead > medionConfig.touchDebounceTime) {  //Cyclic check of touchpads needed?  
-      uint8_t touch;
-      static bool readUp = true;                //Each round only read either of them
-      lastRead = millis();
-      if (readUp)                               //check if "LoudnessUp" is touched
-        {
-           touch = touchRead(medionPins.loudUp);
-//          Serial.print("TouchUp: ");Serial.println(touch);
-          if (touch < MEDION_LOUDNESS_TOUCH_LEVEL)
-            if (x >= 0)                         //either same has been touched last round or it is the first touch detected
-              x++;                              //increment debounce counter
-            else
-              x= 0;                             //reset debounce counter (this will prevent any reaction if both are pressed at the same time)
-          readUp = false;                       //next round check for loudness down
-        }
-      else                                      //same for down
-        {
-          touch = touchRead(medionPins.loudDn);
-//          Serial.print("TouchDn: ");Serial.println(touch);
-          if (touch < MEDION_LOUDNESS_TOUCH_LEVEL)
-            if (x <= 0)
-              x--;
-            else
-              x = 0;
-          readUp = true;
-        }
+  enum tone_read_state_t {
+      TONEREAD_STATE_INIT = 0,
+      TONEREAD_STATE_IDLE,
+      TONEREAD_STATE_DEBOUNCE,
+      TONEREAD_STATE_PRESSED,
+      TONEREAD_STATE_LONGIDLE
+      
+  };
+  static tone_read_state_t toneReadState = TONEREAD_STATE_INIT;
+  uint16_t toneRead;
+  static uint16_t toneReadMin = 0xffff;
+  static uint32_t stateStartTime;
+  static uint32_t longRepeats = 0;
+  static uint16_t touchLevelUnpressed = 0;
+  if (TONEREAD_STATE_INIT != toneReadState) {
+    touch_pad_read_filtered(medionPins.tonePin, &toneRead);
+    if (toneReadMin > toneRead)
+      toneReadMin = toneRead;
 #if defined(MEDIONCALIBRATE_TONE)
-      Serial.println(String("Touch: ") + touch + String(", x:") + x + ", Lvl: " + MEDION_LOUDNESS_TOUCH_LEVEL);
-#endif
-      if ((x > medionConfig.touchDebounce) || (x < -medionConfig.touchDebounce))                  //qualified after some debounce?
-        {
-          x = (x > 0)?1:-1;                     //is it up or down?
-          x += ini_block.rtone[2];
-          if ((x >= 0) && (x < 16))             //not wrapped around?
-            {
-              char s[20];
-              setChange = true;
-              sprintf(s, "tonela=%d", x);       //set new bass amplitude
-#if defined(MEDIONCALIBRATE_TONE)
-              Serial.print("Loudness: ");Serial.println(x);
-#endif
-
-              analyzeCmd(s);
-            }
-          else 
-            x = 0;
-        }
+    static uint32_t lastReportTime = 0;
+    if (millis() > lastReportTime + 2000) {
+      lastReportTime = millis();      
+      dbgprint("ToneRead= %d (untouched level: %d)", toneRead, touchLevelUnpressed);
     }
-    if (setChange)                              //change in treble amplitude required?
-      {
-        char s[20];
-        sprintf(s, "toneha=%d", (x - 8) & 15);    
-        analyzeCmd(s);                          //set new treble
-//        if (millis() > 600000)
-//          savetime = millis() - 595000 ;                          // Limit save to once per 10 minutes
-        x = 0;
+#endif
+  }
+  switch (toneReadState) {
+    case TONEREAD_STATE_INIT:
+      if (TOUCH_PAD_MAX != medionPins.tonePin) {
+        toneReadState = TONEREAD_STATE_IDLE;
       }
-    }
+      break;  
+    case TONEREAD_STATE_IDLE:
+//        if (toneRead < TOUCHLEVEL_TONE) {
+        if (toneRead < touchLevelUnpressed - 30) {  
+          stateStartTime = millis();
+          toneReadState = TONEREAD_STATE_DEBOUNCE;
+          toneReadMin = toneRead;
+        } else {
+          static uint32_t lastTestTime = 0;
+          if (toneRead > touchLevelUnpressed) {
+            touchLevelUnpressed = toneRead;
+            lastTestTime = millis();
+          } else if (millis() - lastTestTime > 500) {
+            touchLevelUnpressed--;
+          }
+        }
+      break;
+    case TONEREAD_STATE_DEBOUNCE:
+        if (toneRead > touchLevelUnpressed - 30) {
+          toneReadState = TONEREAD_STATE_IDLE;
+        } else if (millis() - stateStartTime > 50) {
+          stateStartTime = millis();
+          toneReadState = TONEREAD_STATE_PRESSED;
+          handleApiEvent(API_EVENT_TONE_TOUCH, touchLevelUnpressed - toneReadMin);
+        }
+      break;
+    case TONEREAD_STATE_PRESSED:
+        if (toneRead > touchLevelUnpressed - 30) {
+          handleApiEvent(API_EVENT_TONE_PRESSED, touchLevelUnpressed - toneReadMin);
+          handleApiEvent(API_EVENT_TONE_UNTOUCH, touchLevelUnpressed - toneReadMin);
+          toneReadState = TONEREAD_STATE_IDLE;
+        } else if (millis() - stateStartTime > TOUCHTIME_TONELONG1) {
+          toneReadState = TONEREAD_STATE_LONGIDLE;
+          handleApiEvent(API_EVENT_TONE_LONGPRESSED, touchLevelUnpressed - toneReadMin);
+          longRepeats = 0;
+          stateStartTime = millis();
+        }
+      break;  
+    case TONEREAD_STATE_LONGIDLE:
+        if (toneRead > touchLevelUnpressed - 30) {
+          handleApiEvent(API_EVENT_TONE_LONGRELEASED, longRepeats + touchLevelUnpressed - toneReadMin);
+          handleApiEvent(API_EVENT_TONE_UNTOUCH, touchLevelUnpressed - toneReadMin);
+          toneReadState = TONEREAD_STATE_IDLE;
+        } else if (millis() - stateStartTime > TOUCHTIME_TONELONGFF) {
+          longRepeats = longRepeats + 0x10000;
+          handleApiEvent(API_EVENT_TONE_LONGPRESSED, longRepeats + touchLevelUnpressed - toneReadMin);
+          stateStartTime = millis();          
+        }
+      break;  
+    default:
+      break;
+  }
+
 }

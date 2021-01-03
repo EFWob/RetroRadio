@@ -1,4 +1,5 @@
 #define MEDIONRADIO
+#define TRACKLIST
  //***************************************************************************************************
 //*  ESP32_Radio -- Webradio receiver for ESP32, VS1053 MP3 module and optional display.            *
 //*                 By Ed Smallenburg.                                                              *
@@ -415,6 +416,10 @@ bool              SD_okay = false ;                      // True if SD card in p
 String            SD_nodelist ;                          // Nodes of mp3-files on SD
 int               SD_nodecount = 0 ;                     // Number of nodes in SD_nodelist
 String            SD_currentnode = "" ;                  // Node ID of song playing ("0" if random)
+#if defined(TRACKLIST)
+bool              SD_hastracklist = false;               // Nodelist file "/mp3nodes.txt" exists (or not)
+char*             SD_tracklistname = "/mp3nodes.txt";    // Path to store the nodestring
+#endif
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
@@ -3535,7 +3540,6 @@ void setup()
   ini_block.bat100 = 0 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
   // Rotary encoder
-  /*
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
     pinMode ( pinnr, INPUT_PULLUP ) ;                    // Input for control button
@@ -3552,8 +3556,8 @@ void setup()
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
     pinMode ( pinnr, INPUT ) ;                           // switch off Pull-up (for touchRead())
   }
-  readprogbuttons() ;                                    // Program the free input pins
-  */
+//  readprogbuttons() ;                                    // Program the free input pins
+
 
 
   for(int i = 0;i < 10;i ++ ) {
@@ -3621,9 +3625,60 @@ void setup()
       }
       else
       {
+#if defined(TRACKLIST)
+      bool haveFromTracklist = false;
+      if (SD_hastracklist = SD.exists( SD_tracklistname )) {
+        char *sbuff = (char *)&tmpbuff;
+        size_t buffsize = sizeof(tmpbuff) - 1;
+        File trackList;
+        size_t tracklistSize;
+        char s[20];
+        p = dbgprint("Read MP3-Tracklist from file" );
+        tftlog ( p );
+        trackList = SD.open( SD_tracklistname );
+        tracklistSize = trackList.size();
+        if (tracklistSize > 10) {
+          trackList.read((uint8_t *)s, 10);
+          s[10] = 0;
+          SD_nodecount = atoi ( s );
+          trackList.read((uint8_t *)s, 1);
+          if (haveFromTracklist = (s[0] == '=')) {
+            SD_nodelist = "";
+            tracklistSize = tracklistSize - 11;
+            while (tracklistSize > 0) {
+              size_t len = (tracklistSize < buffsize)?tracklistSize:buffsize;
+              trackList.read(tmpbuff, len);
+              tmpbuff[len] = 0;
+              SD_nodelist = SD_nodelist + String(sbuff);
+              tracklistSize = tracklistSize - len;
+            }
+          }          
+        }
+        trackList.close();
+      }
+      if (!haveFromTracklist)
+        {
+        char *sbuff = (char *)&tmpbuff;
+        size_t buffsize = sizeof(tmpbuff);
+        if (!SD_hastracklist)
+          dbgprint ( "Locate mp3 files on SD, may take a while...") ;
+        else
+          dbgprint ( "Tracklist \"%s\" empty (or corrupt), to re-initialize it with mp3 files on SD may take a while...", SD_tracklistname ) ;
+        tftlog ( "Read SD card" ) ;
+        SD_nodecount = listsdtracks ( "/", 0, false ) ;  // Build nodelist
+        if ( SD_hastracklist ) {
+          File trackList = SD.open(SD_tracklistname, FILE_WRITE);
+          sprintf(sbuff, "%10d=", SD_nodecount);
+          trackList.write(tmpbuff, strlen(sbuff));
+          trackList.write((uint8_t *)SD_nodelist.c_str(), SD_nodelist.length());
+          trackList.close();
+          }
+        }
+#else
         dbgprint ( "Locate mp3 files on SD, may take a while..." ) ;
         tftlog ( "Read SD card" ) ;
         SD_nodecount = listsdtracks ( "/", 0, false ) ;  // Build nodelist
+#endif
         p = dbgprint ( "%d tracks on SD", SD_nodecount ) ;
         tftlog ( p ) ;                                   // Show number of tracks on TFT
       }
@@ -5372,6 +5427,55 @@ const char* analyzeCmd ( const char* par, const char* val )
   chomp ( value ) ;                                   // Remove comment and extra spaces
   ivalue = value.toInt() ;                            // Also as an integer
   ivalue = abs ( ivalue ) ;                           // Make positive
+#if defined(TRACKLIST)
+  if (argument == "tracklist") {
+    value.toLowerCase();
+    if (SD_okay) {
+      if (value == "0") {
+        sprintf(reply, "Tracklist \"%s\" is %sused.", SD_tracklistname, (SD_hastracklist?"":"not "));
+      } else if (value == "delete") {
+        if (!SD_hastracklist) 
+          sprintf(reply, "Tracklist \"%s\" does not exist!", SD_tracklistname);
+        else {
+          bool deleteSuccess;
+          claimSPI ( "command" );
+          deleteSuccess = SD.remove( SD_tracklistname );
+          releaseSPI ();
+          if (SD_hastracklist = !deleteSuccess) 
+            sprintf(reply, "Failed to delete tracklist \"%s\".", SD_tracklistname);
+          else
+            sprintf(reply, "Tracklist \"%s\" deleted.", SD_tracklistname);
+        }
+      } else if (value == "init") {
+        if (SD_hastracklist) 
+          sprintf(reply, "Tracklist \"%s\" does exist. Run command \"tracklist=delete\" first to delete it.", SD_tracklistname);
+        else {
+          File f;
+          claimSPI ( "command" );
+          f = SD.open( SD_tracklistname, FILE_WRITE );
+          f.close();
+          releaseSPI ();         
+          sprintf(reply, "Empty Tracklist \"%s\" created. Will be filled at next start of radio.", SD_tracklistname);
+           
+        }
+      }
+    }
+    else {
+      strcpy(reply, "SD-card not available!");
+    }
+    return reply;
+  }    
+#endif
+
+#if defined(MEDIONRADIO)
+  bool medionExtra = false;
+  if (medionExtra = (argument.indexOf( "mp3nodes" ) == 0)) 
+    sprintf(reply, "Nodes count: %d, Lenghth of Nodelist: %d", SD_nodecount, SD_nodelist.length());
+  else if (medionExtra = (argument.indexOf( "mp3node" ) == 0)) 
+    sprintf(reply, "Play from file = %d?, Playnode = %s", localfile, SD_currentnode.c_str());
+  if (medionExtra)
+    return reply;
+#endif
   relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
   if ( argument.indexOf ( "down" ) == 0 )             // - relative setting?
   {

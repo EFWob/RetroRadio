@@ -13,6 +13,9 @@ pin_vs_cs = 5                                        # GPIO Pin number for VS105
 pin_vs_dcs = 32                                      # GPIO Pin number for VS1053 "DCS"
 pin_vs_dreq = 4                                      # GPIO Pin number for VS1053 "DREQ"
 #
+# Just some presets.
+# My favorite site to look for station URLs is http://fmstream.org
+
 preset = 19
 preset_00 = rs27.stream24.net/radio38.mp3 # Radio 38
 preset_01 = 188.94.97.91/radio21_wolfsburg.mp3 # Radio 21
