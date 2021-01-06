@@ -318,6 +318,14 @@ struct ini_struct
   int8_t         spi_mosi_pin ;                       // GPIO connected to SPI MOSI pin
   int8_t         ch376_cs_pin ;                       // GPIO connected to CH376 SS
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
+#ifdef MEDIONRADIO
+  int8_t         retr_led_pin ;                        // GPIO connected to Retro Radio LED
+  int8_t         retr_vol_pin ;                        // GPIO connected to Retro Radio Volume pin
+  int8_t         retr_wave_pin ;                       // GPIO connected to Retro Radio WaveBandSwitch
+  int8_t         retr_tune_pin ;                       // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
+  int8_t         retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
+  bool           retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
+#endif
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
 } ;
@@ -2135,6 +2143,16 @@ bool connectwifi()
     }
     if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect
     {
+#if defined(MEDIONRADIO)
+      dbgprint("Wifi connect failed, try once again...");
+      WiFi.disconnect(true);
+      WiFi.softAPdisconnect(true);
+      if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
+        WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
+      else                                                // More AP to try
+        wifiMulti.run() ;                                 // Connect to best network
+      if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect      
+#endif
       localAP = true ;                                  // Error, setup own AP
     }
   }
@@ -2574,6 +2592,13 @@ void readIOprefs()
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
+#if defined(MEDIONRADIO)
+    { "pin_retr_led",  &ini_block.retr_led_pin,      -1}, // GPIO connected to Retro Radio LED
+    { "pin_retr_vol",  &ini_block.retr_vol_pin,      -1}, // GPIO connected to Retro Radio Volume pin
+    { "pin_retr_wave", &ini_block.retr_wave_pin,     -1}, // GPIO connected to Retro Radio WaveBandSwitch
+    { "pin_retr_tune", &ini_block.retr_tune_pin,     -1}, // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
+    { "pin_retr_touch",&ini_block.retr_touch_pin,    -1}, // GPIO connected to Retro Radio touch area (must be touch pin!)
+#endif
     { NULL,            NULL,                        0  }  // End of list
   } ;
   int         i ;                                         // Loop control
@@ -3321,7 +3346,9 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
+#if !defined(MEDIONRADIO)
   readprogbuttons() ;                                    // Program the free input pins
+#endif
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
@@ -5041,45 +5068,6 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "Command: %s (without parameter)",
                argument.c_str() ) ;
   }
-#if defined(TRACKLIST)
-  if (argument == "tracklist") {
-    value.toLowerCase();
-    if (SD_okay) {
-      if (value == "0") {
-        sprintf(reply, "Tracklist \"%s\" is %sused.", SD_tracklistname, (SD_hastracklist?"":"not "));
-      } else if (value == "delete") {
-        if (!SD_hastracklist) 
-          sprintf(reply, "Tracklist \"%s\" does not exist!", SD_tracklistname);
-        else {
-          bool deleteSuccess;
-          claimSPI ( "command" );
-          deleteSuccess = SD.remove( SD_tracklistname );
-          releaseSPI ();
-          if (SD_hastracklist = !deleteSuccess) 
-            sprintf(reply, "Failed to delete tracklist \"%s\".", SD_tracklistname);
-          else
-            sprintf(reply, "Tracklist \"%s\" deleted.", SD_tracklistname);
-        }
-      } else if (value == "init") {
-        if (SD_hastracklist) 
-          sprintf(reply, "Tracklist \"%s\" does exist. Run command \"tracklist=delete\" first to delete it.", SD_tracklistname);
-        else {
-          File f;
-          claimSPI ( "command" );
-          f = SD.open( SD_tracklistname, FILE_WRITE );
-          f.close();
-          releaseSPI ();         
-          sprintf(reply, "Empty Tracklist \"%s\" created. Will be filled at next start of radio.", SD_tracklistname);
-           
-        }
-      }
-    }
-    else {
-      strcpy(reply, "SD-card not available!");
-    }
-    return reply;
-  }    
-#endif
 
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
@@ -5336,6 +5324,56 @@ const char* analyzeCmd ( const char* par, const char* val )
       usb_sd = FS_SD ;                                // Otherwise to SD
     }
   }
+#if defined(MEDIONRADIO)
+  else if ( argument == "settings" ) {
+    strncpy(reply, getradiostatus().c_str(), 179);
+  } else if ( argument == "eq" ) {
+    setEqualizer (ivalue);
+    strcpy(reply, "OK");
+  } else if ( argument.startsWith ( "eq" ) ) {
+    addEqualizer(value);
+    strcpy(reply, "OK");
+  }
+#endif
+#if defined(TRACKLIST)
+  else if (argument == "tracklist") {
+    value.toLowerCase();
+    if (SD_okay) {
+      if (value == "0") {
+        sprintf(reply, "Tracklist \"%s\" is %sused.", SD_tracklistname, (SD_hastracklist?"":"not "));
+      } else if (value == "delete") {
+        if (!SD_hastracklist) 
+          sprintf(reply, "Tracklist \"%s\" does not exist!", SD_tracklistname);
+        else {
+          bool deleteSuccess;
+          claimSPI ( "command" );
+          deleteSuccess = SD.remove( SD_tracklistname );
+          releaseSPI ();
+          if (SD_hastracklist = !deleteSuccess) 
+            sprintf(reply, "Failed to delete tracklist \"%s\".", SD_tracklistname);
+          else
+            sprintf(reply, "Tracklist \"%s\" deleted.", SD_tracklistname);
+        }
+      } else if (value == "init") {
+        if (SD_hastracklist) 
+          sprintf(reply, "Tracklist \"%s\" does exist. Run command \"tracklist=delete\" first to delete it.", SD_tracklistname);
+        else {
+          File f;
+          claimSPI ( "command" );
+          f = SD.open( SD_tracklistname, FILE_WRITE );
+          f.close();
+          releaseSPI ();         
+          sprintf(reply, "Empty Tracklist \"%s\" created. Will be filled at next start of radio.", SD_tracklistname);
+           
+        }
+      }
+    }
+    else {
+      strcpy(reply, "SD-card not available!");
+    }
+  }    
+#endif
+
   else
   {
     sprintf ( reply, "%s called with illegal parameter: %s",
