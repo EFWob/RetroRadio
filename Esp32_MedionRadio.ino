@@ -211,7 +211,11 @@
 // Maximum number of MQTT reconnects before give-up
 #define MAXMQTTCONNECTS 5
 // Adjust size of buffer to the longest expected string for nvsgetstr
+#if defined(MEDIONRADIO)
+#define NVSBUFSIZE 250
+#else
 #define NVSBUFSIZE 150
+#endif
 // Position (column) of time in topline relative to end
 #define TIMEPOS -52
 // SPI speed for SD card
@@ -319,12 +323,16 @@ struct ini_struct
   int8_t         ch376_cs_pin ;                       // GPIO connected to CH376 SS
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
 #ifdef MEDIONRADIO
+//Settings
   int8_t         retr_led_pin ;                        // GPIO connected to Retro Radio LED
   int8_t         retr_vol_pin ;                        // GPIO connected to Retro Radio Volume pin
-  int8_t         retr_wave_pin ;                       // GPIO connected to Retro Radio WaveBandSwitch
+  int8_t         retr_switch_pin ;                     // GPIO connected to Retro Radio WaveBandSwitch
   int8_t         retr_tune_pin ;                       // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
   int8_t         retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
   bool           retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
+  uint8_t        retr_vol_min;                         // minimum volume
+  uint8_t        retr_vol_max;                         // maximum volume
+  bool           retr_vol_force_zero;                  // volume will be set to zero if set below retr_vol_min
 #endif
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
@@ -1238,7 +1246,7 @@ esp_err_t nvssetstr ( const char* key, String val )
   String curcont ;                                         // Current contents
   bool   wflag = true  ;                                   // Assume update or new key
 
-  //dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
+  dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
   if ( val.length() >= NVSBUFSIZE )                        // Limit length of string to store
   {
     dbgprint ( "nvssetstr length failed!" ) ;
@@ -1251,7 +1259,7 @@ esp_err_t nvssetstr ( const char* key, String val )
   }
   if ( wflag )                                             // Update or new?
   {
-    //dbgprint ( "nvssetstr update value" ) ;
+    dbgprint ( "nvssetstr update value" ) ;
     nvserr = nvs_set_str ( nvshandle, key, val.c_str() ) ; // Store key and value
     if ( nvserr )                                          // Check error
     {
@@ -2593,11 +2601,11 @@ void readIOprefs()
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
 #if defined(MEDIONRADIO)
-    { "pin_retr_led",  &ini_block.retr_led_pin,      -1}, // GPIO connected to Retro Radio LED
-    { "pin_retr_vol",  &ini_block.retr_vol_pin,      -1}, // GPIO connected to Retro Radio Volume pin
-    { "pin_retr_wave", &ini_block.retr_wave_pin,     -1}, // GPIO connected to Retro Radio WaveBandSwitch
-    { "pin_retr_tune", &ini_block.retr_tune_pin,     -1}, // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
-    { "pin_retr_touch",&ini_block.retr_touch_pin,    -1}, // GPIO connected to Retro Radio touch area (must be touch pin!)
+    { "pin_rr_led",    &ini_block.retr_led_pin,      -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_vol",    &ini_block.retr_vol_pin,      -1}, // GPIO connected to Retro Radio Volume pin
+    { "pin_rr_switch", &ini_block.retr_switch_pin, -1}, // GPIO connected to Retro Radio WaveBandSwitch
+    { "pin_rr_tune",   &ini_block.retr_tune_pin,     -1}, // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
+    { "pin_rr_touch",  &ini_block.retr_touch_pin,    -1}, // GPIO connected to Retro Radio touch area (must be touch pin!)
 #endif
     { NULL,            NULL,                        0  }  // End of list
   } ;
@@ -3329,6 +3337,13 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
+#if defined(MEDIONRADIO)
+//Settings
+  ini_block.retr_vol_min = 0;
+  ini_block.retr_vol_max = 100;
+  ini_block.retr_vol_force_zero = true;
+  ini_block.retr_led_inv = false;
+#endif
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
@@ -4279,6 +4294,9 @@ void mp3loop()
       claimSPI ( "close" ) ;                             // Claim SPI bus
       close_SDCARD() ;
       releaseSPI() ;                                     // Release SPI bus
+#if defined(MEDIONRADIO)
+      localfile = false;
+#endif
     }
     else
     {
@@ -4290,6 +4308,7 @@ void mp3loop()
     queuefunc ( QSTOPSONG ) ;                            // Queue a request to stop the song
     metaint = 0 ;                                        // No metaint known now
     setdatamode ( STOPPED ) ;                            // Yes, state becomes STOPPED
+    Serial.println("Datamode STOPPED reached\r\n");
     return ;
   }
   if ( localfile )                                       // Playing from SD?
@@ -4298,9 +4317,14 @@ void mp3loop()
     {
       if ( av == 0 )                                     // End of mp3 data?
       {
+//        Serial.println("End of mp3track");
         setdatamode ( STOPREQD ) ;                       // End of local mp3-file detected
+#if defined(MEDIONRADIO)                                 // some radio stations play from playlist. that might confuse localfile.
+        playlist_num = 0;                                // retroradio does not play playlists... 
+#endif
         if ( playlist_num )                              // Playing from playlist?
         {
+//          Serial.println("In PlaylistMode...");
           playlist_num++ ;                               // Yes, goto next item in playlist
           setdatamode ( PLAYLISTINIT ) ;
           host = playlist ;
@@ -4308,6 +4332,7 @@ void mp3loop()
         else
         {
           nodeID = selectnextFSnode ( +1 ) ;             // Select the next file on SD/USB
+//          Serial.printf("Select next from NodeId: %s\r\n", nodeID);
           host = getFSfilename ( nodeID ) ;
         }
         hostreq = true ;                                 // Request this host
@@ -5081,6 +5106,25 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.reqvol = ivalue ;                     // Absolue setting
     }
+#if defined(MEDIONRADIO)
+    if (( ini_block.reqvol > 127 ) ||                 // Wrapped around?
+        (ini_block.reqvol < ini_block.retr_vol_min))  // or below defined minimum?                        
+    { 
+      if (ini_block.retr_vol_force_zero) {               // can go to absolute zero?
+        if (!relative || (ivalue < 0))                  // coming from above defined minimum?
+          ini_block.reqvol = 0 ;                          // Yes, go to zero
+        else
+          ini_block.reqvol = ini_block.retr_vol_min;
+      }
+      else
+        ini_block.reqvol = ini_block.retr_vol_min;      // keep at defined minimum
+    }
+    if ( ini_block.reqvol > ini_block.retr_vol_max )
+    {
+      ini_block.reqvol = ini_block.retr_vol_max ;                        // Limit to normal values
+    }
+    
+#else
     if ( ini_block.reqvol > 127 )                     // Wrapped around?
     {
       ini_block.reqvol = 0 ;                          // Yes, keep at zero
@@ -5089,7 +5133,9 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.reqvol = 100 ;                        // Limit to normal values
     }
+#endif
     muteflag = false ;                                // Stop possibly muting
+
     sprintf ( reply, "Volume is now %d",              // Reply new volume
               ini_block.reqvol ) ;
   }
@@ -5131,6 +5177,13 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
+#if defined(MEDIONRADIO)
+      chomp(value);
+      value.toLowerCase();
+      if ( value == "any" ) {
+         selectRandomPreset();
+      } else 
+#endif
       if ( relative )                                 // Relative argument?
       {
         currentpreset = ini_block.newpreset ;         // Remember currentpreset
@@ -5226,6 +5279,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "ADC reading is %d", adcval ) ;
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
+#if defined(MEDIONRADIO)    
+    nvs_stats_t nvs_stats;
+    nvs_get_stats(NULL, &nvs_stats);
+    dbgprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
+              nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
+#endif       
     max_mp3loop_time = 0 ;                            // Start new check
   }
   // Commands for bass/treble control
@@ -5330,9 +5389,43 @@ const char* analyzeCmd ( const char* par, const char* val )
   } else if ( argument == "eq" ) {
     setEqualizer (ivalue);
     strcpy(reply, "OK");
-  } else if ( argument.startsWith ( "eq" ) ) {
-    addEqualizer(value);
-    strcpy(reply, "OK");
+  } else if ( argument.startsWith ( "rr_") ) {
+    strcpy(reply, retroradioSetup(argument, value, ivalue).c_str());
+  } else if ( argument == "calibrate" ) {
+    setCalibration(value);
+  } else if ( argument == "usetunings") {
+    useTunings(ivalue);
+  }  else if ( argument == "random" ) {
+    doRandomPlay();
+  } else if ( argument == "togglehost" ) {
+    doToggleHost((bool)ivalue);
+  } else if ( argument == "channel" ) {
+    doChannel(value, ivalue);
+  }  else if ( argument == "nvs" ) {
+    int idx = value.indexOf('=');
+    if (idx > 0) {
+      argument = value.substring(0, idx);
+      value = value.substring(idx + 1);
+      argument.toLowerCase();
+      chomp(argument);
+      nvssetstr(argument.c_str(), value);  
+    } 
+  } else if (argument == "randmode") {
+      doRandMode(value);
+  } else if (argument == "execute") {
+    chomp(value);
+    value.toLowerCase();
+    executeCmdsFromNVSKey(value.c_str());
+  } else if (argument == "nop") {
+      ; // relex: nothing to do!!!!
+  } else if (argument == "lock") {
+      chomp(value);
+      value.toLowerCase();
+      doLockHmi(value, ivalue); // relex: nothing to do!!!!
+  } else if (argument == "lockvol") {
+      chomp(value);
+      value.toLowerCase();
+      doLockVol(value, ivalue); // relex: nothing to do!!!!
   }
 #endif
 #if defined(TRACKLIST)

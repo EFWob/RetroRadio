@@ -1,10 +1,11 @@
 #include <nvs.h>
+#include "MedionRadioExtension.h"
 #define NVS_ERASE     true            // NVS will be completely deleted if set to true (only use for development, must be false in field SW)
 #define NUMCHANNELS   15
-#define NUMWAVEBANDS   3
+//#define NUMWAVEBANDS   3
 #define MP3WAVEBAND    255
-#define MINVOLUME       50
-#define MAXVOLUME      100
+//#define MINVOLUME       50
+//#define MAXVOLUME      100
 
 
 //#define TOUCHLEVEL_TONE       450     // pressed detected if below this level
@@ -20,40 +21,194 @@
 
 
 static uint8_t waveBand = 0; //0xff;
-static uint8_t tunedChannel = 0;
-static bool apiLock = false;
-static bool apiVolumeLock = false;
+//static uint8_t tunedChannel = 0;
+static bool hmiLock = false;
+static bool hmiVolumeLock = false;
+
+
+static uint8_t switchPosition = 0xff;
+static int8_t volumePosition = -1;
+std::vector<int16_t> switchReadings;
+std::vector<int16_t> tuneReadings[10]; 
+uint8_t useTuneReadings = 0;
+int16_t tunedChannel = -1;
+int16_t lastTunedChannel = -1;
+int16_t lastSetChannel = -1;
+int16_t nearestChannel = -1;
+int16_t physTuneReading = -1;
+touch_pad_t tunePin = TOUCH_PAD_MAX;
+
+String randMode("");
+
+void evaluateTuning();
 
 
 
+std::vector<int16_t>& getTuneReadings(uint8_t idx) {
+  if (idx >= 10)
+    return tuneReadings[0];
+  if (tuneReadings[idx].size() == 0)
+    return tuneReadings[0];
+  return tuneReadings[idx];
+}
+
+void useTunings(uint8_t idx) {
+  if (idx >= 10)
+    idx = 10;
+  tunedChannel = lastTunedChannel =  lastSetChannel = nearestChannel = -1;
+  useTuneReadings = idx;
+//  evaluateTuning();
+}
+
+void appendPairList(std::vector<int16_t>& v, String value) {
+  char *s = strdup(value.c_str());
+  if (s) {
+    char *first = s;
+    while (first) {
+      char * second = strchr(first, ',');
+      if (NULL == second) 
+        first = NULL;
+      else {                  // we expect a comma delimited pair of integers.
+        *second = 0;
+        second++;
+        char *next = strchr(second, ',');
+        if (next) {
+          *next = 0;
+          next++;
+        }
+//        Serial.printf("PushBack %d\r\n", atoi(first));
+        v.push_back(atoi(first));
+        v.push_back(atoi(second));
+        first = next;
+      }
+     
+    }
+    free(s);
+  }
+  
+}
+
+void executeCmds(String commands) {
+    Serial.printf("EXECUTE: %s\r\n", commands.c_str());
+    char *s = strdup(commands.c_str());
+    if (s) {
+      char *p = s;
+      while (p) {
+        char *p1 = strchr(p, ';');
+        if (p1) {
+          *p1 = 0;
+          p1++;
+        }
+        analyzeCmd(p);
+        mp3loop();                // in case of "stop" wait for sdcard to stop playing
+        p = p1;  
+      }      
+      free(s);
+    }    
+}
+  
+
+bool executeCmdsFromNVSKey(const char *key) {
+  bool ret = false;
+  if (nvssearch(key)) 
+     if (ret = (nvsgetstr(key).length() > 0))
+      executeCmds(nvsgetstr(key));
+  return ret;
+}
+
+
+bool executeCmdsFromEvent(const char *event, bool apiLock = false) {
+  bool ret = false;
+  char s[20];
+  strcpy(s+2, event);
+  s[0] = '@';
+  s[1] = apiLock?'2':(localfile?'1':'0');
+  ret = executeCmdsFromNVSKey(s);
+  if (!apiLock) {
+    s[0] = '+';
+    executeCmdsFromNVSKey(s);
+  }
+  if (!ret && !apiLock) {
+    s[1] = '@';
+    ret = executeCmdsFromNVSKey(s + 1); 
+  }
+  if (!apiLock) {
+    s[1] = '+';
+    executeCmdsFromNVSKey(s + 1);
+  }
+
+  return ret;
+}
+
+void setSwitchPositions(String value) {
+  appendPairList(switchReadings, value);
+}
+
+void setTunePositions(String idxStr, String value) {
+
+  Serial.printf("\r\n\r\nAdding tunePositions[%s]=%sßr\n\r\n", idxStr.c_str(), value.c_str());
+  int idx = atoi(idxStr.c_str());
+  if ((idx < 0) || (idx > 9))
+    idx = 0;
+
+  appendPairList(tuneReadings[idx], value);
+}
+
+
+
+enum clalibFlags {
+  CALIBRATE_SWITCH = 1,
+  CALIBRATE_VOLUME = 2,
+  CALIBRATE_TUNING = 4
+};
+
+
+void doPrint(char *s) {
+  if (DEBUG)
+    dbgprint(s);
+  else
+    Serial.println(s);
+}
+
+uint8_t calibrationFlags = 0;
+void setCalibration(String value) {
+  char s[500];
+  value.toLowerCase();  
+  calibrationFlags = 0;
+  if ((value == "all") || (value == "1"))
+    calibrationFlags = CALIBRATE_SWITCH | CALIBRATE_VOLUME | CALIBRATE_TUNING;
+  else {
+    if (value.indexOf('s') >= 0) 
+      calibrationFlags |= CALIBRATE_SWITCH;
+    if (value.indexOf('v') >= 0)
+      calibrationFlags |= CALIBRATE_VOLUME;
+    if (value.indexOf('t') >= 0)
+      calibrationFlags |= CALIBRATE_TUNING;
+  }
+  sprintf(s, "Calibration for Switch is o%s, Pin is: %d", (calibrationFlags & CALIBRATE_SWITCH?"n":"ff"), ini_block.retr_switch_pin);
+  doPrint(s);  
+  sprintf(s, "Calibration for Tuning is o%s, Pin is: %d", (calibrationFlags & CALIBRATE_TUNING?"n":"ff"), ini_block.retr_tune_pin);
+  doPrint(s);  
+  sprintf(s, "Calibration for Volume is o%s, Pin is: %d", (calibrationFlags & CALIBRATE_VOLUME?"n":"ff"), ini_block.retr_vol_pin);
+  doPrint(s);
+}
+ 
 
 struct medionExtraPins {
-  bool ledInverted;
-  uint8_t led;
-  uint8_t vol;
-  uint8_t wave;
   touch_pad_t capaPin;
   touch_pad_t tonePin;
-  touch_pad_t loudUp;
-  touch_pad_t loudDn;
 } medionPins = 
   {
-    .ledInverted = false,
-    .led = 27,
-    .vol = 33,
-    .wave = 35,
-//    .capa = 0xff,       // obsolete
+
     .capaPin = TOUCH_PAD_NUM6, //T4, GPIO14
     .tonePin = TOUCH_PAD_NUM5, //T5, GPIO12
-    .loudUp = TOUCH_PAD_MAX, //T5,
-    .loudDn = TOUCH_PAD_MAX  //T6
   };
 
-bool medionExtensionSetupDone = false;
+bool retroRadioSetupDone = false;
 
 
 std::vector<char *> equalizers;
-static int currentEqualizer = 0;
+static uint16_t currentEqualizer = 0xffff;
 
 void addEqualizer(String value) {
   char *p = strdup(value.c_str());
@@ -71,7 +226,7 @@ void setEqualizer(int idx) {
       currentEqualizer = idx;
       char *p = s;
       while (p) {
-        char *p1 = strchr(p, ',');
+        char *p1 = strchr(p, ';');
         if (p1) {
           *p1 = 0;
           p1++;
@@ -86,7 +241,7 @@ void setEqualizer(int idx) {
 
 uint16_t tpCapaRead() {
   uint16_t x;
-  if (medionExtensionSetupDone && (medionPins.capaPin != TOUCH_PAD_MAX))
+  if (retroRadioSetupDone && (medionPins.capaPin != TOUCH_PAD_MAX))
     touch_pad_read_filtered(medionPins.capaPin, &x);
   else
     x = 0xffff;
@@ -112,7 +267,7 @@ struct medionConfigType {
 //    .touchLevelTone = TOUCHLEVEL_TONE,
     .touchDebounceTime = 50,
     .touchDebounce = 2,
-    .waveSwitchPositions = NUMWAVEBANDS,
+    .waveSwitchPositions = 0,
     .mp3Waveband = MP3WAVEBAND
   };   
 
@@ -125,24 +280,7 @@ uint16_t medionSwitchPositionCalibrationDefault[] = {
 };
 
 
-enum api_event_t {
-  API_EVENT_CHANNEL = 0,
-  API_EVENT_WAVEBAND,
-  API_EVENT_VOLUME,
-  API_EVENT_TONE_TOUCH,
-  API_EVENT_TONE_UNTOUCH,
-  API_EVENT_TONE_PRESSED,
-  API_EVENT_TONE_LONGPRESSED,
-  API_EVENT_TONE_LONGRELEASED,
-  
-  API_EVENT_TONE_2PRESSED,
-  API_EVENT_TONE_2LONGPRESSED,
-  API_EVENT_TONE_2LONGRELEASED,
 
-  API_EVENT_TONE_3PRESSED,
-  API_EVENT_TONE_3LONGPRESSED,
-  API_EVENT_TONE_3LONGRELEASED
-};
 
 enum led_mode_t {
   LED_MODE_LOW = 0,
@@ -199,9 +337,9 @@ uint16_t * medionChannelLimitsNew = (uint16_t *)&medionChannelLimitsDefault15;
 
 #define MEDION_DEBUGAPI
 //#define MEDIONCALIBRATE_VOLUME
-#define MEDIONCALIBRATE_WAVEBAND
+//#define MEDIONCALIBRATE_WAVEBAND
 //#define MEDIONCALIBRATE_CAPACITOR
-#define MEDIONCALIBRATE_TONE
+//#define MEDIONCALIBRATE_TONE
 
 void readPresetList() {
   knownPresets = 0;
@@ -237,12 +375,95 @@ void selectPreset(uint8_t channel = 0xff, bool debugInfo = false) {
   analyzeCmd("preset", s);
 }
 
+void doRandomPlay() {
+  if (localfile) 
+    analyzeCmd("mp3track", "0");
+  else {
+    if (randMode.length() > 1) {
+      //Serial.printf("Executing randmode: %s\r\n", randMode.c_str());
+      executeCmds(randMode);
+    }
+    else {
+      //Serial.println("Selecting random preset!");
+      selectRandomPreset();
+    }
+  }
+}
 
-//#define API_EVENT_CHANNEL  0
-//#define API_EVENT_WAVEBAND 1
-//#define API_EVENT_VOLUME   2
+void doToggleHost(bool isDebug) {
+  if (localfile) 
+    selectPreset(0xff, isDebug);
+  else if (SD_nodecount > 0) {
+    analyzeCmd("mp3track", "0");
+  }
+}
 
-void handleApiEventTone(api_event_t event, uint32_t param, char *s, bool isDebug = false) {
+void doChannel(String value, int ivalue) {
+  if (localfile || (useTuneReadings >= 10) || (lastSetChannel == -1))
+    return;
+  value.toLowerCase();
+  if ((useTuneReadings < 10) && (lastSetChannel != -1)) {
+    std::vector<int16_t> readings = getTuneReadings(useTuneReadings);
+    int lastChannel = readings.size() / 2 - 1;
+    int16_t channel = -1;
+    if (value == "up") {
+      channel = lastSetChannel + 1;
+      if (channel > lastChannel)
+        channel = 0;
+    } else if (value == "down") {
+      channel = lastSetChannel - 1;
+      if (channel < 0)
+        channel = lastChannel;
+    } else if (value == "this") { 
+      channel = lastSetChannel;
+    } else if (value == "rnd") {
+      if (lastChannel > 0) {
+        channel = lastSetChannel;
+        while (channel == lastSetChannel)
+          channel = random(lastChannel + 1);
+      }
+    } else if (value == "toggle") {
+      if (lastSetChannel != 0)
+        channel = 0;
+      else 
+        channel = lastChannel;
+    }
+    if (channel >= 0) {
+      handleApiEvent(API_EVENT_CHANNEL, channel, true); 
+    }
+  }
+}
+
+void doRandMode(String value) {
+  chomp(value);
+  randMode = value;
+}
+
+void doLockHmi(String value, int ivalue) {
+  if (value == "on")
+    hmiLock = true;
+  else if (value == "off")
+    hmiLock = false;
+  else if (value == "toggle")
+    hmiLock = !hmiLock;
+  else
+    hmiLock = (bool)ivalue;
+}
+
+
+void doLockVol(String value, int ivalue) {
+  if (value == "on")
+    hmiVolumeLock = true;
+  else if (value == "off")
+    hmiVolumeLock = false;
+  else if (value == "toggle")
+    hmiVolumeLock = !hmiVolumeLock ;
+  else
+    hmiVolumeLock = (bool)ivalue;
+}
+
+
+void handleApiEventTone(int event, uint32_t param, char *s, bool isDebug = false) {
 uint16_t pressValue = param & 0xffff;
 uint16_t repeatCount = param >> 16;
 static bool direct = false;
@@ -251,13 +472,39 @@ enum state_tone_t {
   STATE_TONE_DO_MUTE,
   STATE_TONE_DONE
 };
+
 static state_tone_t stateTone = STATE_TONE_IDLE;
+char key[20];
+  bool ret = false;
+  if (API_EVENT_TONE_TOUCH == event) {
+    char s[10];
+    direct = pressValue > TOUCHREAD_DIRECTDELTA;
+  }
+  if ((API_EVENT_TONE_LONGPRESSED == event) || (API_EVENT_TONE_2LONGPRESSED == event) || (API_EVENT_TONE_3LONGPRESSED == event)) {
+    sprintf(key, "t%c.%d.%d", (direct?'0':'1'), event, repeatCount);
+    Serial.printf("  TOUCH EVENT: %s\r\n", key);
+    if (!executeCmdsFromEvent(key, hmiLock)) {
+      sprintf(key, "t%c.%d", (direct?'0':'1'), event, repeatCount);
+      Serial.printf("  TOUCH EVENT: %s\r\n", key);
+      executeCmdsFromEvent(key, hmiLock);
+    }
+  } else {
+    sprintf(key, "t%c.%d", (direct?'0':'1'), event);
+    Serial.printf("  TOUCH EVENT: %s\r\n", key);
+    executeCmdsFromEvent(key, hmiLock);
+  }
+  strcpy(s, "");
+
+  return;
+
+
+
 strcpy(s, "");
   switch (stateTone) {
     case STATE_TONE_IDLE:
       direct = pressValue > TOUCHREAD_DIRECTDELTA;
       if (API_EVENT_TONE_TOUCH == event) {
-        if (apiLock) 
+        if (hmiLock) 
           toggleMedionLED(LED_MODE_DARK);
         else
           if (muteflag) {
@@ -265,14 +512,14 @@ strcpy(s, "");
             stateTone = STATE_TONE_DONE;  
             strcpy(s, "Undo mute!");
           }
-      } else if (apiLock) {
+      } else if (hmiLock) {
         if (API_EVENT_TONE_UNTOUCH == event) {
           toggleMedionLED(LED_MODE_FORCELOW);
           strcpy(s, "API is locked!");
         }
         else if ((API_EVENT_TONE_LONGPRESSED == event) && direct && (5 == repeatCount)) {
-          apiLock = false;
-          sprintf(s, "API unlocked!");
+          hmiLock = false;
+          sprintf(s, "HMI unlocked!");
           toggleMedionLED(LED_MODE_FORCELOW);
           toggleMedionLED(LED_MODE_FLASH2);
           stateTone = STATE_TONE_DONE;   
@@ -280,39 +527,44 @@ strcpy(s, "");
       }
       else if (API_EVENT_TONE_UNTOUCH != event) {
           if (direct) {
-            if (API_EVENT_TONE_PRESSED == event) {
+            if (API_EVENT_TONE_2PRESSED == event) {
+              analyzeCmd("togglehost", isDebug?"1":"0");
+/*
               if (localfile) 
                 selectPreset(0xff, isDebug);
               else if (SD_nodecount > 0) {
                 analyzeCmd("mp3track", "0");
               }
+*/
             }
             if ((API_EVENT_TONE_3PRESSED == event)) {
               analyzeCmd("mute");  
-              stateTone = STATE_TONE_DONE;
+              //stateTone = STATE_TONE_DONE;
               strcpy(s, "Starting mute!");
-            } else if (API_EVENT_TONE_2PRESSED == event) {
+            } else if (API_EVENT_TONE_PRESSED == event) {
+              analyzeCmd("random");
+/*              
               if (localfile) {
                 analyzeCmd("mp3track", "0");
-                stateTone = STATE_TONE_DONE;
+                //stateTone = STATE_TONE_DONE;
                 strcpy(s, "Random play something else from SD!");
               } else {
                 selectRandomPreset();
-                stateTone = STATE_TONE_DONE;
+                //stateTone = STATE_TONE_DONE;
                 strcpy(s, "Random play one of the known presets!");                
               }
-              
+*/              
             } else if (API_EVENT_TONE_LONGPRESSED == event) {
               analyzeCmd("downvolume", "2");
-              if ((ini_block.reqvol < MINVOLUME) && (ini_block.reqvol > 0))
-                analyzeCmd("volume", "0");
+//              if ((ini_block.reqvol < MINVOLUME) && (ini_block.reqvol > 0))
+//                analyzeCmd("volume", "0");
             } else if (API_EVENT_TONE_2LONGPRESSED == event) {
               analyzeCmd("upvolume", "2");
-              if (ini_block.reqvol < MINVOLUME) {
-                char s[30];
-                sprintf(s, "%d", MINVOLUME);
-                analyzeCmd("volume", s);
-              }
+//              if (ini_block.reqvol < MINVOLUME) {
+//                char s[30];
+//                sprintf(s, "%d", MINVOLUME);
+//                analyzeCmd("volume", s);
+//              }
             }
           } else {
             if (API_EVENT_TONE_LONGPRESSED == event) {
@@ -329,17 +581,17 @@ strcpy(s, "");
             else if (API_EVENT_TONE_2PRESSED == event)
               Serial.println("2Pressed on Gehäuse");
             else if (API_EVENT_TONE_3PRESSED == event) {
-              apiLock = !apiLock;
+              hmiLock = !hmiLock;
 //              toggleMedionLED(LED_MODE_FORCELOW);
               toggleMedionLED(LED_MODE_FLASH2);
-              Serial.printf("3Pressed on Gehäuse, apiLock=%d\r\n", apiLock);
+              Serial.printf("3Pressed on Gehäuse, hmiLock=%d\r\n", hmiLock);
             }
             else if (API_EVENT_TONE_3LONGPRESSED == event) {
               if (repeatCount == 0) {
 //                toggleMedionLED(LED_MODE_FORCELOW);
                 toggleMedionLED(LED_MODE_FLASH1);
-                apiVolumeLock = !apiVolumeLock;
-                Serial.printf("3longPressed on Gehäuse, apiVolumeLock=%d\r\n", apiVolumeLock);
+                hmiVolumeLock = !hmiVolumeLock;
+                Serial.printf("3longPressed on Gehäuse, apiVolumeLock=%d\r\n", hmiVolumeLock);
               }
               
             }
@@ -358,7 +610,7 @@ strcpy(s, "");
 
 
 
-void handleApiEvent(api_event_t event, uint32_t param, bool init = false) {
+void handleApiEvent(int event, uint32_t param, bool ignoreLock) {
 char s[500];  
 bool debuginfo;
 bool switchChannel = false;
@@ -370,33 +622,46 @@ bool isTouchEvent;
 #endif
   if (event == API_EVENT_CHANNEL) {
     sprintf(s, "API event channel: %04X (from %d to %d)", param, (param & 0xff00) / 0x100, param & 0xff);        
-    tunedChannel = param & 0xff;
-    if (apiLock)
+    if (hmiLock && !ignoreLock)
       strcpy(s, "API is locked!");
-    else if (localfile && (waveBand == medionConfig.mp3Waveband)) {
-      switchChannel = false;
-      analyzeCmd("mp3track", "0");
-    } else
-      switchChannel = !init;
-  } else if (event == API_EVENT_WAVEBAND) {
-    sprintf(s, "API event waveband: %ld", param); 
-    Serial.printf("WaveBand = %d\r\n", waveBand);
-    if (apiLock)
-      strcpy(s, "API is locked!");
-    else if (SD_okay && (0 < SD_nodecount) && ((param & 0xff) == medionConfig.mp3Waveband)) {
-      switchChannel = false;
-      toggleMedionLED(LED_MODE_LOW);
-      analyzeCmd("mp3track", "0");  
-    } else {
-      switchChannel = !init;
+    else {
+      if (useTuneReadings < 10) {
+        char key[20];
+        int channel = param & 0xff;
+        lastSetChannel = channel;
+        toggleMedionLED(LED_MODE_HIGH);
+        sprintf(key, "tune%d.%d", useTuneReadings, channel);
+        bool haveCommand = executeCmdsFromEvent(key);
+        if (!haveCommand) {
+          sprintf(key, "tune%d", useTuneReadings);
+          haveCommand = executeCmdsFromEvent(key);
+        }
+        if (!haveCommand)
+          if (useTuneReadings < 10) {
+          for (int i = 0;i < useTuneReadings;i++)
+            channel = channel + getTuneReadings(i).size() / 2;
+          char s[10];
+          sprintf(s, "%d", channel);
+          analyzeCmd("preset", s);
+        }
+      }
     }
+  } else if (event == API_EVENT_SWITCH) {
+    sprintf(s, "API event Switch: %ld", param); 
+    if (hmiLock && !ignoreLock)
+      strcpy(s, "API is locked!");
+    else {
+        char key[20];
+        sprintf(key, "switch%d", param);
+        executeCmdsFromEvent(key);
+      }
   } else if (event == API_EVENT_VOLUME) {
     char s1[40];
     sprintf(s1, "volume=%ld", param);
     sprintf(s, "API event volume: %ld", param);
-    if (apiLock) {
+    if (hmiLock && !ignoreLock) {
       ;//strcpy(s, "API is locked!");
-    } else if (apiVolumeLock)
+    } else if (hmiVolumeLock)
       ;//strcpy(s, "API volume is locked!");
     else if (!muteflag) {
         analyzeCmd(s1);
@@ -418,35 +683,26 @@ bool isTouchEvent;
              (API_EVENT_TONE_3LONGRELEASED  == event)
              
              ) 
-      handleApiEventTone(event, param, s, debuginfo);//, s, debuginfo);
+      handleApiEventTone(event, param, s);//, s, debuginfo);
   else
     sprintf(s, "Unknown API event: %d with param: %ld\r\n", event, param);
   if ((strstr(s, "API") == s) && (NULL != strstr(s, "is locked!")) && !isTouchEvent) 
     toggleMedionLED(LED_MODE_FLASH3);
   if (debuginfo)
     if (strlen(s))
-      dbgprint(s);
+      doPrint(s);
   if (switchChannel) {
     selectPreset(tunedChannel + waveBand * NUMCHANNELS, debuginfo);
-    /*
-    uint16_t channel = tunedChannel + waveBand * NUMCHANNELS;
-    toggleMedionLED(HIGH);
-    if (debuginfo)
-      Serial.printf("API switch to channel: %d\r\n", channel);
-    sprintf(s, "preset=%d", channel);
-    analyzeCmd(s);
-    */
   }
 }
 
 void setupMedionExtension() {
-nvs_handle nvsHandler;
-  if (medionExtensionSetupDone)
+//nvs_handle nvsHandler;
+  if (retroRadioSetupDone)
     return;
 
   //analyzeCmd("debug", "0");
-  
-  medionExtensionSetupDone = true;
+/*  
   if (ESP_OK == nvs_open("MEDION80806", NVS_READWRITE, &nvsHandler)) {
     size_t len;
     if (NVS_ERASE)
@@ -478,31 +734,35 @@ nvs_handle nvsHandler;
 
       }
     nvs_commit(nvsHandler);  
-  }
+  }*/
   touch_pad_init();
   touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
   touch_pad_filter_start(10);  
-  if (medionPins.led != 0xff) {
-    ledcAttachPin(medionPins.led, 0); // Attach LED to Driver channel 0
+  for(tunePin = TOUCH_PAD_NUM0;tunePin < TOUCH_PAD_MAX;tunePin = (touch_pad_t)((int)tunePin + 1))
+    if (touchpin[(int)tunePin].gpio == ini_block.retr_tune_pin)
+      break;
+  if (tunePin != TOUCH_PAD_MAX) {
+      touch_pad_config(tunePin, 0);
+    } 
+
+  if (ini_block.retr_led_pin != -1) {
+    ledcAttachPin(ini_block.retr_led_pin, 0); // Attach LED to Driver channel 0
     ledcSetup(0, 4000, 8);
     toggleMedionLED(LED_MODE_LOW);
   }
   
-  if (medionPins.capaPin != TOUCH_PAD_MAX)
-    touch_pad_config(medionPins.capaPin, 0);
   if (medionPins.tonePin != TOUCH_PAD_MAX)
     touch_pad_config(medionPins.tonePin, 0);
-  if (medionPins.vol != 0xff)
-    pinMode(medionPins.vol, INPUT);
-  if (medionPins.wave != 0xff)
-    pinMode(medionPins.wave, INPUT);
+  if (-1 != ini_block.retr_vol_pin)
+    pinMode(ini_block.retr_vol_pin, INPUT);
+  if (-1 != ini_block.retr_switch_pin)
+    pinMode(ini_block.retr_switch_pin, INPUT);
     //capaReadPin = new VirtualTouchPin(medionPins.capaPin);
 
-   volumeRead();
-   readChannel(); 
-   toneRead();  
-   readPresetList();
-   
+   readPresetList();  
+  retroRadioSetupDone = true;
+  tuneKnobRead();
+
 }
 
 
@@ -516,10 +776,13 @@ static bool statusWasNeverPublished = true;
         toggleMedionLED(LED_MODE_LOW);
         first = false;
       }
-   volumeRead();
+//   volumeRead();
 //   if ((1 == playingstat) && (0 != lastVolume))   
-      readChannel(); 
+//   readChannel(); 
    toneRead();    
+   switchKnobRead();
+   volumeKnobRead();
+   tuneKnobRead();
 }
 
 
@@ -634,10 +897,10 @@ static brightness_step_t volLockLowTable[]  = {{15, 0xf00},
 */
 brightness_step_t *ret;
   if (localfile) {
-    if (apiLock) {
+    if (hmiLock) {
       ret = mp3playapiLockLowTable;
       tableSize = sizeof(mp3playapiLockLowTable) / sizeof(mp3playapiLockLowTable[0]);    
-    } else if (apiVolumeLock) {
+    } else if (hmiVolumeLock) {
       ret = mp3playvolLockLowTable;
       tableSize = sizeof(mp3playvolLockLowTable) / sizeof(mp3playvolLockLowTable[0]);    
     } else {
@@ -645,10 +908,10 @@ brightness_step_t *ret;
       tableSize = sizeof(mp3playdefaultLowTable) / sizeof(mp3playdefaultLowTable[0]);
     }
   } else {
-    if (apiLock) {
+    if (hmiLock) {
       ret = apiLockLowTable;
       tableSize = sizeof(apiLockLowTable) / sizeof(apiLockLowTable[0]);    
-    } else if (apiVolumeLock) {
+    } else if (hmiVolumeLock) {
       ret = volLockLowTable;
       tableSize = sizeof(volLockLowTable) / sizeof(volLockLowTable[0]);    
     } else {
@@ -684,7 +947,7 @@ brightness_step_t *p;
 static uint16_t brightness = 0;
 static uint32_t stateTime = 0;
 bool changed;
-  if (medionPins.led == 0xff)
+  if (ini_block.retr_led_pin == -1)
     return;
   changed = false;
   lastState = ledState;
@@ -780,7 +1043,7 @@ bool changed;
   }
   if (changed) {
     uint16_t x;
-    if (medionPins.ledInverted)
+    if (ini_block.retr_led_inv)
       x = ~brightness;
     else
       x = brightness;
@@ -797,104 +1060,170 @@ bool changed;
   }
 }
 
-void volumeRead() {
-static int32_t lastVolume = 0;
-static uint8_t lastWaveBand = 0xff; 
-static uint16_t waveBandCount = 0;
-static uint32_t lastRead = 0;
-static uint16_t ticks = 0;
-static uint16_t count = 0;
-static int32_t total = 0;
-static uint32_t totalWave = 0;
-static uint32_t waveCount = 0;
 
-uint16_t currentRead = 0;
-
+void switchKnobRead() {
+char s[200];
 static bool init = true;
-  if (medionPins.vol != 0xff)
-    {
-    currentRead = analogRead(medionPins.vol);
-//    if (currentRead < 4000)
-      {
-        count++;
-        total = total + currentRead;    
+  if (-1 != ini_block.retr_switch_pin) {
+    static uint16_t readCount = 0;
+    static uint32_t readTotal = 0;
+    uint16_t switchReadValue = analogRead(ini_block.retr_switch_pin); 
+    readTotal = readTotal + switchReadValue;
+    readCount++;
+    if (init || (readCount >= (localfile?10:100))) {
+        uint8_t idx;
+        readTotal = readTotal / readCount;
+        for(idx = switchReadings.size() / 2 - 1;idx != 0xff;idx = idx - 1)
+          if ((switchReadings[idx * 2] <= readTotal) && (switchReadings[idx * 2 + 1] >= readTotal ))
+            break;
+        if ((calibrationFlags & CALIBRATE_SWITCH )!= 0){
+          static uint32_t lastShowTime = 0;
+          if (init || (millis() - lastShowTime > 1000)) {
+            sprintf(s, "SwitchKnob phys. read=%d, resultingPosition=%d (lastPosition=%d)", (int)readTotal, idx, switchPosition);
+            doPrint(s);
+            lastShowTime = millis();               
+          }
+        }
+      if ((idx != 0xff) && (idx != switchPosition)) {
+        if (calibrationFlags & CALIBRATE_SWITCH != 0){
+          sprintf(s, "New Switch position detected! from %d->%d", switchPosition, idx);
+          doPrint(s);
+        } 
+//        if (!init)
+          handleApiEvent(API_EVENT_SWITCH, idx); 
+        switchPosition = idx;
       }
-    }  
-  if (medionPins.wave != 0xff) {
-    uint16_t waveRead = analogRead(medionPins.wave);
-    totalWave += waveRead;
-    waveCount++;
-    
-  }
-    if ((++ticks >= (localfile?10:100)) || init) {
-      if (count > 0) 
-        {
-#ifdef MEDIONCALIBRATE_VOLUME
-        static uint32_t lastReportTime = 0;
-        if (millis() > lastReportTime + 2000) {
-          Serial.printf("VolumeReadPhys: %ld\r\n", total / count);
-          lastReportTime = millis();
-        }
-#endif
-          total = map(total / count, 0, 4096, MINVOLUME, MAXVOLUME);
-          if (total > MAXVOLUME)
-            total = MAXVOLUME;
-          count = 0;
-          if ((abs(lastVolume-total) > 1) || init || ((total != lastVolume) && ((total == 0) || (total == 100)))) // Noisy potentiometer?
-            {
-              Serial.printf("VolumeDelta: %d\r\n", abs(lastVolume-total));
-              lastVolume = total;
-              handleApiEvent(API_EVENT_VOLUME, total, init);         
-            }
-          }
-     if ((waveCount != 0))
-      {
-//        uint32_t waveRead = totalWave / ticks;
-//        uint16_t waveRead = analogRead(medionPins.wave);
-//        uint32_t waveRead = analogRead(medionPins.wave);
-        uint8_t waveBandNew;          
-        totalWave = totalWave / waveCount;
-        for(waveBandNew = MEDION_WAVE_SWITCH_POSITIONS-1;waveBandNew < 0xff;waveBandNew--)
-        if ((totalWave >= medionSwitchPositionCalibration[waveBandNew * 2]) &&
-            (totalWave <= medionSwitchPositionCalibration[waveBandNew * 2 + 1]))
-               break;
-        
-#if defined(MEDIONCALIBRATE_WAVEBAND)
-        static uint32_t lastReportTime = 0;
-        if (millis() > lastReportTime + 2000) {
-          if (DEBUG)
-            dbgprint("WaveReadPhys: %ld, detected Position: %d, total reads=%ld", totalWave, waveBandNew, waveCount);
-          else
-            Serial.printf("WaveReadPhys: %ld, detected Position: %d, total reads=%ld\r\n", totalWave, waveBandNew, waveCount);
-          lastReportTime = millis();
-        }
-#endif               
-        if ((waveBandNew != lastWaveBand) && (waveBandNew != 0xff)) 
-          {
-          if (waveBandNew == 255)
-            Serial.printf("Hier mit waveBandnew == 255???????????????????????????????????\r\n");
-            
-#if defined(MEDIONCALIBRATE_WAVEBAND)
-          if (DEBUG)
-            dbgprint("NEW WaveBand: %d (war: %d) (phys: %ld), valid reads=%ld", waveBandNew, lastWaveBand, totalWave, waveCount);
-          else
-            Serial.printf("NEW WaveBand: %d (war: %d) (phys: %ld), valid reads=%ld\r\n", waveBandNew, lastWaveBand, totalWave, waveCount);
-          for(int i = 0;i < MEDION_WAVE_SWITCH_POSITIONS;i++) 
-            Serial.printf("[%4d, %4d] ", medionSwitchPositionCalibration[i*2], medionSwitchPositionCalibration[i*2 + 1]);
-          Serial.println();
-#endif
-          waveBand = lastWaveBand = waveBandNew;  
-          handleApiEvent(API_EVENT_WAVEBAND, waveBand, init); 
-          }
-     }
-     totalWave = 0;
-     waveCount = 0;
-     waveBandCount = 0;      
-     total = 0;
-     ticks = 0;        
+      readTotal = 0;
+      readCount = 0;
     }
+  }
   init = false;
 }
+
+void volumeKnobRead() {
+char s[200];
+static bool init = true;
+static uint8_t minVolume;
+  if (-1 != ini_block.retr_vol_pin) {
+    if (init) {
+      if (0 < (minVolume = ini_block.retr_vol_min))
+        if (ini_block.retr_vol_force_zero)
+          minVolume--;
+    }
+    static uint16_t readCount = 0;
+    static uint32_t readTotal = 0;
+    uint16_t volReadValue = analogRead(ini_block.retr_vol_pin); 
+    readTotal = readTotal + volReadValue;
+    readCount++;
+    if (init || (readCount >= (localfile?5:100))) {
+        int8_t idx;      
+        readTotal = readTotal / readCount;
+        idx = map(readTotal, 0, 4095, minVolume, ini_block.retr_vol_max);
+        if ((calibrationFlags & CALIBRATE_VOLUME )!= 0){
+          static uint32_t lastShowTime = 0;
+          if (init || (millis() - lastShowTime > 1000)) {
+            sprintf(s, "VolumeKnob phys. read=%d, resultingVolume=%d (lastVolume=%d)", (int)readTotal, idx, volumePosition);
+            doPrint(s);
+            lastShowTime = millis();               
+          }
+        }
+      if ((abs(idx - volumePosition) > 1) || ((volumePosition != idx) && (idx == minVolume))){
+        static uint32_t lastChangeTime = 0;
+        if ((abs(idx - volumePosition) > 2) || (millis() - lastChangeTime > 100)) {
+          if ((calibrationFlags & CALIBRATE_VOLUME) != 0){
+            sprintf(s, "New Volume position detected! from %d->%d", volumePosition, idx);
+            doPrint(s);
+          }  
+          handleApiEvent(API_EVENT_VOLUME, idx);         
+          volumePosition = idx;
+          lastChangeTime = millis();
+        }
+      }
+      readTotal = 0;
+      readCount = 0;
+    }
+  }
+  init = false;
+}
+
+
+
+void evaluateTuning() {
+  tunedChannel = nearestChannel = -1;
+  if (physTuneReading != -1)
+    if (useTuneReadings < 10) {
+      std::vector<int16_t>& readings = getTuneReadings(useTuneReadings);
+      if (readings.size() != 0) {
+        int16_t lowestDelta = 0x7fff;
+        int idx = readings.size() / 2 - 1;
+        for(;idx >= 0;idx--) {
+          int16_t myDelta;
+          if (readings[idx * 2] > physTuneReading)                // reading below lower limit?
+            myDelta = readings[idx * 2] - physTuneReading;
+          else if (readings[idx * 2 + 1] < physTuneReading)       // reading above upper limit?
+            myDelta = physTuneReading - readings[idx * 2 + 1];
+          else                                                                          // hit: idx points to valid read channel
+            break;
+          if (myDelta < lowestDelta) {
+            lowestDelta = myDelta;
+            nearestChannel = idx;
+          }
+        }
+        tunedChannel = idx;
+        if (tunedChannel >= 0)
+          nearestChannel = -1;
+        int16_t channel = tunedChannel;
+        if ((channel == -1) && (lastTunedChannel == -1))
+          channel = nearestChannel;
+        if ((channel != -1) && (channel != lastTunedChannel)) {
+          uint32_t param = ((uint32_t)lastTunedChannel * 0x100) & 0xff00;
+          handleApiEvent(API_EVENT_CHANNEL, channel + param);
+          lastTunedChannel = channel;
+        }
+      }
+    }
+}
+
+
+void tuneKnobRead() {
+char s[200];
+static bool init = true;
+  if (!init && (TOUCH_PAD_MAX == tunePin))
+    return;
+  if (-1 == ini_block.retr_tune_pin) {
+    init = false;
+    return;
+  }
+  // here init was done with valid pin.
+  if (tunePin != TOUCH_PAD_MAX) {
+    static uint16_t readCount = 0;
+    static uint32_t readTotal = 0;
+    uint16_t tuneReadValue;
+    touch_pad_read_filtered(tunePin, &tuneReadValue);
+    readTotal = readTotal + tuneReadValue;
+    readCount++;
+    if (/*init ||*/ (readCount >= (localfile?10:100))) {
+        readTotal = readTotal / readCount;
+        physTuneReading = readTotal;
+        evaluateTuning();
+        if ((calibrationFlags & CALIBRATE_TUNING )!= 0){
+          static uint32_t lastShowTime = 0;
+          if (init || (millis() - lastShowTime > 1000)) {
+            sprintf(s, "TuneKnob phys. read=%d (channel: %d, nearest channel: %d)", (int)readTotal, tunedChannel, nearestChannel);
+            doPrint(s);
+            lastShowTime = millis();               
+            
+          }
+        }
+
+      readTotal = 0;
+      readCount = 0;
+    }
+  }
+  init = false;
+}
+
+
   
 void readChannel() {
     static uint8_t lastReportedChannel = 0xff;
@@ -949,7 +1278,7 @@ void readChannel() {
 
     if (hit && (lastReportedChannel != channel)) {
       uint32_t channelparam = ((uint32_t)lastReportedChannel) * 256 + channel;
-      handleApiEvent(API_EVENT_CHANNEL, channelparam, lastReportedChannel == 0xff);         
+      handleApiEvent(API_EVENT_CHANNEL, channelparam);         
       //Serial.printf("Set lastreportetchannel= %02x (was %02x)\r\n", channel, lastReportedChannel);
       lastReportedChannel = channel;
     }
@@ -1146,4 +1475,26 @@ void toneRead() {
       break;
   }
 
+}
+
+String retroradioSetup(String argument, String value, int iValue) {
+  String ret = String("OK.");
+  if (retroRadioSetupDone)
+    return String("This command can only be executed from preferences: ") + argument;
+  argument = argument.substring(3);  
+  if ( argument.startsWith ( "eq" ) ) {
+    addEqualizer(value);
+  } else if ( argument == "led_inv") {
+    ini_block.retr_led_inv = (bool)iValue;
+  } else if ( argument == "vol_min") {
+    ini_block.retr_vol_min = (uint8_t)iValue;
+  } else if ( argument == "vol_max") {
+    ini_block.retr_vol_max = (uint8_t)iValue;
+  } else if ( argument == "vol_zero") {
+    ini_block.retr_vol_force_zero = (bool)iValue;
+  } else if ( argument.startsWith("sw_pos")) {
+    setSwitchPositions(value); 
+  } else if ( argument.startsWith("tunepos") )
+    setTunePositions(argument.substring(7, 8), value);
+  return ret;
 }
