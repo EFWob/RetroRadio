@@ -932,8 +932,8 @@ void setupMedionExtension() {
 
    readPresetList();  
   retroRadioSetupDone = true;
-  executeCmdsFromEvent("start");
-  tuneKnobRead();
+//  executeCmdsFromEvent("start");
+//  tuneKnobRead();
   dummy = new RetroRadioInputTouch("t6");
   dummyVol = new RetroRadioInputADC("a33");
   dummySwitch = new RetroRadioInputADC("a35");
@@ -946,16 +946,18 @@ void handleMedionLoop() {
 static bool first = true;
 static bool statusWasNeverPublished = true;
 static int ledToShow = 0;
+    return;
     if (first)
       setupMedionExtension();
     if (first || (1 == playingstat) || (localfile))
       {
-        toggleMedionLED(LED_MODE_LOW);
+//        toggleMedionLED(LED_MODE_LOW);
         first = false;
       }
 //   volumeRead();
 //   if ((1 == playingstat) && (0 != lastVolume))   
 //   readChannel(); 
+/*
    toneRead();    
    switchKnobRead();
    volumeKnobRead();
@@ -965,9 +967,10 @@ static int ledToShow = 0;
     if (++ledToShow >= numLeds)
       ledToShow = 0;
    }
-   dummy->check();
-   dummyVol->check();
-   dummySwitch->check();
+   */
+   //dummy->check();
+   //dummyVol->check();
+   //dummySwitch->check();
 }
 
 

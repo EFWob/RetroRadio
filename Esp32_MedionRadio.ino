@@ -2609,9 +2609,15 @@ void readIOprefs()
     { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      -1 },
     { "pin_shutdown",  &ini_block.vs_shutdown_pin,  -1 }, // Amplifier shut-down pin
     { "pin_shutdownx", &ini_block.vs_shutdownx_pin, -1 }, // Amplifier shut-down pin (inversed logic)
+#if defined(ARDUINO_ESP32_POE)
+    { "pin_spi_sck",   &ini_block.spi_sck_pin,      SCK },
+    { "pin_spi_miso",  &ini_block.spi_miso_pin,     MISO },
+    { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     MOSI },
+#else
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
+#endif
 #if defined(MEDIONRADIO)
     { "pin_rr_led0",   &ini_block.retr_led0_pin,     -1}, // GPIO connected to Retro Radio LED
     { "pin_rr_led1",   &ini_block.retr_led1_pin,     -1}, // GPIO connected to Retro Radio LED
