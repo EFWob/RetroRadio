@@ -4,6 +4,8 @@ typedef enum api_event_t {
   API_EVENT_CHANNEL = 50,
   API_EVENT_SWITCH,
   API_EVENT_VOLUME,
+  API_EVENT_LED,
+  API_EVENT_START,
   API_EVENT_TONE_TOUCH = 15,
   API_EVENT_TONE_UNTOUCH = 0,
   API_EVENT_TONE_PRESSED = 1,
@@ -20,5 +22,7 @@ typedef enum api_event_t {
 };
 
 extern void handleApiEvent(int event, uint32_t param, bool ignoreLock=false);
+extern bool executeCmdsFromNVSKey(const char *key, String value = "");
+
 
 #endif

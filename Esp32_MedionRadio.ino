@@ -205,6 +205,9 @@
 // Also used for other naming.
 #define NAME "NetzRadio"
 #define MEDIONRADIO
+#if defined(MEDIONRADIO)
+#include "AMedionRadioExtension.h"
+#endif
 
 // Max number of presets in preferences
 #define MAXPRESETS 200
@@ -324,11 +327,20 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
 #ifdef MEDIONRADIO
 //Settings
-  int8_t         retr_led_pin ;                        // GPIO connected to Retro Radio LED
-  int8_t         retr_vol_pin ;                        // GPIO connected to Retro Radio Volume pin
+  int8_t         retr_led0_pin ;                       // GPIO connected to Retro Radio LED
+  int8_t         retr_led1_pin ;                       // up to 10 LEDs can be controlled
+  int8_t         retr_led2_pin ;                       // 
+  int8_t         retr_led3_pin ;                       //
+  int8_t         retr_led4_pin ;                       //
+  int8_t         retr_led5_pin ;                       //
+  int8_t         retr_led6_pin ;                       //
+  int8_t         retr_led7_pin ;                       //
+  int8_t         retr_led8_pin ;                       //
+  int8_t         retr_led9_pin ;                       //
   int8_t         retr_switch_pin ;                     // GPIO connected to Retro Radio WaveBandSwitch
   int8_t         retr_tune_pin ;                       // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
   int8_t         retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
+  int8_t         retr_vol_pin ;                       // GPIO connected to Retro Radio Vol Pin
   bool           retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
   uint8_t        retr_vol_min;                         // minimum volume
   uint8_t        retr_vol_max;                         // maximum volume
@@ -2601,7 +2613,16 @@ void readIOprefs()
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
 #if defined(MEDIONRADIO)
-    { "pin_rr_led",    &ini_block.retr_led_pin,      -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led0",   &ini_block.retr_led0_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led1",   &ini_block.retr_led1_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led2",   &ini_block.retr_led2_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led3",   &ini_block.retr_led3_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led4",   &ini_block.retr_led4_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led5",   &ini_block.retr_led5_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led6",   &ini_block.retr_led6_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led7",   &ini_block.retr_led7_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led8",   &ini_block.retr_led8_pin,     -1}, // GPIO connected to Retro Radio LED
+    { "pin_rr_led9",   &ini_block.retr_led9_pin,     -1}, // GPIO connected to Retro Radio LED
     { "pin_rr_vol",    &ini_block.retr_vol_pin,      -1}, // GPIO connected to Retro Radio Volume pin
     { "pin_rr_switch", &ini_block.retr_switch_pin, -1}, // GPIO connected to Retro Radio WaveBandSwitch
     { "pin_rr_tune",   &ini_block.retr_tune_pin,     -1}, // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
@@ -5401,7 +5422,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     doToggleHost((bool)ivalue);
   } else if ( argument == "channel" ) {
     doChannel(value, ivalue);
-  }  else if ( argument == "nvs" ) {
+  } else if ( argument.startsWith( "led" )) {
+     int idx = argument.c_str()[3] - '0';
+     if ((idx < 0) || (idx > 10))
+      idx = 0;
+     doLed(idx, value);
+  } else if ( argument == "nvs" ) {
     int idx = value.indexOf('=');
     if (idx > 0) {
       argument = value.substring(0, idx);
@@ -5417,15 +5443,19 @@ const char* analyzeCmd ( const char* par, const char* val )
     value.toLowerCase();
     executeCmdsFromNVSKey(value.c_str());
   } else if (argument == "nop") {
-      ; // relex: nothing to do!!!!
+      ; // relax: nothing to do!!!!
   } else if (argument == "lock") {
       chomp(value);
       value.toLowerCase();
-      doLockHmi(value, ivalue); // relex: nothing to do!!!!
+      doLockHmi(value, ivalue); 
   } else if (argument == "lockvol") {
       chomp(value);
       value.toLowerCase();
-      doLockVol(value, ivalue); // relex: nothing to do!!!!
+      doLockVol(value, ivalue); 
+  } else if (argument == "input") {
+    doInput(value);
+  } else if (argument == "read") {
+    doRead(value);                                //TBD: Debug only
   }
 #endif
 #if defined(TRACKLIST)

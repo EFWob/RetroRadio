@@ -1,5 +1,11 @@
 #include <nvs.h>
-#include "MedionRadioExtension.h"
+#include "AMedionRadioExtension.h"
+#include "ARetroRadioExtension.h"
+
+RetroRadioInput *dummy = NULL;//("a33");
+RetroRadioInputADC *dummyVol = NULL;//("a33");
+RetroRadioInputADC *dummySwitch = NULL;//("a35")
+
 #define NVS_ERASE     true            // NVS will be completely deleted if set to true (only use for development, must be false in field SW)
 #define NUMCHANNELS   15
 //#define NUMWAVEBANDS   3
@@ -30,6 +36,8 @@ static uint8_t switchPosition = 0xff;
 static int8_t volumePosition = -1;
 std::vector<int16_t> switchReadings;
 std::vector<int16_t> tuneReadings[10]; 
+std::vector<int16_t> ledPattern[10];
+uint8_t numLeds = 0;
 uint8_t useTuneReadings = 0;
 int16_t tunedChannel = -1;
 int16_t lastTunedChannel = -1;
@@ -77,29 +85,66 @@ void appendPairList(std::vector<int16_t>& v, String value) {
           next++;
         }
 //        Serial.printf("PushBack %d\r\n", atoi(first));
-        v.push_back(atoi(first));
-        v.push_back(atoi(second));
+        int ifirst = atoi(first);
+        int isecond = atoi(second);
+        if (isecond < ifirst) {
+          int t = ifirst;
+          ifirst = isecond;
+          isecond = t;
+        }
+        v.push_back(ifirst);
+        v.push_back(isecond);
         first = next;
       }
      
     }
     free(s);
   }
-  
 }
 
-void executeCmds(String commands) {
-    Serial.printf("EXECUTE: %s\r\n", commands.c_str());
+void readDataList(std::vector<int16_t>& v, String value) {
+  char *s = strdup(value.c_str());
+  if (s) {
+    char *first = s;
+    while (first) {
+      char * next = strchr(first, ',');
+      if (NULL != next) {
+        *next = 0;
+        next++;
+        }
+      v.push_back(atoi(first));
+        first = next;
+      }
+     
+    free(s);
+  }
+}
+
+void executeCmds(String commands, String value="") {
+//    Serial.printf("EXECUTE: %s, value=$(%s)\r\n", commands.c_str(), value.c_str());
+    bool haveValue = value.length() > 0;
     char *s = strdup(commands.c_str());
     if (s) {
       char *p = s;
       while (p) {
         char *p1 = strchr(p, ';');
+        char *pv;
         if (p1) {
           *p1 = 0;
           p1++;
         }
-        analyzeCmd(p);
+        if (haveValue && (NULL != (pv = strchr(p, '$')))) {
+          String valueExpansion = "";
+          while (pv) {
+            *pv = 0;
+            valueExpansion = valueExpansion + String(p) + value;
+            p = pv + 1;
+            pv = strchr(p, '$');
+          }
+          valueExpansion = valueExpansion + String(p);
+          analyzeCmd(valueExpansion.c_str());
+        } else
+          analyzeCmd(p);
         mp3loop();                // in case of "stop" wait for sdcard to stop playing
         p = p1;  
       }      
@@ -108,35 +153,35 @@ void executeCmds(String commands) {
 }
   
 
-bool executeCmdsFromNVSKey(const char *key) {
+bool executeCmdsFromNVSKey(const char *key, String value) {
   bool ret = false;
   if (nvssearch(key)) 
      if (ret = (nvsgetstr(key).length() > 0))
-      executeCmds(nvsgetstr(key));
+      executeCmds(nvsgetstr(key), value);
   return ret;
 }
 
 
-bool executeCmdsFromEvent(const char *event, bool apiLock = false) {
-  bool ret = false;
+bool executeCmdsFromEvent(const char *event, bool executeOnlyExtra = false, String value = "") {
+  bool ret = executeOnlyExtra;
   char s[20];
   strcpy(s+2, event);
   s[0] = '@';
-  s[1] = apiLock?'2':(localfile?'1':'0');
-  ret = executeCmdsFromNVSKey(s);
-  if (!apiLock) {
+  s[1] = hmiLock?'2':'0' + (localfile?1:0);
+  if (!ret)
+    ret = executeCmdsFromNVSKey(s, value);
+  if (!hmiLock) {
     s[0] = '+';
-    executeCmdsFromNVSKey(s);
+    executeCmdsFromNVSKey(s, value);
   }
-  if (!ret && !apiLock) {
+  if (!ret && !hmiLock) {
     s[1] = '@';
-    ret = executeCmdsFromNVSKey(s + 1); 
+    ret = executeCmdsFromNVSKey(s + 1, value); 
   }
-  if (!apiLock) {
+  if (!hmiLock) {
     s[1] = '+';
-    executeCmdsFromNVSKey(s + 1);
+    executeCmdsFromNVSKey(s + 1, value);
   }
-
   return ret;
 }
 
@@ -145,12 +190,9 @@ void setSwitchPositions(String value) {
 }
 
 void setTunePositions(String idxStr, String value) {
-
-  Serial.printf("\r\n\r\nAdding tunePositions[%s]=%sßr\n\r\n", idxStr.c_str(), value.c_str());
   int idx = atoi(idxStr.c_str());
   if ((idx < 0) || (idx > 9))
     idx = 0;
-
   appendPairList(tuneReadings[idx], value);
 }
 
@@ -280,6 +322,15 @@ uint16_t medionSwitchPositionCalibrationDefault[] = {
 };
 
 
+void doInput(String value) {
+  Serial.printf("INPUT with value %s\r\n", value.c_str());
+  dummy->setParameters(value);
+}
+
+void doRead(String value) {
+  Serial.printf("Read Input Value=%d\r\n", dummy->read());
+
+}
 
 
 enum led_mode_t {
@@ -463,6 +514,67 @@ void doLockVol(String value, int ivalue) {
 }
 
 
+void showLed(uint8_t idx, uint8_t mode) {
+  if (idx < numLeds) {
+    static uint32_t lastShowTime[10];
+    static std::vector<int16_t>* showPattern[10]; 
+    static int16_t sequenceRepeatCount[10];
+    static int16_t stepRepeatCount[10];
+    static int16_t currentStep[10];
+    static bool flashMode[10];
+    
+    if ((NULL == showPattern[idx]) && (0 == mode))
+      return;
+    if ((mode != 0) || (millis() - lastShowTime[idx] > 50) && (sequenceRepeatCount[idx] >= 0)) {
+      if (mode) {                       // New sequence needs to be started
+        showPattern[idx] = &ledPattern[idx];
+        sequenceRepeatCount[idx] = (*showPattern[idx])[0];
+        stepRepeatCount[idx] = (*showPattern[idx])[1];
+        currentStep[idx] = 3;
+//        Serial.printf("ledcWrite(%d, %d), patternSize = %d\r\n", idx, (*showPattern[idx])[2], showPattern[idx]->size());
+        ledcWrite(idx, (*showPattern[idx])[2]);
+      } if (stepRepeatCount[idx] > 0) {
+        if (--stepRepeatCount[idx] == 0) {
+          currentStep[idx] = currentStep[idx] + 2;
+          if (currentStep[idx] > showPattern[idx]->size()) {
+            currentStep[idx] = 3;
+            if ((*showPattern[idx])[0] > 0)
+              if (0 == --sequenceRepeatCount[idx])
+                --sequenceRepeatCount[idx];
+          }
+          stepRepeatCount[idx] = (*showPattern[idx])[currentStep[idx] - 2];
+          if (sequenceRepeatCount[idx] >= 0) {
+            ledcWrite(idx, (*showPattern[idx])[currentStep[idx] - 1]);
+//            Serial.printf("ledcWrite(%d, %d), step = %d\r\n", idx, (*showPattern[idx])[currentStep[idx] - 1], 
+//                (currentStep[idx] - 3) / 2);
+
+          }
+          else {
+            showPattern[idx] = NULL;
+            handleApiEvent(API_EVENT_LED, idx, true);
+          }
+        }
+      }
+      lastShowTime[idx] = millis();
+    }
+  }
+}
+
+void doLed(uint8_t idx, String value) {
+  if (idx < numLeds) {
+    ledPattern[idx].clear();
+    readDataList(ledPattern[idx], value);
+    if (ledPattern[idx].size() == 0)
+      ledPattern[idx].push_back(0);
+    if (ledPattern[idx].size() == 1) {
+      ledPattern[idx].insert(ledPattern[idx].begin(), 0);
+    }
+    if (ledPattern[idx].size() % 2 == 0) 
+      ledPattern[idx].insert(ledPattern[idx].begin(), 1);
+    showLed(idx, 1);
+  }
+}
+
 void handleApiEventTone(int event, uint32_t param, char *s, bool isDebug = false) {
 uint16_t pressValue = param & 0xffff;
 uint16_t repeatCount = param >> 16;
@@ -480,21 +592,23 @@ char key[20];
     char s[10];
     direct = pressValue > TOUCHREAD_DIRECTDELTA;
   }
+  bool eventConsumed;
+  
   if ((API_EVENT_TONE_LONGPRESSED == event) || (API_EVENT_TONE_2LONGPRESSED == event) || (API_EVENT_TONE_3LONGPRESSED == event)) {
     sprintf(key, "t%c.%d.%d", (direct?'0':'1'), event, repeatCount);
     Serial.printf("  TOUCH EVENT: %s\r\n", key);
-    if (!executeCmdsFromEvent(key, hmiLock)) {
-      sprintf(key, "t%c.%d", (direct?'0':'1'), event, repeatCount);
-      Serial.printf("  TOUCH EVENT: %s\r\n", key);
-      executeCmdsFromEvent(key, hmiLock);
-    }
+    eventConsumed = executeCmdsFromEvent(key, false);
+    sprintf(key, "t%c.%d", (direct?'0':'1'), event, repeatCount);
+    Serial.printf("  TOUCH EVENT: %s\r\n", key);
+    eventConsumed = executeCmdsFromEvent(key, eventConsumed);
   } else {
     sprintf(key, "t%c.%d", (direct?'0':'1'), event);
     Serial.printf("  TOUCH EVENT: %s\r\n", key);
-    executeCmdsFromEvent(key, hmiLock);
+    eventConsumed = executeCmdsFromEvent(key, false);
   }
+  executeCmdsFromEvent("touch", eventConsumed);
   strcpy(s, "");
-
+  
   return;
 
 
@@ -631,11 +745,10 @@ bool isTouchEvent;
         lastSetChannel = channel;
         toggleMedionLED(LED_MODE_HIGH);
         sprintf(key, "tune%d.%d", useTuneReadings, channel);
-        bool haveCommand = executeCmdsFromEvent(key);
-        if (!haveCommand) {
-          sprintf(key, "tune%d", useTuneReadings);
-          haveCommand = executeCmdsFromEvent(key);
-        }
+        bool haveCommand = executeCmdsFromEvent(key, false);
+        sprintf(key, "tune%d", useTuneReadings);
+        haveCommand = executeCmdsFromEvent(key, haveCommand);
+        haveCommand = executeCmdsFromEvent("tune", haveCommand);
         if (!haveCommand)
           if (useTuneReadings < 10) {
           for (int i = 0;i < useTuneReadings;i++)
@@ -684,7 +797,19 @@ bool isTouchEvent;
              
              ) 
       handleApiEventTone(event, param, s);//, s, debuginfo);
-  else
+  else if (API_EVENT_LED == event) {
+    char key[10];
+//    sprintf(s, "API event for LED%d: sequence done.", param & 0xff);        
+    
+    sprintf(key, "led%d", param & 0xff);
+    executeCmdsFromEvent(key);
+  }
+  else if (API_EVENT_START == event) {
+    char key[10];
+    sprintf(s, "API event START.");        
+    executeCmdsFromEvent("start");
+  }
+  else 
     sprintf(s, "Unknown API event: %d with param: %ld\r\n", event, param);
   if ((strstr(s, "API") == s) && (NULL != strstr(s, "is locked!")) && !isTouchEvent) 
     toggleMedionLED(LED_MODE_FLASH3);
@@ -745,10 +870,56 @@ void setupMedionExtension() {
       touch_pad_config(tunePin, 0);
     } 
 
-  if (ini_block.retr_led_pin != -1) {
-    ledcAttachPin(ini_block.retr_led_pin, 0); // Attach LED to Driver channel 0
+  if (ini_block.retr_led0_pin != -1) {
+    numLeds = 1;
+    ledcAttachPin(ini_block.retr_led0_pin, 0); // Attach LED to Driver channel 0
+    Serial.println("LEDO gefunden!");
     ledcSetup(0, 4000, 8);
-    toggleMedionLED(LED_MODE_LOW);
+  }
+  if (ini_block.retr_led1_pin != -1) {
+    ledcAttachPin(ini_block.retr_led1_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led2_pin != -1) {
+    ledcAttachPin(ini_block.retr_led2_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led3_pin != -1) {
+    ledcAttachPin(ini_block.retr_led3_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led4_pin != -1) {
+    ledcAttachPin(ini_block.retr_led4_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led5_pin != -1) {
+    ledcAttachPin(ini_block.retr_led5_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led6_pin != -1) {
+    ledcAttachPin(ini_block.retr_led6_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led7_pin != -1) {
+    ledcAttachPin(ini_block.retr_led7_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led8_pin != -1) {
+    ledcAttachPin(ini_block.retr_led8_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
+  }
+  if (ini_block.retr_led9_pin != -1) {
+    ledcAttachPin(ini_block.retr_led9_pin, 0); // Attach LED to next available driver channel
+    ledcSetup(numLeds, 4000, 8);
+    numLeds++;
   }
   
   if (medionPins.tonePin != TOUCH_PAD_MAX)
@@ -761,14 +932,20 @@ void setupMedionExtension() {
 
    readPresetList();  
   retroRadioSetupDone = true;
+  executeCmdsFromEvent("start");
   tuneKnobRead();
-
+  dummy = new RetroRadioInputTouch("t6");
+  dummyVol = new RetroRadioInputADC("a33");
+  dummySwitch = new RetroRadioInputADC("a35");
+  dummySwitch->setParameters("@$defswitch");
+  dummySwitch->setParameters("show.1");
 }
 
 
 void handleMedionLoop() {
 static bool first = true;
 static bool statusWasNeverPublished = true;
+static int ledToShow = 0;
     if (first)
       setupMedionExtension();
     if (first || (1 == playingstat) || (localfile))
@@ -783,6 +960,14 @@ static bool statusWasNeverPublished = true;
    switchKnobRead();
    volumeKnobRead();
    tuneKnobRead();
+   if (numLeds) {
+    showLed(ledToShow, 0);
+    if (++ledToShow >= numLeds)
+      ledToShow = 0;
+   }
+   dummy->check();
+   dummyVol->check();
+   dummySwitch->check();
 }
 
 
@@ -923,141 +1108,9 @@ brightness_step_t *ret;
 }
 
 void toggleMedionLED(led_mode_t ledMode) {
-enum led_state_t {
-  LED_STATE_LOW = 0,
-  LED_STATE_HIGH, 
-  LED_STATE_INIT,
-  LED_STATE_FLASH = 100
-}  lastState;
 
-static led_state_t ledState = LED_STATE_INIT;
+  return;
 
-static brightness_step_t defaultHighTable[] = {{1, 0xffff}}; 
-static brightness_step_t flash3Table[] = {{1, 0xffff},{2, 0},{2, 0xffff},{3, 0}, {6,0xffff}};
-static brightness_step_t flash2Table[] = {{2, 0xffff},{2, 0},{8, 0xffff},{3, 0}};
-static brightness_step_t flash1Table[] = {{1, 0xffff},{1, 0},{10, 0xffff}};
-static brightness_step_t darkTable[] = {{5000, 0}};
-
-static brightness_step_t *brightnessTable = NULL;
-static size_t brightnessTableSize = 0;
-static size_t brightnessStep;
-static uint8_t brightnessStepIdx;
-brightness_step_t *p;
-
-static uint16_t brightness = 0;
-static uint32_t stateTime = 0;
-bool changed;
-  if (ini_block.retr_led_pin == -1)
-    return;
-  changed = false;
-  lastState = ledState;
-  switch (ledMode) {
-    case LED_MODE_HIGH:
-      ledState = LED_STATE_HIGH;
-      brightnessTable = defaultHighTable;
-      brightnessTableSize = 1;
-      break;
-    case LED_MODE_LOW:
-      if (ledState < 100) {
-        p = (brightness_step_t *)getLowTable(brightnessTableSize);
-        ledState = LED_STATE_LOW;
-        if (p != brightnessTable) {
-          lastState = LED_STATE_HIGH;
-          brightnessTable = p;
-        }
-      }
-      break;
-    case LED_MODE_FORCELOW:
-        p = (brightness_step_t *)getLowTable(brightnessTableSize);
-        ledState = LED_STATE_LOW;
-        if (p != brightnessTable) {
-          lastState = LED_STATE_HIGH;
-          brightnessTable = p;
-        }
-      break;
-    case LED_MODE_FLASH3:
-      if (ledState < 100) {
-        ledState = LED_STATE_FLASH;
-        brightnessTable = flash3Table;
-        brightnessTableSize = sizeof(flash3Table) / sizeof(flash3Table[0]);
-      }
-      break;
-    case LED_MODE_FLASH2:
-      if (ledState < 100) {
-        ledState = LED_STATE_FLASH;
-        brightnessTable = flash2Table;
-        brightnessTableSize = sizeof(flash2Table) / sizeof(flash2Table[0]);
-      }
-      break;    
-    case LED_MODE_FLASH1:
-      if (ledState < 100) {
-        ledState = LED_STATE_FLASH;
-        brightnessTable = flash1Table;
-        brightnessTableSize = sizeof(flash1Table) / sizeof(flash1Table[0]);
-      }
-      break;
-    case LED_MODE_DARK:
-      ledState = LED_STATE_FLASH;
-      brightnessTable = darkTable;
-      brightnessTableSize = sizeof(darkTable) / sizeof(darkTable[0]);
-      break;
-    case LED_MODE_TOGGLE:
-        if ((LED_STATE_LOW == ledState) || (LED_STATE_INIT == ledState)) {
-          ledState = LED_STATE_HIGH;
-          brightnessTable = defaultHighTable;
-          brightnessTableSize = sizeof(defaultHighTable);
-        }
-        else if (LED_STATE_HIGH == ledState) {
-          ledState = LED_STATE_LOW;
-          brightnessTable = (brightness_step_t *)getLowTable(brightnessTableSize);
-        }
-      break;
-  }
-  if ((NULL == brightnessTable) || (0 == brightnessTableSize)) {
-    brightness = 0;
-    changed = true;
-  } else {
-    if (changed = (lastState != ledState)) {
-//      Serial.printf("LED state changed! to %d\r\n", ledState);
-      stateTime = millis();
-      brightnessStep = 0;
-      brightnessStepIdx = 0;
-      brightness = brightnessTable[0].brightness;
-    } else {
-      if (changed = (millis() - stateTime > 50)) {
-        stateTime = millis();
-        if (++brightnessStepIdx >= brightnessTable[brightnessStep].width) {
-          brightnessStepIdx = 0;
-          brightnessStep++;
-          if (brightnessTableSize == brightnessStep) {
-            brightnessStep = 0;
-            if (ledState >= 100) {
-              ledState = LED_STATE_LOW;
-              brightnessTable = (brightness_step_t*)getLowTable(brightnessTableSize);
-            }
-          }
-        }
-        brightness = brightnessTable[brightnessStep].brightness;
-      }
-    }
-  }
-  if (changed) {
-    uint16_t x;
-    if (ini_block.retr_led_inv)
-      x = ~brightness;
-    else
-      x = brightness;
-    static uint32_t lastInfo = 0;
-/*
-    if (millis() - lastInfo > 2000) {
-      Serial.printf("table[%d].width=%d (idx = %d), table[*].bri=0x%04x \r\n", 
-          brightnessStep, brightnessTable[brightnessStep].width, brightnessStepIdx, 
-          brightnessTable[brightnessStep].brightness);
-      lastInfo = millis();
-    }
-    */
-    ledcWrite(0, x >> 8);
-  }
 }
 
 
