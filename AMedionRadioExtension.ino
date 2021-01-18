@@ -863,65 +863,21 @@ void setupMedionExtension() {
   touch_pad_init();
   touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
   touch_pad_filter_start(10);  
+/*
   for(tunePin = TOUCH_PAD_NUM0;tunePin < TOUCH_PAD_MAX;tunePin = (touch_pad_t)((int)tunePin + 1))
     if (touchpin[(int)tunePin].gpio == ini_block.retr_tune_pin)
       break;
   if (tunePin != TOUCH_PAD_MAX) {
       touch_pad_config(tunePin, 0);
     } 
-
+*/
   if (ini_block.retr_led0_pin != -1) {
     numLeds = 1;
     ledcAttachPin(ini_block.retr_led0_pin, 0); // Attach LED to Driver channel 0
     Serial.println("LEDO gefunden!");
     ledcSetup(0, 4000, 8);
   }
-  if (ini_block.retr_led1_pin != -1) {
-    ledcAttachPin(ini_block.retr_led1_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led2_pin != -1) {
-    ledcAttachPin(ini_block.retr_led2_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led3_pin != -1) {
-    ledcAttachPin(ini_block.retr_led3_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led4_pin != -1) {
-    ledcAttachPin(ini_block.retr_led4_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led5_pin != -1) {
-    ledcAttachPin(ini_block.retr_led5_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led6_pin != -1) {
-    ledcAttachPin(ini_block.retr_led6_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led7_pin != -1) {
-    ledcAttachPin(ini_block.retr_led7_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led8_pin != -1) {
-    ledcAttachPin(ini_block.retr_led8_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  if (ini_block.retr_led9_pin != -1) {
-    ledcAttachPin(ini_block.retr_led9_pin, 0); // Attach LED to next available driver channel
-    ledcSetup(numLeds, 4000, 8);
-    numLeds++;
-  }
-  
+/*  
   if (medionPins.tonePin != TOUCH_PAD_MAX)
     touch_pad_config(medionPins.tonePin, 0);
   if (-1 != ini_block.retr_vol_pin)
@@ -929,16 +885,16 @@ void setupMedionExtension() {
   if (-1 != ini_block.retr_switch_pin)
     pinMode(ini_block.retr_switch_pin, INPUT);
     //capaReadPin = new VirtualTouchPin(medionPins.capaPin);
-
+*/
    readPresetList();  
   retroRadioSetupDone = true;
 //  executeCmdsFromEvent("start");
 //  tuneKnobRead();
-  dummy = new RetroRadioInputTouch("t6");
-  dummyVol = new RetroRadioInputADC("a33");
-  dummySwitch = new RetroRadioInputADC("a35");
-  dummySwitch->setParameters("@$defswitch");
-  dummySwitch->setParameters("show.1");
+//  dummy = new RetroRadioInputTouch("t6");
+//  dummyVol = new RetroRadioInputADC("a33");
+//  dummySwitch = new RetroRadioInputADC("a35");
+//  dummySwitch->setParameters("@$defswitch");
+//  dummySwitch->setParameters("show.1");
 }
 
 
@@ -946,7 +902,6 @@ void handleMedionLoop() {
 static bool first = true;
 static bool statusWasNeverPublished = true;
 static int ledToShow = 0;
-    return;
     if (first)
       setupMedionExtension();
     if (first || (1 == playingstat) || (localfile))

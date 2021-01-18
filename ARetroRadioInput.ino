@@ -363,6 +363,16 @@ int16_t RetroRadioInput::read(bool show) {
         doprint("No direct match in map, nearest entry found is: %d", -nearest - 1);
     x = nearest;
   }
+  if (false)  {
+    if (x != _lastUndebounceRead) {
+      _lastUndebounceRead = x;
+      _lastReadTime = millis();
+      x = _lastRead;
+    } else if (x != _lastRead) {
+      if (millis() - _lastReadTime < _debounceTime)
+        x = _lastRead;
+    }
+  }
   return x;
 }
 

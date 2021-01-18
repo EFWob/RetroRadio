@@ -179,6 +179,10 @@
 //#define ILI9341                      // ILI9341 240*320
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
 //
+#if defined(ARDUINO_ESP32_POE)
+#define ETHERNET
+#endif
+
 #include <nvs.h>
 #include <PubSubClient.h>
 #include <WiFiMulti.h>
@@ -195,6 +199,14 @@
 #include <driver/adc.h>
 #include <Update.h>
 #include <base64.h>
+#if defined(ETHERNET)
+#include <ETH.h>
+#define ETHERNET_CONNECT_TIMEOUT      6000 // How long to wait for ethernet?
+
+//#define ETH_CLK_MODE ETH_CLOCK_GPIO17_OUT
+//#define ETH_PHY_POWER 12
+
+#endif
 // Number of entries in the queue
 #define QSIZ 400
 // Debug buffer size
@@ -447,6 +459,10 @@ bool              muteflag = false ;                     // Mute output
 bool              resetreq = false ;                     // Request to reset the ESP32
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
+#if defined(ARDUINO_ESP32_POE)
+                                                         // Or Ethernet connected. To distinguish use next flag
+bool              EthernetFound = false ;                // True if Ethernet connected
+#endif
 bool              mqtt_on = false ;                      // MQTT in use
 String            networks ;                             // Found networks in the surrounding
 uint16_t          mqttcount = 0 ;                        // Counter MAXMQTTCONNECTS
@@ -2131,6 +2147,100 @@ uint32_t ssconv ( const uint8_t* bytes )
 }
 
 
+#if defined(ETHERNET)
+
+static uint32_t ethernetStartTime;
+static bool ethernetStopped;
+
+//**************************************************************************************************
+//                                       C O N N E C T E T H                                       *
+//**************************************************************************************************
+// Connecting to ETH after calling starteth() below.                                               *
+// This function waits for a defined period (at least 5 seconds in my experience) for ethernet ip  *
+// This time starts when starteth() is called.                                                     *
+// In order to avoid delays, starteth() should be first to do in setup(). Then do as much in setup *
+// as possible before calling connecteth() to wait for Ethernet to connect.                        *
+// Returns true if we got IP from ethernet within time.                                            *
+//**************************************************************************************************
+bool connecteth() {
+uint32_t myStartTime = millis();
+  while (!EthernetFound && (millis() - myStartTime < 100))
+    delay(5);
+  while (!EthernetFound && (millis() - ethernetStartTime < ETHERNET_CONNECT_TIMEOUT))
+    delay(5);
+  if (!EthernetFound) {
+    
+    ethernetStopped = false;
+    dbgprint("Ethernet timeout!");
+    WiFi.removeEvent(ethevent);
+  }
+  return EthernetFound;
+}
+
+//**************************************************************************************************
+//                                         S T A R T E T H                                         *
+//**************************************************************************************************
+// Start connect to Ethernet. Must be called before calling connecteth()                           *
+// Returns direct. Ethernet events will be controlled by callback ethevent() below.                *
+//**************************************************************************************************
+void starteth() {
+  ethernetStartTime = millis();
+  WiFi.onEvent(ethevent);
+  ethernetStopped = false;
+  ETH.begin();
+}
+
+//**************************************************************************************************
+//                                         E T H E V E N T                                         *
+//**************************************************************************************************
+// Callback for Ethernet related system events. Main purpose is to set EthernetFound and           *
+// NetworkFound flags.                                                                             *
+//**************************************************************************************************
+
+void ethevent(WiFiEvent_t event)
+{
+  char *pfs;
+  switch (event) {
+    case SYSTEM_EVENT_ETH_START:
+      dbgprint("ETH Started");
+      //set eth hostname here
+      ETH.setHostname(NAME);
+      break;
+    case SYSTEM_EVENT_ETH_CONNECTED:
+      dbgprint("ETH Connected");
+      break;
+    case SYSTEM_EVENT_ETH_GOT_IP:
+      ipaddress = ETH.localIP().toString() ;             // Form IP address
+      pfs = dbgprint ( "Connected to Ethernet");
+      tftlog ( pfs ) ;
+      pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+      tftlog ( pfs ) ;
+      EthernetFound = true;
+      break;
+    case SYSTEM_EVENT_ETH_DISCONNECTED:
+      pfs = dbgprint("ETH Disconnected");
+      tftlog ( pfs );
+      if (EthernetFound) {
+        EthernetFound = false;
+        NetworkFound = false;
+      }
+      break;
+    case SYSTEM_EVENT_ETH_STOP:
+      pfs = dbgprint("ETH Stopped");
+      ethernetStopped = true;
+      tftlog ( pfs );
+      if (EthernetFound) {
+        EthernetFound = false;
+        NetworkFound = false;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+#endif
+
 //**************************************************************************************************
 //                                       C O N N E C T W I F I                                     *
 //**************************************************************************************************
@@ -3371,6 +3481,7 @@ void setup()
   ini_block.retr_vol_force_zero = true;
   ini_block.retr_led_inv = false;
 #endif
+
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
@@ -3435,23 +3546,48 @@ void setup()
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
+#if defined(ETHERNET)
+  starteth();
+  readprefs ( false ) ;                                  // Read preferences
+  vs1053player->begin() ;                                // Initialize VS1053 player
+  delay(10);
+  setup_CH376() ;                                        // Init CH376 if configured
+  NetworkFound = connecteth();
+  if (!NetworkFound) {
+//    esp_eth_stop(NULL);
+    WiFi.disconnect(true);
+    delay(100);
+    mk_lsan() ;                                            // Make a list of acceptable networks
+    WiFi.disconnect() ;                                    // After restart router could still
+    delay ( 500 ) ;                                        // keep old connection
+    WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
+    delay ( 500 ) ;                                        // ??
+    WiFi.persistent ( false ) ;                            // Do not save SSID and password
+    listNetworks() ;                                       // Find WiFi networks
+    tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
+                                   NAME ) ;
+    p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
+    tftlog ( p ) ;                                         // On TFT too
+    NetworkFound = connectwifi() ;                         // Connect to WiFi network
+                                                           // in preferences.
+  }
+#else
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
+  readprefs ( false ) ;                                  // Read preferences
+  vs1053player->begin() ;                                // Initialize VS1053 player
   WiFi.disconnect() ;                                    // After restart router could still
   delay ( 500 ) ;                                        // keep old connection
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
   delay ( 500 ) ;                                        // ??
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
   listNetworks() ;                                       // Find WiFi networks
-  readprefs ( false ) ;                                  // Read preferences
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                NAME ) ;
-  vs1053player->begin() ;                                // Initialize VS1053 player
-  delay(10);
-  setup_CH376() ;                                        // Init CH376 if configured
   p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
   tftlog ( p ) ;                                         // On TFT too
   NetworkFound = connectwifi() ;                         // Connect to WiFi network
+#endif
   dbgprint ( "Start server for commands" ) ;
   cmdserver.begin() ;                                    // Start http server
   if ( NetworkFound )                                    // OTA and MQTT only if Wifi network found
