@@ -120,7 +120,7 @@ void readDataList(std::vector<int16_t>& v, String value) {
   }
 }
 
-void executeCmds(String commands, String value="") {
+void executeCmds(String commands, String value) {
 //    Serial.printf("EXECUTE: %s, value=$(%s)\r\n", commands.c_str(), value.c_str());
     bool haveValue = value.length() > 0;
     char *s = strdup(commands.c_str());
@@ -261,25 +261,76 @@ void addEqualizer(String value) {
 }
 
 void setEqualizer(int idx) {
-  char *s;
+  if (idx)
+    idx = idx - 1;
+  else if (equalizers.size())
+    idx = (currentEqualizer + 1 ) % equalizers.size();
   if (idx < equalizers.size()) {
-    s = strdup(equalizers[idx]);
-    if (s) {
-      currentEqualizer = idx;
-      char *p = s;
-      while (p) {
-        char *p1 = strchr(p, ';');
-        if (p1) {
-          *p1 = 0;
-          p1++;
-        }
-        analyzeCmd(p);
-        p = p1;  
+    currentEqualizer = idx;
+    executeCmds(String(equalizers[idx]));
+  }
+}
+
+std::vector<int16_t> channelList;
+int16_t currentChannel = 0;
+
+void doChannels(String value) {
+  channelList.clear();
+  currentChannel = 0;
+  readDataList(channelList, value);  
+  dbgprint("CHANNELS: %s", value.c_str());
+}
+
+void doChannel(String value, int ivalue) {
+  if (channelList.size() > 0) {
+    int16_t channel = currentChannel;
+    Serial.printf("CurrentChannel = %d, value=%s, ivalue=%d\r\n", channel, value.c_str(), ivalue);
+    if (channel)
+      if (channelList[channel - 1] != ini_block.newpreset) {
+        Serial.println("Channel set to ZERO: does not match current preset");
+        channel = currentChannel = 0;
       }
-      free(s);
+    if (ivalue) {
+      if (ivalue <= channelList.size()) {
+        channel = ivalue;
+      }
+    } else {
+      if (!channel) {
+        currentChannel = channelList.size();
+        while ((currentChannel > 0) && (ini_block.newpreset != channelList[currentChannel - 1]))
+          currentChannel--;
+        channel = currentChannel;
+      }
+      if (value == "up") {
+        if (channel) {
+          if (channel < channelList.size())
+            channel++;
+        } else
+          channel = 1;
+      } else if (value == "down") {
+        if (channel) {
+          if (channel > 1)
+            channel--;
+        } else
+          channel = channelList.size();
+      } else if (value = "any") {
+        if (0 == channel) 
+          channel = 1 + random(channelList.size());
+        else if (channelList.size() > 1)
+          while (channel == currentChannel)
+            channel = 1 + random(channelList.size());
+      }
+    }
+    if (channel != currentChannel) {
+      Serial.printf("New Channel found: %d (was %d) with preset=%d\r\n", channel, currentChannel, channelList[channel-1]);
+      char s[20];   
+      sprintf(s, "%d", channelList[channel - 1]);
+      analyzeCmd("preset", s);  
+      currentChannel = channel;
     }
   }
 }
+
 
 uint16_t tpCapaRead() {
   uint16_t x;
@@ -448,7 +499,7 @@ void doToggleHost(bool isDebug) {
     analyzeCmd("mp3track", "0");
   }
 }
-
+/*
 void doChannel(String value, int ivalue) {
   if (localfile || (useTuneReadings >= 10) || (lastSetChannel == -1))
     return;
@@ -484,7 +535,7 @@ void doChannel(String value, int ivalue) {
     }
   }
 }
-
+*/
 void doRandMode(String value) {
   chomp(value);
   randMode = value;

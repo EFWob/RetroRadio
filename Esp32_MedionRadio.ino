@@ -219,6 +219,7 @@
 #define MEDIONRADIO
 #if defined(MEDIONRADIO)
 #include "AMedionRadioExtension.h"
+#include "ARetroRadioExtension.h"
 #endif
 
 // Max number of presets in preferences
@@ -258,6 +259,7 @@ void        handlebyte_ch ( uint8_t b ) ;
 void        handleFSf ( const String& pagename ) ;
 void        handleCmd()  ;
 char*       dbgprint( const char* format, ... ) ;
+const char* analyzeCmds ( String s ) ;
 const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void        chomp ( String &str ) ;
@@ -476,7 +478,8 @@ int               chunkcount = 0 ;                       // Counter for chunked 
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
 bool              http_response_flag = false ;           // Response required
-uint16_t          ir_value = 0 ;                         // IR code
+uint32_t          ir_value = 0 ;                         // IR code
+volatile uint32_t ir_repeatcode = 0;                     // Code to report, if repeat shot has been detected
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
 uint32_t          ir_1 = 1650 ;                          // Average duration of an IR long pulse
 struct tm         timeinfo ;                             // Will be filled by NTP server
@@ -1515,7 +1518,7 @@ char* dbgprint ( const char* format, ... )
   if ( DEBUG )                                         // DEBUG on?
   {
     Serial.print ( "D: " ) ;                           // Yes, print prefix
-    Serial.println ( sbuf ) ;                          // and the info
+      Serial.println ( sbuf ) ;                        //   yes, print info to Serial
   }
   return sbuf ;                                        // Return stored string
 }
@@ -1727,7 +1730,6 @@ void IRAM_ATTR timer100()
   }
 }
 
-
 //**************************************************************************************************
 //                                          I S R _ I R                                            *
 //**************************************************************************************************
@@ -1741,6 +1743,8 @@ void IRAM_ATTR isr_IR()
   sv uint32_t      t0 = 0 ;                          // To get the interval
   sv uint32_t      ir_locvalue = 0 ;                 // IR code
   sv int           ir_loccount = 0 ;                 // Length of code
+  sv uint32_t      ir_lasttime = 0;                  // Last time of valid code (either first shot or repeat)
+  sv uint8_t       repeat_step = 0;                  // Current Status of repeat code received
   uint32_t         t1, intval ;                      // Current time and interval since last change
   uint32_t         mask_in = 2 ;                     // Mask input for conversion
   uint16_t         mask_out = 1 ;                    // Mask output for conversion
@@ -1750,9 +1754,102 @@ void IRAM_ATTR isr_IR()
   t0 = t1 ;                                          // Save for next compare
   if ( ( intval > 300 ) && ( intval < 800 ) )        // Short pulse?
   {
-    ir_locvalue = ir_locvalue << 1 ;                 // Shift in a "zero" bit
+    if ( repeat_step == 2 )                          // Full preamble for repeat seen?
+    {  
+      if (t1 - ir_lasttime < 120000)                 // Repeat shot is expected 108 ms either after last
+      {                                              // initial key or previous repeat  
+        if ((ir_value == 0) && (ir_repeatcode != 0)) // Last IR value has been consumed? repeatcode is valid?
+        {
+          ir_repeatcode = ir_repeatcode + 0x10000 ;  // Increment repeat counter (stored in upper word)
+          ir_value = ir_repeatcode ;                 // And report repeat with incremented repeat counter
+        }                                            // (repeat counter is in upper word of ir_value) 
+        ir_lasttime = t1 ;                           // Reset timer for next repeat shot.
+      }
+      repeat_step = 0 ;                              // Reset repeat search state  
+    } 
+    else 
+    {
+      ir_locvalue = ir_locvalue << 1 ;               // Shift in a "zero" bit
+      ir_loccount++ ;                                // Count number of received bits
+      ir_0 = ( ir_0 * 3 + intval ) / 4 ;             // Compute average durartion of a short pulse
+  }
+  }
+  else if ( ( intval > 1400 ) && ( intval < 1900 ) ) // Long pulse?
+  {
+    ir_locvalue = ( ir_locvalue << 1 ) + 1 ;         // Shift in a "one" bit
     ir_loccount++ ;                                  // Count number of received bits
-    ir_0 = ( ir_0 * 3 + intval ) / 4 ;               // Compute average durartion of a short pulse
+    ir_1 = ( ir_1 * 3 + intval ) / 4 ;               // Compute average durartion of a short pulse
+  }
+  else if ( ir_loccount == 65 )                      // Value is correct after 65 level changes
+  {
+    ir_value = 0 ;                                   // Clear all 32 bits of ir_value
+    while ( mask_in )                                // Convert 32 bits to 16 bits
+    {
+      if ( ir_locvalue & mask_in )                   // Bit set in pattern?
+      {
+        ir_value |= mask_out ;                       // Set set bit in result
+      }
+      mask_in <<= 2 ;                                // Shift input mask 2 positions
+      mask_out <<= 1 ;                               // Shift output mask 1 position
+    }
+    ir_loccount = 0 ;                                // Ready for next input
+    ir_repeatcode = ir_value ;                       // Store code for repeat shots
+    ir_lasttime = t1 ;                               // Start timer for detecting valid repeat shots
+  }
+  else
+  {
+    if ((intval > 8500) && (intval < 9500) && (repeat_step == 0))         // Check for repeat: a repeat shot starts 
+      repeat_step++;                                                      // with a 9ms pulse
+    else if ((intval > 2000) && (intval < 2500) && (repeat_step == 1))    // followed by a 2.25ms pulse
+      repeat_step++;
+    else
+      repeat_step = 0;                                                    // Reset repeat shot decoding
+    ir_locvalue = 0 ;                                // Reset decoding
+    ir_loccount = 0 ;
+  }
+}
+/*
+//**************************************************************************************************
+//                                          I S R _ I R                                            *
+//**************************************************************************************************
+// Interrupts received from VS1838B on every change of the signal.                                 *
+// Intervals are 640 or 1640 microseconds for data.  syncpulses are 3400 micros or longer.         *
+// Input is complete after 65 level changes.                                                       *
+// Only the last 32 level changes are significant and will be handed over to common data.          *
+//**************************************************************************************************
+void IRAM_ATTR isr_IR()
+{
+  sv uint32_t      t0 = 0 ;                          // To get the interval
+  sv uint32_t      ir_locvalue = 0 ;                 // IR code
+  sv int           ir_loccount = 0 ;                 // Length of code
+  sv uint16_t      ir_repeatcode = 0;                // Code to report, if repeat shot has been detected
+  sv uint32_t      ir_lasttime = 0;                  // Last time of valid code (either first shot or repeat)
+  sv uint8_t       repeat_step = 0;                  // Current Status of repeat code received
+  uint32_t         t1, intval ;                      // Current time and interval since last change
+  uint32_t         mask_in = 2 ;                     // Mask input for conversion
+  uint16_t         mask_out = 1 ;                    // Mask output for conversion
+
+  t1 = micros() ;                                    // Get current time
+  intval = t1 - t0 ;                                 // Compute interval
+  t0 = t1 ;                                          // Save for next compare
+  if ( ( intval > 300 ) && ( intval < 800 ) )        // Short pulse?
+  {
+    if (repeatStep == 2)                             // Preamble for repeat seen?
+    {  
+      if (t1 - ir_lasttime < 120000)                 // Repaet shot is expected after 108 ms (some margin)
+      {  
+        if ((ir_value == 0) && (ir_repeatcode != 0)) // Last IR value has been consumed?
+          ir_value = ir_repeatcode;                  // If so, report repeat 
+        ir_lasttime = t1;                            // Reset timer for next repeat shot.
+      }
+      repeatStep = 0;                                // Reset repeat search state  
+    } 
+    else 
+    {
+      ir_locvalue = ir_locvalue << 1 ;                 // Shift in a "zero" bit
+      ir_loccount++ ;                                  // Count number of received bits
+      ir_0 = ( ir_0 * 3 + intval ) / 4 ;               // Compute average durartion of a short pulse
+    }
   }
   else if ( ( intval > 1400 ) && ( intval < 1900 ) ) // Long pulse?
   {
@@ -1771,15 +1868,26 @@ void IRAM_ATTR isr_IR()
       mask_in <<= 2 ;                                // Shift input mask 2 positions
       mask_out <<= 1 ;                               // Shift output mask 1 position
     }
+    ir_repeatcode = (ir_value & 0xff00) | 
+                ((ir_value & 0xff00) >> 8);          // Remember for repeat press
+    if (0xff != (ir_value ^ ir_repeatcode))          // Extended NEC protocol code?
+      ir_repeatcode = 0;                             // Do not report repeats. 
+    ir_lasttime = t1;                                // Start timer for detecting valid repeat shots
     ir_loccount = 0 ;                                // Ready for next input
   }
   else
   {
+    if ((intval > 8000) && (intval < 10000) && (repeatStep == 0))         // Check for repeat: a repeat shot starts 
+      repeatStep = 1;                                                     // with a 9ms pulse
+    else if ((intval > 2000) && (intval < 2500) && (repeatStep == 1))     // followed by a 2.25ms pulse
+      repeatStep = 2;
+    else
+      repeatStep = 0;                                                     // Reset repeat shot decoding
     ir_locvalue = 0 ;                                // Reset decoding
     ir_loccount = 0 ;
   }
 }
-
+*/
 
 //**************************************************************************************************
 //                                          I S R _ E N C _ S W I T C H                            *
@@ -2149,46 +2257,40 @@ uint32_t ssconv ( const uint8_t* bytes )
 
 #if defined(ETHERNET)
 
-static uint32_t ethernetStartTime;
-static bool ethernetStopped;
 
 //**************************************************************************************************
 //                                       C O N N E C T E T H                                       *
 //**************************************************************************************************
-// Connecting to ETH after calling starteth() below.                                               *
-// This function waits for a defined period (at least 5 seconds in my experience) for ethernet ip  *
-// This time starts when starteth() is called.                                                     *
-// In order to avoid delays, starteth() should be first to do in setup(). Then do as much in setup *
-// as possible before calling connecteth() to wait for Ethernet to connect.                        *
+// Connecting to ETHERNET.                                                                         *
+// This function waits for a defined period (should be at least 5 seconds in my experience) for    *
+// ethernet ip                                                                                     *
 // Returns true if we got IP from ethernet within time.                                            *
+// Problem with ethernet-stack: once started, it can not be stopped again (i. e. if not plugged in)*
+// As a result of running still in background, WiFi will become to slow. Therefore (if not connect *
+// possible within set timeout), a flag is set in NVS and a reset is forced. This flag will be     *
+// evaluated and if set no connect attempt is made but should be left to WiFi.                     *
 //**************************************************************************************************
 bool connecteth() {
 uint32_t myStartTime = millis();
-  while (!EthernetFound && (millis() - myStartTime < 100))
-    delay(5);
-  while (!EthernetFound && (millis() - ethernetStartTime < ETHERNET_CONNECT_TIMEOUT))
-    delay(5);
-  if (!EthernetFound) {
-    
-    ethernetStopped = false;
-    dbgprint("Ethernet timeout!");
-    WiFi.removeEvent(ethevent);
+  if (0 == strcmp(nvsgetstr("ethernet").c_str(), "wifi")) {       // last ethernet attempt failed?
+      nvssetstr("ethernet", "retry");                             // reset flag
+      return false;                                               // but do not attempt Ethernet connection again
+  }
+  WiFi.disconnect(true);                                          // Make sure old connections are stopped
+  myStartTime = millis();
+  WiFi.onEvent(ethevent);                                         // Event handler to catch connect status
+  ETH.begin();
+  while (!EthernetFound && (millis() - myStartTime < ETHERNET_CONNECT_TIMEOUT))
+    delay(5);                                                     // wait for ethernet to succeed (or timeout)
+  WiFi.removeEvent(ethevent);                                     // event handler not needed anymore
+  if (!EthernetFound) {                                           // connection failed?
+      dbgprint("Ethernet did not work! Reset with WiFi-Only!");   
+      nvssetstr("ethernet", "wifi");                              // set flag (to avoid ethernet attempt on next boot)
+      ESP.restart();                                              // and force reset
   }
   return EthernetFound;
 }
 
-//**************************************************************************************************
-//                                         S T A R T E T H                                         *
-//**************************************************************************************************
-// Start connect to Ethernet. Must be called before calling connecteth()                           *
-// Returns direct. Ethernet events will be controlled by callback ethevent() below.                *
-//**************************************************************************************************
-void starteth() {
-  ethernetStartTime = millis();
-  WiFi.onEvent(ethevent);
-  ethernetStopped = false;
-  ETH.begin();
-}
 
 //**************************************************************************************************
 //                                         E T H E V E N T                                         *
@@ -2227,7 +2329,6 @@ void ethevent(WiFiEvent_t event)
       break;
     case SYSTEM_EVENT_ETH_STOP:
       pfs = dbgprint("ETH Stopped");
-      ethernetStopped = true;
       tftlog ( pfs );
       if (EthernetFound) {
         EthernetFound = false;
@@ -3105,24 +3206,87 @@ void scanIR()
   char        mykey[20] ;                                   // For numerated key
   String      val ;                                         // Contents of preference entry
   const char* reply ;                                       // Result of analyzeCmd
+  uint16_t    code ;                                        // The code of the Remote key
+  uint16_t    repeat_count ;                                // Will be increased by every repeated
+                                                            // call to scanIR() until the key is released.
+                                                            // Zero on first detection
 
   if ( ir_value )                                           // Any input?
   {
-    sprintf ( mykey, "ir_%04X", ir_value ) ;                // Form key in preferences
-    if ( nvssearch ( mykey ) )
-    {
-      val = nvsgetstr ( mykey ) ;                           // Get the contents
-      dbgprint ( "IR code %04X received. Will execute %s",
-                 ir_value, val.c_str() ) ;
-      reply = analyzeCmd ( val.c_str() ) ;                  // Analyze command and handle it
-      dbgprint ( reply ) ;                                  // Result for debugging
-    }
-    else
-    {
-      dbgprint ( "IR code %04X received, but not found in preferences!  Timing %d/%d",
-                 ir_value, ir_0, ir_1 ) ;
-    }
+    code = ir_value & 0xffff ;                              // Key code is stored in lower word of ir_value
+    repeat_count = ir_value >> 16 ;                         // Repeat counter in upper word of if_value
     ir_value = 0 ;                                          // Reset IR code received
+    if ( 0 < repeat_count )                                 // Is it a "longpress"?
+    {                                                       // In case of a "longpress", we will first search
+                                                            // for ir_XXXXrY, where XXXX is the HEX code of the
+                                                            // key as usual and Y is the repeat counter in decimal,
+                                                            // just as is, no leading '0'. Example: ir_40BFr20 means
+                                                            // this is the 20th repeat of key with code $0BF. That
+                                                            // translates (roughly) to a press time of (at least) 20 * 100ms
+                                                            // If such a preference is not found, we will search for 
+                                                            // ir_XXXXr, which fires for any repeat count.
+                                                            // That means, ir_XXXXrY takes precedence, if defined for a
+                                                            // specific repeat count, ir_XXXXr will NOT fire.
+                                                            // (BTW: ir_XXXXr0 will never fire. ir_XXXX cannot be masked)
+                                                            // If the 'R' is in uppercase, the event will fire and also 
+                                                            // reset the repeat count.
+      bool done = false ;                                   // Will be set to true if specific ir_XXXXrY has been found.
+      dbgprint ( "Longpress IR code %04X received, "
+                 "repeat count is: %d",
+                code, repeat_count ) ;
+      sprintf ( mykey, "ir_%04XR%d", code , repeat_count) ; // Form key in preferences
+      if ( nvssearch ( mykey ) )                            // Search for specific ir_XXXXRY  
+      {
+        done = true ;                                       // If found, we will not search for ir_XXXXr later
+        val = nvsgetstr ( mykey ) ;                         // Get the contents
+        dbgprint ( "IR code %s received. Will execute %s",
+                  mykey, val.c_str() ) ;
+        reply = analyzeCmds ( val ) ;                       // Analyze command and handle it
+        dbgprint ( reply ) ;                                // Result for debugging
+        ir_repeatcode = ir_repeatcode & 0xffff ;            // Reset repeat count to zero
+      }
+      if ( !done )                                          // Did we not find a specific ir_XXXXRY before?
+      {
+        sprintf ( mykey, "ir_%04Xr%d", code, repeat_count ) ; // Form key in preferences
+        if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
+        {
+          val = nvsgetstr ( mykey ) ;                       // Get the contents
+          dbgprint ( "IR code %s received. Will execute %s",
+                    mykey, val.c_str() ) ;
+          reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
+          dbgprint ( reply ) ;                              // Result for debugging
+        }
+      }
+      if ( !done )                                          // Did we not find a specific ir_XXXXRY or ir_XXXXrY before?
+      {
+        sprintf ( mykey, "ir_%04Xr", code ) ;               // Form key in preferences
+        if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
+        {
+          val = nvsgetstr ( mykey ) ;                       // Get the contents
+          dbgprint ( "IR code %s received. Will execute %s",
+                    mykey, val.c_str() ) ;
+          reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
+          dbgprint ( reply ) ;                              // Result for debugging
+        }
+      }
+    }
+    else                                                    // On first press, do just search for ir_XXXX
+    {
+      sprintf ( mykey, "ir_%04X", code ) ;                  // Form key in preferences
+      if ( nvssearch ( mykey ) )
+      {
+        val = nvsgetstr ( mykey ) ;                           // Get the contents
+        dbgprint ( "IR code %04X received. Will execute %s",
+                   code, val.c_str() ) ;
+        reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
+        dbgprint ( reply ) ;                                  // Result for debugging
+      }
+      else
+      {
+        dbgprint ( "IR code %04X received, but not found in preferences!  Timing %d/%d",
+                   code, ir_0, ir_1 ) ;
+      }
+    }
   }
 }
 
@@ -3546,19 +3710,16 @@ void setup()
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
-#if defined(ETHERNET)
-  starteth();
-  readprefs ( false ) ;                                  // Read preferences
-  vs1053player->begin() ;                                // Initialize VS1053 player
-  delay(10);
-  setup_CH376() ;                                        // Init CH376 if configured
-  NetworkFound = connecteth();
-  if (!NetworkFound) {
-//    esp_eth_stop(NULL);
+#if 0
+//  defined(ETHERNET)
+  if (0 == strcmp(nvsgetstr("ethernet").c_str(), "fail")) {
+    nvssetstr("ethernet", "wifi");
     WiFi.disconnect(true);
     delay(100);
     mk_lsan() ;                                            // Make a list of acceptable networks
     WiFi.disconnect() ;                                    // After restart router could still
+    readprefs ( false ) ;                                  // Read preferences
+    vs1053player->begin() ;                                // Initialize VS1053 player
     delay ( 500 ) ;                                        // keep old connection
     WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
     delay ( 500 ) ;                                        // ??
@@ -3569,24 +3730,53 @@ void setup()
     p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
     tftlog ( p ) ;                                         // On TFT too
     NetworkFound = connectwifi() ;                         // Connect to WiFi network
-                                                           // in preferences.
+                                                          // in preferences.
+
   }
+  else {
+    starteth();
+    readprefs ( false ) ;                                  // Read preferences
+    vs1053player->begin() ;                                // Initialize VS1053 player
+    delay(10);
+    setup_CH376() ;                                        // Init CH376 if configured
+    NetworkFound = connecteth();
+    if (!NetworkFound) {
+      dbgprint("Ethernet did not work! Reset with WiFi-Only!");
+      nvssetstr("ethernet", "fail");
+      ESP.restart();
+    }
+    }
 #else
+
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
   readprefs ( false ) ;                                  // Read preferences
   vs1053player->begin() ;                                // Initialize VS1053 player
-  WiFi.disconnect() ;                                    // After restart router could still
-  delay ( 500 ) ;                                        // keep old connection
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
-  delay ( 500 ) ;                                        // ??
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
-  listNetworks() ;                                       // Find WiFi networks
-  tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
+  WiFi.disconnect() ;                                    // After restart router could still
+#if defined(ETHERNET)
+  adc_power_on();                                        // Workaround to allow GPIO36/39 as IR-Input
+  NetworkFound = connecteth();                           // Try ethernet
+  if (NetworkFound) {                                    // Ethernet success??
+    WiFi.mode(WIFI_OFF);
+//    SerialBT = new BluetoothSerial;                      // yes, so we can start Bluetooth-Serial
+//    SerialBT.begin(NAME);                               // as WiFi is not needed 
+  }
+#else
+  delay ( 500 ) ;                                        // keep old connection
+#endif
+  if (!NetworkFound) {  
+    //WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
+    //delay ( 500 ) ;                                        // ??
+    //WiFi.persistent ( false ) ;                            // Do not save SSID and password
+    listNetworks() ;                                       // Find WiFi networks
+    tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                NAME ) ;
-  p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
-  tftlog ( p ) ;                                         // On TFT too
-  NetworkFound = connectwifi() ;                         // Connect to WiFi network
+    p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
+    tftlog ( p ) ;                                         // On TFT too
+    NetworkFound = connectwifi() ;                         // Connect to WiFi network
+  }
 #endif
   dbgprint ( "Start server for commands" ) ;
   cmdserver.begin() ;                                    // Start http server
@@ -3598,6 +3788,8 @@ void setup()
     ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
     ArduinoOTA.onStart ( otastart ) ;
     ArduinoOTA.begin() ;                                 // Allow update over the air
+ //   if (EthernetFound)
+ //     SerialBT.begin(NAME); 
     if ( mqtt_on )                                       // Broker specified?
     {
       if ( ( ini_block.mqttprefix.length() == 0 ) ||     // No prefix?
@@ -5138,6 +5330,39 @@ void chomp ( String &str )
   str.trim() ;                                        // Remove spaces and CR
 }
 
+//**************************************************************************************************
+//                                   A N A L Y Z E C M D S                                         *
+//**************************************************************************************************
+// Handling of the various commands from remote webclient, Serial or MQTT.                         *
+// Here a sequence of commands is allowed, commands are expected to be seperated by ';'            *   
+//**************************************************************************************************
+const char* analyzeCmds ( String commands )
+{
+  static char reply[512] ;                       // Reply to client, will be returned
+  uint16_t commands_executed = 0 ;               // How many commands have been executed  
+
+  char * cmds = strdup ( commands.c_str() ) ;
+  if ( cmds ) 
+  {
+    char *s = cmds ;
+    while ( s ) 
+    {
+      char * next = strchr (s, ';' ) ;
+      if ( next ) 
+      {
+        *next = 0 ;
+        next++ ;
+      }
+      analyzeCmd ( s ) ;
+      commands_executed++ ;
+      s = next ;
+    }
+    free ( cmds ) ;
+  }
+  snprintf ( reply, sizeof ( reply ), "Executed %d command(s) from sequence %s", commands_executed, commands.c_str() ) ;
+  return reply ;
+}
+
 
 //**************************************************************************************************
 //                                     A N A L Y Z E C M D                                         *
@@ -5505,6 +5730,10 @@ const char* analyzeCmd ( const char* par, const char* val )
   {
     DEBUG = ivalue ;                                  // Yes, set flag accordingly
   }
+  else if ( argument == "btdebug" )                   // debug on/off request for BlueTooth?
+  {
+    DEBUG = ivalue ;                                  // Yes, set flag accordingly
+  }
   else if ( argument == "getnetworks" )               // List all WiFi networks?
   {
     sprintf ( reply, networks.c_str() ) ;             // Reply is SSIDs
@@ -5551,6 +5780,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     strncpy(reply, getradiostatus().c_str(), 179);
   } else if ( argument == "eq" ) {
     setEqualizer (ivalue);
+    strcpy(reply, "OK");
+  } else if ( argument == "channels" ) {
+    doChannels (value);
+    strcpy(reply, "OK");
+  } else if ( argument == "channel" ) {
+    doChannel (value, ivalue);
     strcpy(reply, "OK");
   } else if ( argument.startsWith ( "rr_") ) {
     strcpy(reply, retroradioSetup(argument, value, ivalue).c_str());
@@ -5674,7 +5909,6 @@ String httpheader ( String contentstype )
 //**************************************************************************************************
 // Show a string on the LCD at a specified y-position (0..2) in a specified color.                 *
 // The parameter is the index in tftdata[].                                                        *
-//**************************************************************************************************
 void displayinfo ( uint16_t inx )
 {
   uint16_t       width = dsp_getwidth() ;                  // Normal number of colums

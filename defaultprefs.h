@@ -1,68 +1,96 @@
 // Default preferences in raw data format for PROGMEM
 //
 #define defaultprefs_version 1808016
-const char defprefs_txt[] PROGMEM = R"=====(
-$defadcmap = 0,4095=0,100
-$defpoti = map.0,20=0|101,4000=50,100|4000,4100=100;delta.2;step.1;faststep.10
-$defvolmap = 0=0|1,4095=50,100
-$defswitch = map.4090,4095=0| 1750,2050=1| 0,5=2;calibrate.1;delta.0;step.0;force;
-#
-$tunemap0 = map.80,97=0| 103,115=1| 126,136=2| 148,166=3| 192,210=4| 222,239=5| 252,269=6| 280,320=7;force
-#
-+0tune = led = 12,255, 1,55
-#
+const char defprefs_txt[] PROGMEM = 
+#if defined(ETHERNET)
+R"=====(
 +switch0 = eq=0;usetunings=0;nvs=@0t0.1=channel=up
 +switch1 = eq=1;usetunings=1;nvs=@0t0.1=preset=any
 +switch2 = usetunings=2;nvs=@0t0.1=preset=any
 #
-/input = show.2
-/inputa = @$defpoti;show.0
-/inputt = @$tunemap0;calibrate.1
-#
-@0led0 = led0 = 1, 40,15, 1,28, 1,40, 1,64, 1,96, 1,144, 1,96, 1,64, 1,40, 1,28
 @0t0.1 = channel=up
-@0t0.2 = led0=1, 5,0; debug=0;mp3track=0;
+@0t0.2 = debug=0;mp3track=0
 @0t1.4.0 = channel=toggle
-@0tune0.3 = preset=27  # Statt FIP-Latin
 @0tune1.0 = preset=1
 @0tune1.1 = preset=2
 #
-@1led0 = led0 = 1, 40,15, 1,28, 1,40, 1,64, 1,96, 1,144, 1,96, 1,64, 1,40, 1,28, 1,64, 1,96, 1,144, 1,96, 1,64, 1,40, 1,28
 @1switch0 = stop;debug=1
 @1switch1 = stop;debug=1
 @1switch2 = stop;debug=1
-@1t0.1 = mp3track=0;
-@1t0.2 = stop;led0=1, 5,0;debug=1;channel=this
-@1t1.4.0 = stop;channel=toggle
+@1t0.1 = mp3track=0
+@1t0.2 = stop;debug=1;channel=this
 @1tune0 = mp3track=0  #avoid channel switch when in mp3playback
 @1tune1 = mp3track=0
 #
-@2led0 = led0 = 1, 40,5, 3,4, 1,3, 1,2, 1,1, 1,0, 1,1, 1,2, 1,3, 3,4
-@2t0.1 = lock=0;led0=1, 1,0
-@2t0.2 = lock=0;led0=1, 1,0
-@2t0.3 = lock=0;led0=1, 1,0
+@2t0.1 = lock=0
+@2t0.2 = lock=0
+@2t0.3 = lock=0
+@2t0.6.5 = reset
 #
-@3led0 = led0 = 1, 40,5, 3,4, 1,3, 1,2, 1,1, 1,0, 1,1, 1,2, 1,3, 1,4, 1,3, 1,2, 1,1, 1,0, 1,1, 1,2, 1,3, 1,4
-@3t0.1 = lock=0;led0=1, 1,0
-@3t0.2 = lock=0;led0=1, 1,0
-@3t0.3 = lock=0;led0=1, 1,0
-#
-@start = lock=1;led=1,30,255
+@start = preset=0;volume=70
 #
 @t0.1 = channel=up
-@t0.3 = lock=1;led0=1, 1,0
+@t0.3 = lock=1
 @t0.4 = downvolume=2
 @t0.5 = upvolume=2
 @t0.6.5 = reset
-@t1.2 = lockvol=toggle
+@t1.2 = #lockvol=toggle
+@tune9 = mp3track=0
 #
-pin_rr_led0 = 27      # GPIO Pin for RetroRadio LED
-pin_rr_switch = -1    # GPIO Pin for RetroRadio Switch Knob (ADC1-Pin required) 35
-pin_rr_tune = -1      # GPIO Pin for RetroRadio Tune Knob (Touch-Pin required) 14 == T6
-pin_rr_vol = -1       # GPIO Pin for RetroRadio Volume Potentiometer (ADC1-Pin required) 33
-pin_sd_cs = 22        # GPIO Pin number for SD card "CS"
-pin_vs_cs = 5         # GPIO Pin number for VS1053 "CS"
-pin_vs_dcs = 21       # GPIO Pin number for VS1053 "DCS" (war 32)
+channels = 0,1,2,3,4,5,6,7,10
+#
+ir_10EF = channel = 4 # (4)
+ir_18E7 = channel = 2 # (2)
+ir_22DD = volume=70;channels = 0,1,2,3,4,5,6,7,10;channel=1; #(|<<)
+ir_22DDR4 = upvolume = 3 # (|<<) longpressed
+ir_30CF = channel = 1 # (1)
+ir_38C7 = channel = 5 # (5)
+ir_42BD = channel = 7 # (7)
+ir_4AB5 = channel = 8 # (8)
+ir_52AD = channel = 9 # (9)
+ir_5AA5 = channel = 6 # (6)
+ir_629D = channel = any    #(CH)
+ir_629DR22 = channel = any #(CH) longpressed
+ir_6897 = preset = 1      # (0)
+ir_7A85 = channel = 3 # (3)
+ir_906F = eq               #(EQ)
+ir_906FR10 = eq            #(EQ) (longpressed)
+ir_9867 = preset = 11      #(100+)
+ir_A25D = channel = down    #(CH-)
+ir_A857 = upvolume = 2      #(+)
+ir_A857r = upvolume = 1     #(+) repeat
+ir_A857r20 = upvolume = 2   #(+) pressed for about 2 secs
+ir_A857r21 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_A857r22 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_A857r23 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_A857r24 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_A857r25 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_A857r26 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_A857r27 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
+ir_C23D = mute              #(>||)
+ir_E01F = downvolume = 2    #(-)
+ir_E01Fr = downvolume = 1   #(-) repeat
+ir_E01Fr10 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr11 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr12 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr13 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr14 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr15 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr16 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E01Fr17 = downvolume = 3 #(-) pressed for about 2 secs
+ir_E21D = channel = up      #(CH+)
+#
+pin_ir = 39            # GPIO Pin number for IR receiver
+pin_rr_led = -1#27       # GPIO Pin for RetroRadio LED
+pin_rr_switch = -1#35    # GPIO Pin for RetroRadio Switch Knob (ADC1-Pin required)
+pin_rr_tune = -1#14      # GPIO Pin for RetroRadio Tune Knob (Touch-Pin required)
+pin_rr_vol = -1#33       # GPIO Pin for RetroRadio Volume Potentiometer (ADC1-Pin required)
+pin_sd_cs = 5# 22        # GPIO Pin number for SD card "CS"
+pin_spi_miso = 15    # GPIO Pin for SPI MISO
+pin_spi_mosi = 2     # GPIO Pin for SPI MOSI
+pin_spi_sck = 14     # GPIO Pin for SPI SCK
+pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
+pin_vs_dcs = 16# 21       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
 preset = 4
@@ -118,7 +146,9 @@ rr_eq0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
 rr_eq1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
 rr_eq2 = toneha=7; tonehf=4; tonela=15; tonelf=15
 rr_eq3 = toneha=0; tonehf=3; tonela=0; tonelf=13
-rr_sw_pos = 4090,4095, 1750,2050, 0,5
+rr_sw_pos0 = 4090, 4095
+rr_sw_pos1 = 1750, 2050
+rr_sw_pos2 = 0, 5
 rr_tunepos0 = 80,97, 103,115, 126,136, 148,166, 192,210, 222,239, 252,269 , 280,320
 rr_tunepos1 = 80,95, 99,105, 110,115, 120,125, 132,140, 150,160, 170,180, 190,200, 210,220, 230,240, 250,260, 270,280, 290,320
 rr_vol_min = 50
@@ -129,7 +159,8 @@ tonehf = 3
 tonela = 15
 tonelf = 12
 #
-volume = 72
+volume = 80
 #
 wifi_00 = SSID/passwd
 )=====" ;
+#endif

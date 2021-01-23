@@ -4,6 +4,8 @@
 
 extern String getStringPart(String& value, char delim = ';');
 extern bool getPairInt16(String& value, int16_t& x1, int16_t& x2,bool duplicate = false, char delim = ',');
+extern void executeCmds(String commands, String value = "");
+
 
 struct cmp_str
 {
