@@ -1543,6 +1543,7 @@ char* dbgprint ( const char* format, ... )
   {
     Serial.print ( "D: " ) ;                           // Yes, print prefix
       Serial.println ( sbuf ) ;                        //   yes, print info to Serial
+      Serial.flush ( ) ;
   }
   return sbuf ;                                        // Return stored string
 }
@@ -3433,6 +3434,7 @@ void scanIR()
       {
         done = true ;                                       // If found, we will not search for ir_XXXXr later
         val = nvsgetstr ( mykey ) ;                         // Get the contents
+        chomp_nvs ( val );
         dbgprint ( "IR code for %s received. Will execute %s",
                   mykey, val.c_str() ) ;
         reply = analyzeCmds ( val ) ;                       // Analyze command and handle it
@@ -3446,6 +3448,7 @@ void scanIR()
         if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
         {
           val = nvsgetstr ( mykey ) ;                       // Get the contents
+          chomp_nvs ( val );
           dbgprint ( "IR code for %s received. Will execute %s",
                     mykey, val.c_str() ) ;
           reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
@@ -3458,6 +3461,7 @@ void scanIR()
         if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
         {
           val = nvsgetstr ( mykey ) ;                       // Get the contents
+          chomp_nvs ( val ) ;
           dbgprint ( "IR code for %s received. Will execute %s",
                     mykey, val.c_str() ) ;
           reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
@@ -3471,6 +3475,7 @@ void scanIR()
       if ( nvssearch ( mykey ) )
       {
         val = nvsgetstr ( mykey ) ;                           // Get the contents
+        chomp_nvs ( val ) ;
         dbgprint ( "IR code for %s received. Will execute %s",
                    mykey, val.c_str() ) ;
         reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
@@ -5545,6 +5550,32 @@ void chomp ( String &str )
 }
 
 //**************************************************************************************************
+//                                    C H O M P _ N V S                                            *
+//**************************************************************************************************
+// Do some filtering on de inputstring:                                                            *
+//  - do 'normal' chomp first, return if resulting string does not start with @                    *
+//  - if resulting string starts with '@', nvs is looked if a key with the name following @ is     *
+//    found in nvs. If so, that string (chomped) is returned or empty if key is not found          *
+//**************************************************************************************************
+void chomp_nvs ( String &str )
+{
+  Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
+  chomp ( str ) ;                                     // Normal chomp first
+  if (str.c_str()[0] == '@' )                         // Reference to NVS-Key?
+  {
+    if ( nvssearch (str.c_str() + 1 ) ) 
+    { 
+      str = nvsgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    }
+    else
+      str = "";   
+  }
+}
+
+
+
+//**************************************************************************************************
 //                                   A N A L Y Z E C M D S                                         *
 //**************************************************************************************************
 // Handling of the various commands from remote webclient, Serial or MQTT.                         *
@@ -5667,7 +5698,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   argument.toLowerCase() ;                            // Force to lower case
   value = String ( val ) ;                            // Get the specified value
-  chomp ( value ) ;                                   // Remove comment and extra spaces
+  chomp_nvs ( value ) ;                               // Remove comment and extra spaces
   ivalue = value.toInt() ;                            // Also as an integer
   ivalue = abs ( ivalue ) ;                           // Make positive
   relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?

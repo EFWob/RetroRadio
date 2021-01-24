@@ -37,7 +37,17 @@ There are also some enhancements which are not necessarily associated with the e
 	  example: if the command _volume = @def_volume_ is encountered, the preferences are searched for key _def_volume_ 
 	  which will be used as paramter (if not found, will be substituted by empty string)
 
-
+# Generic enhancements
+Generic enhancements are not specific to the Retro radio idea but can be used in general with the ESP32 Radio.
+## Command handling enhacements
+When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
+command. Commands in a sequence must be seperated by ';'. 
+Consider a "limp home" button on the remote, which brings you to your favorite station (_preset_0_) played
+at an convenient volume (_volume = 75_). So you can define in the preferences _ir_XXXX = volume = 75; preset = 0_
+to achieve that.
+Command values can also be referenced to other preference settings. So if you have a setting _limp_home = volume = 75; preset = 0_
+in the preset, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
+are not permitted). If the given key does not exist, an empty string is used as replacement.
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
 Now also RC5 remotes (Philips protocol) can be decoded. RC5 codes are 14 bits, where the highest bit (b13) is always 1.
