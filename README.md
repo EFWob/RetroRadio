@@ -26,6 +26,7 @@ All of these options can be configured by the preference settings. So if you com
 and use your standard preference settings as before you should notice no difference.
 
 There are also some enhancements which are not necessarily associated with the extended input capabilities:
+
 	- Ethernet can be used (I had to place one radio at a spot with weak WLAN reception)
 	- Philips RC5 protocol is implemented in addition to the NEC protocol. (you can configure in the preference
 	  to use both or only either one of that protocol. By default both are enabled)
