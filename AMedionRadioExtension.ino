@@ -250,7 +250,7 @@ bool retroRadioSetupDone = false;
 
 
 std::vector<char *> equalizers;
-static uint16_t currentEqualizer = 0xffff;
+static uint16_t currentEqualizer = 0;
 
 void addEqualizer(String value) {
   char *p = strdup(value.c_str());
@@ -260,14 +260,46 @@ void addEqualizer(String value) {
   }
 }
 
-void setEqualizer(int idx) {
-  if (idx)
-    idx = idx - 1;
-  else if (equalizers.size())
-    idx = (currentEqualizer + 1 ) % equalizers.size();
-  if (idx < equalizers.size()) {
-    currentEqualizer = idx;
-    executeCmds(String(equalizers[idx]));
+void setEqualizer(String setMode, int idx) {
+  Serial.printf("setEqualizer(%s, %d). CurrentEqualizer is: %d, equalizers definde: %d\r\n", setMode.c_str(), idx, currentEqualizer, equalizers.size());
+  if (equalizers.size() > 0)
+  {
+    uint16_t lastEqualizer = currentEqualizer;
+    if (setMode == "up") 
+    {
+      if (currentEqualizer + 1 < equalizers.size())
+        currentEqualizer++;
+    }
+    else if (setMode == "upwrap") 
+    {
+      if (currentEqualizer + 1 < equalizers.size())
+        currentEqualizer++;
+      else
+        currentEqualizer = 0;
+    }
+    else if (setMode == "down") 
+    {
+      if (currentEqualizer > 0)
+        currentEqualizer--;
+    }
+    else if (setMode == "downwrap") 
+    {
+      if (currentEqualizer )
+        currentEqualizer--;
+      else
+        currentEqualizer = equalizers.size() - 1;
+    }
+    else if (0 == idx) 
+    {
+      if (currentEqualizer + 1 < equalizers.size())
+        currentEqualizer++;
+      else
+        currentEqualizer = 0;      
+    }
+    else if (idx <= equalizers.size())
+      currentEqualizer = idx - 1;
+    if (currentEqualizer != lastEqualizer) 
+      analyzeCmds(equalizers[currentEqualizer]);
   }
 }
 
@@ -739,8 +771,8 @@ strcpy(s, "");
                 selectPreset(waveBand * NUMCHANNELS, isDebug);
             }
             if (API_EVENT_TONE_PRESSED == event) {
-              if ( equalizers.size() > 0 ) 
-                setEqualizer((currentEqualizer + 1 ) % equalizers.size());
+//              if ( equalizers.size() > 0 ) 
+//                setEqualizer((currentEqualizer + 1 ) % equalizers.size());
               Serial.println("Pressed on Gehäuse");
             }
             else if (API_EVENT_TONE_2PRESSED == event)

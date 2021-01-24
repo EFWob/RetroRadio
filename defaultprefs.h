@@ -79,6 +79,31 @@ ir_E01Fr15 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E01Fr16 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E01Fr17 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E21D = channel = up      #(CH+)
+ir_F8010 = upvolume = 2     # (Vol+) Philips
+ir_F8010r = upvolume = 2    # (Vol+) Philips longpress
+ir_F8011 = downvolume = 2   # (Vol-) Philips
+ir_F8011r = downvolume = 2  # (Vol-) Philips longpress
+ir_F80C = volume=70;channels = 0,1,2,3,4,5,6,7,10;channel=1; #(|) auf Philips
+ir_F80CR5 = upvolume = 3    # (|) Philips longpress
+ir_F810 = upvolume = 2      # (Vol+) Philips
+ir_F810r = upvolume = 2     # (Vol+) Philips longpress
+ir_F811 = downvolume = 2    # (Vol-) Philips
+ir_F811r = downvolume = 2   # (Vol-) Philips longpress
+ir_F800 = preset = 1        # (0) Philips
+ir_F801 = channel = 1       # (1) Philips
+ir_F802 = channel = 2       # (2) Philips
+ir_F803 = channel = 3       # (3) Philips
+ir_F804 = channel = 4       # (4) Philips
+ir_F805 = channel = 5       # (5) Philips
+ir_F806 = channel = 6       # (6) Philips
+ir_F807 = channel = 7       # (7) Philips
+ir_F808 = channel = 8       # (8) Philips
+ir_F809 = channel = 9       # (9) Philips
+ir_F80D = mute              # (mute) Philips
+ir_F80F = preset = 11       # (links unten) Philips
+ir_F822 = preset = 22       # (rechts unten) Philips
+ir_F820 = channel = up      # (P+) Philips
+ir_F821 = channel = down    # (P-) Philips
 #
 pin_ir = 39            # GPIO Pin number for IR receiver
 pin_rr_led = -1#27       # GPIO Pin for RetroRadio LED

@@ -287,6 +287,27 @@ uint32_t    ssconv ( const uint8_t* bytes ) ;
 //**************************************************************************************************
 //
 
+
+enum IR_protocol { IR_NONE = 0, IR_NEC, IR_RC5 } ;      // Known IR-Protocols
+
+enum RC5State 
+{
+      RC5STATE_START1, 
+      RC5STATE_MID1, 
+      RC5STATE_MID0, 
+      RC5STATE_START0, 
+      RC5STATE_ERROR, 
+      RC5STATE_BEGIN, 
+      RC5STATE_END
+} ;
+
+struct IR_data 
+{
+   uint16_t command ;                                 // Command received
+   uint16_t repeat_counter ;                          // Repeat counter
+   IR_protocol protocol ;                             // Protocol of command (set to IR_NONE to report to ISR as consumed)
+} ;
+
 enum fs_type { FS_USB, FS_SD } ;                      // USB- or SD interface
 
 struct scrseg_struct                                  // For screen segments
@@ -318,7 +339,9 @@ struct ini_struct
   String         clk_server ;                         // Server to be used for time of day clock
   int8_t         clk_offset ;                         // Offset in hours with respect to UTC
   int8_t         clk_dst ;                            // Number of hours shift during DST
-  int8_t         ir_pin ;                             // GPIO connected to output of IR decoder
+  int8_t         ir_pin ;                             // GPIO connected to output of IR decoder (both RC5 & NEC protocol)
+  int8_t         ir_pin_nec ;                         // GPIO for IR decoder if explicitely NEC protocol only is desired
+  int8_t         ir_pin_rc5 ;                         // GPIO for IR decoder if explicitely RC5 protocol only is desired  
   int8_t         enc_clk_pin ;                        // GPIO connected to CLK of rotary encoder
   int8_t         enc_dt_pin ;                         // GPIO connected to DT of rotary encoder
   int8_t         enc_sw_pin ;                         // GPIO connected to SW of rotary encoder
@@ -478,8 +501,9 @@ int               chunkcount = 0 ;                       // Counter for chunked 
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
 bool              http_response_flag = false ;           // Response required
-uint32_t          ir_value = 0 ;                         // IR code
-volatile uint32_t ir_repeatcode = 0;                     // Code to report, if repeat shot has been detected
+volatile IR_data  ir = { 0, 0, IR_NONE } ;               // IR data received
+//uint32_t          ir_value = 0 ;                         // IR code
+//volatile uint32_t ir_repeatcode = 0;                     // Code to report, if repeat shot has been detected
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
 uint32_t          ir_1 = 1650 ;                          // Average duration of an IR long pulse
 struct tm         timeinfo ;                             // Will be filled by NTP server
@@ -1730,40 +1754,140 @@ void IRAM_ATTR timer100()
   }
 }
 
+
 //**************************************************************************************************
-//                                          I S R _ I R                                            *
+//                             D E C O D E R _I R R C 5                                            *
 //**************************************************************************************************
-// Interrupts received from VS1838B on every change of the signal.                                 *
+// Routine for decoding Philips IR Protocol RC5, called from ISR.                                  *
+// Parameter intval holds the length of the last pulse (in microseconds), t0 the current time (in  *
+// microseconds and pin_state the current state of the IR input pin.                               *
+// Algorithm adopted from https://github.com/pinkeen/avr-rc5/blob/master/rc5.c                     *
+// Sets the IR-data for later processing in scanIR()                                               *
+// (Toggle bit in the protocol frame is cleared before reporting result to application             *
+//**************************************************************************************************
+void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
+{
+//#define RC5SHORT_MIN 444   /* 444 microseconds */
+//#define RC5SHORT_MAX 1333  /* 1333 microseconds */
+//#define RC5LONG_MIN 1334   /* 1334 microseconds */
+//#define RC5LONG_MAX 2222   /* 2222 microseconds */
+    const uint8_t trans[4] = {0x01, 0x91, 0x9b, 0xfb} ; // state transition table
+    sv uint8_t rc5_counter = 14 ;                       // Bit counter (counting downwards)
+    sv uint16_t rc5_command = 0 ;                       // The command received 
+    sv RC5State rc5_state = RC5STATE_BEGIN ;            // State of the RC5 decoder statemachine
+    sv uint32_t rc5_lasttime = 0 ;                      // last time a valid command has been received 
+    /* VS1838B pulls the data line up, giving active low,
+     * so the output is inverted. If data pin is high then the edge
+     * was falling and vice versa.
+     * 
+     *  Event numbers:
+     *  0 - short space
+     *  2 - short pulse
+     *  4 - long space
+     *  6 - long pulse
+     */
+
+    uint8_t event = pin_state? 2 : 0 ; 
+    if(intval > 1333 && intval <= 2222)  // "Long" event detected?
+    {
+        event += 4 ;
+    } 
+    else if(intval < 444 || intval > 2222)
+    {
+        /* If delay wasn't long and isn't short then
+         * it is erroneous so we need to reset but
+         * we don't return from interrupt so we don't
+         * loose the edge currently detected. */
+      rc5_counter = 14 ;                   // Bit counter (counting downwards)
+      rc5_command = 0 ;                    // The command received 
+      rc5_state = RC5STATE_BEGIN ;         // State of the RC5 decoder statemachine
+    }
+    if(rc5_state == RC5STATE_BEGIN)         // First bit?
+    {
+        rc5_counter-- ;          
+        rc5_command = 1 ;                   // Is always 1
+        rc5_state = RC5STATE_MID1 ;         // State: Middle of HIGH bit detected
+    } 
+    else 
+    {
+      RC5State rc5_newstate = (RC5State)((trans[rc5_state] >> event) & 0x03);
+      
+      if (rc5_newstate == rc5_state || rc5_state > RC5STATE_START0)
+      {
+        /* No state change or wrong state means
+         * error so reset. */
+        rc5_counter = 14 ;                   // Bit counter (counting downwards)
+        rc5_command = 0 ;                    // The command received 
+        rc5_state = RC5STATE_BEGIN ;         // State of the RC5 decoder statemachine
+      }
+      else
+      {    
+        rc5_state = rc5_newstate ;
+    
+       /* Emit 0 or 1 to rc5_command */
+        if ( (rc5_state == RC5STATE_MID0) || (rc5_state == RC5STATE_MID1))
+        {
+          rc5_counter-- ;
+          rc5_command = rc5_command << 1 ;
+          if (rc5_state == RC5STATE_MID1)
+            rc5_command++ ;
+        }    
+        /* The only valid end states are MID0 and START1.
+        * Mid0 is ok, but if we finish in MID1 we need to wait
+        * for START1 so the last edge is consumed. */
+        if(rc5_counter == 0 && (rc5_state == RC5STATE_START1 || rc5_state == RC5STATE_MID0))
+        {
+          rc5_state = RC5STATE_END ;
+          rc5_command = (rc5_command & 0x37ff) ; // + ((rc5_command & 0x1000) >> 1)+ 0xf000;
+          if (ir.protocol == IR_NONE) 
+          {
+            if ((rc5_command == ir.command) && (t0 - rc5_lasttime < 120000))
+              ir.repeat_counter++ ;
+            else 
+            {
+              ir.command = rc5_command ;
+              ir.repeat_counter = 0 ;
+            }
+            ir.protocol = IR_RC5 ; 
+          }
+          rc5_lasttime = t0;
+        }
+      }
+    }          
+}
+
+
+//**************************************************************************************************
+//                             D E C O D E R _I R N E C                                            *
+//**************************************************************************************************
+// Routine for decoding NEC IR Protocol, called from ISR.                                          *
+// Parameter intval holds the length of the last pulse (in microseconds), t0 the current time (in  *
+// microseconds).                                                                                  *
 // Intervals are 640 or 1640 microseconds for data.  syncpulses are 3400 micros or longer.         *
 // Input is complete after 65 level changes.                                                       *
 // Only the last 32 level changes are significant and will be handed over to common data.          *
 //**************************************************************************************************
-void IRAM_ATTR isr_IR()
+void decoder_IRNEC ( uint32_t intval, uint32_t t0 ) 
 {
-  sv uint32_t      t0 = 0 ;                          // To get the interval
+
   sv uint32_t      ir_locvalue = 0 ;                 // IR code
   sv int           ir_loccount = 0 ;                 // Length of code
   sv uint32_t      ir_lasttime = 0;                  // Last time of valid code (either first shot or repeat)
   sv uint8_t       repeat_step = 0;                  // Current Status of repeat code received
-  uint32_t         t1, intval ;                      // Current time and interval since last change
   uint32_t         mask_in = 2 ;                     // Mask input for conversion
   uint16_t         mask_out = 1 ;                    // Mask output for conversion
-
-  t1 = micros() ;                                    // Get current time
-  intval = t1 - t0 ;                                 // Compute interval
-  t0 = t1 ;                                          // Save for next compare
   if ( ( intval > 300 ) && ( intval < 800 ) )        // Short pulse?
   {
     if ( repeat_step == 2 )                          // Full preamble for repeat seen?
     {  
-      if (t1 - ir_lasttime < 120000)                 // Repeat shot is expected 108 ms either after last
+      if (t0 - ir_lasttime < 120000)                 // Repeat shot is expected 108 ms either after last
       {                                              // initial key or previous repeat  
-        if ((ir_value == 0) && (ir_repeatcode != 0)) // Last IR value has been consumed? repeatcode is valid?
+        if (ir.protocol == IR_NONE)                  // Last IR value has been consumed? repeatcode is valid?
         {
-          ir_repeatcode = ir_repeatcode + 0x10000 ;  // Increment repeat counter (stored in upper word)
-          ir_value = ir_repeatcode ;                 // And report repeat with incremented repeat counter
+          ir.repeat_counter++ ;                      // Increment repeat counter (ir.command should still be valid)
+          ir.protocol = IR_NEC;                      // Set protocol info to indicate valid data has been received
         }                                            // (repeat counter is in upper word of ir_value) 
-        ir_lasttime = t1 ;                           // Reset timer for next repeat shot.
+        ir_lasttime = t0 ;                           // Reset timer for next repeat shot.
       }
       repeat_step = 0 ;                              // Reset repeat search state  
     } 
@@ -1782,19 +1906,20 @@ void IRAM_ATTR isr_IR()
   }
   else if ( ir_loccount == 65 )                      // Value is correct after 65 level changes
   {
-    ir_value = 0 ;                                   // Clear all 32 bits of ir_value
+    ir.command = 0 ;
     while ( mask_in )                                // Convert 32 bits to 16 bits
     {
       if ( ir_locvalue & mask_in )                   // Bit set in pattern?
       {
-        ir_value |= mask_out ;                       // Set set bit in result
+        ir.command |= mask_out ;                     // Set set bit in result
       }
       mask_in <<= 2 ;                                // Shift input mask 2 positions
       mask_out <<= 1 ;                               // Shift output mask 1 position
     }
     ir_loccount = 0 ;                                // Ready for next input
-    ir_repeatcode = ir_value ;                       // Store code for repeat shots
-    ir_lasttime = t1 ;                               // Start timer for detecting valid repeat shots
+    ir.repeat_counter = 0 ;                          // Report as first press
+    ir.protocol = IR_NEC;                            // Set protocol info to indicate valid data has been received
+    ir_lasttime = t0 ;                               // Start timer for detecting valid repeat shots
   }
   else
   {
@@ -1807,12 +1932,78 @@ void IRAM_ATTR isr_IR()
     ir_locvalue = 0 ;                                // Reset decoding
     ir_loccount = 0 ;
   }
+  
 }
+
+//**************************************************************************************************
+//                                          I S R _ I R                                            *
+//**************************************************************************************************
+// Interrupts received from VS1838B on every change of the signal.                                 *
+// This routine will call both decoders for NEC and RC5 protocols.                                 *
+//**************************************************************************************************
+void IRAM_ATTR isr_IR()
+{
+  sv uint32_t      t0 = 0 ;                          // To get the interval
+  uint32_t         t1, intval ;                      // Current time and interval since last change
+  int pin_state = digitalRead(ini_block.ir_pin);     // Get current state of InputPin
+
+  t1 = micros() ;                                    // Get current time
+  intval = t1 - t0 ;                                 // Compute interval
+  t0 = t1 ;                                          // Save for next compare
+
+  decoder_IRRC5 ( intval, t0, pin_state ) ;          // Run decoder for Philips RC5 protocol 
+
+  decoder_IRNEC ( intval, t0 ) ;                     // Run decoder for NEC protocol
+}
+
+//**************************************************************************************************
+//                                          I S R _ I R N E C                                      *
+//**************************************************************************************************
+// Interrupts received from VS1838B on every change of the signal.                                 *
+// This routine will call the decoder for NEC protocol only.                                       *
+//**************************************************************************************************
+void IRAM_ATTR isr_IRNEC()
+{
+  sv uint32_t      t0 = 0 ;                          // To get the interval
+  uint32_t         t1, intval ;                      // Current time and interval since last change
+  int pin_state = digitalRead(ini_block.ir_pin);     // Get current state of InputPin
+
+  t1 = micros() ;                                    // Get current time
+  intval = t1 - t0 ;                                 // Compute interval
+  t0 = t1 ;                                          // Save for next compare
+
+
+  decoder_IRNEC ( intval, t0 ) ;                     // Run decoder for NEC protocol
+}
+
+
+//**************************************************************************************************
+//                                          I S R _ I R R C 5                                      *
+//**************************************************************************************************
+// Interrupts received from VS1838B on every change of the signal.                                 *
+// This routine will call the decoder for RC5 protocol only.                                       *
+//**************************************************************************************************
+void IRAM_ATTR isr_IRRC5()
+{
+  sv uint32_t      t0 = 0 ;                          // To get the interval
+  uint32_t         t1, intval ;                      // Current time and interval since last change
+  int pin_state = digitalRead(ini_block.ir_pin);     // Get current state of InputPin
+
+  t1 = micros() ;                                    // Get current time
+  intval = t1 - t0 ;                                 // Compute interval
+  t0 = t1 ;                                          // Save for next compare
+
+  decoder_IRRC5 ( intval, t0, pin_state ) ;          // Run decoder for Philips RC5 protocol 
+
+}
+
+
 /*
 //**************************************************************************************************
 //                                          I S R _ I R                                            *
 //**************************************************************************************************
 // Interrupts received from VS1838B on every change of the signal.                                 *
+// This routine will call both decoders for NEC and RC5 protocols.                                 *
 // Intervals are 640 or 1640 microseconds for data.  syncpulses are 3400 micros or longer.         *
 // Input is complete after 65 level changes.                                                       *
 // Only the last 32 level changes are significant and will be handed over to common data.          *
@@ -2803,6 +2994,8 @@ void readIOprefs()
   };
   struct iosetting klist[] = {                            // List of I/O related keys
     { "pin_ir",        &ini_block.ir_pin,           -1 },
+    { "pin_ir_nec",    &ini_block.ir_pin_nec,       -1 },
+    { "pin_ir_rc5",    &ini_block.ir_pin_rc5,       -1 },
     { "pin_enc_clk",   &ini_block.enc_clk_pin,      -1 },
     { "pin_enc_dt",    &ini_block.enc_dt_pin,       -1 },
     { "pin_enc_sw",    &ini_block.enc_sw_pin,       -1 },
@@ -3206,17 +3399,17 @@ void scanIR()
   char        mykey[20] ;                                   // For numerated key
   String      val ;                                         // Contents of preference entry
   const char* reply ;                                       // Result of analyzeCmd
-  uint16_t    code ;                                        // The code of the Remote key
-  uint16_t    repeat_count ;                                // Will be increased by every repeated
+//  uint16_t    code ;                                        // The code of the Remote key
+//  uint16_t    repeat_count ;                                // Will be increased by every repeated
                                                             // call to scanIR() until the key is released.
                                                             // Zero on first detection
 
-  if ( ir_value )                                           // Any input?
+  if ( ir.protocol != IR_NONE )                             // Any input?
   {
-    code = ir_value & 0xffff ;                              // Key code is stored in lower word of ir_value
-    repeat_count = ir_value >> 16 ;                         // Repeat counter in upper word of if_value
-    ir_value = 0 ;                                          // Reset IR code received
-    if ( 0 < repeat_count )                                 // Is it a "longpress"?
+    char *protocol_names[] = {"", "NEC", "RC5"} ;           // Known IR protocol names
+//    code = ir.command ;                                     // Key code is stored in lower word of ir_value
+//    repeat_count = ir_value >> 16 ;                         // Repeat counter in upper word of if_value
+    if ( 0 < ir.repeat_counter )                            // Is it a "longpress"?
     {                                                       // In case of a "longpress", we will first search
                                                             // for ir_XXXXrY, where XXXX is the HEX code of the
                                                             // key as usual and Y is the repeat counter in decimal,
@@ -3231,27 +3424,29 @@ void scanIR()
                                                             // If the 'R' is in uppercase, the event will fire and also 
                                                             // reset the repeat count.
       bool done = false ;                                   // Will be set to true if specific ir_XXXXrY has been found.
-      dbgprint ( "Longpress IR code %04X received, "
+      dbgprint ( "Longpress IR code %04X (%s) received, "
                  "repeat count is: %d",
-                code, repeat_count ) ;
-      sprintf ( mykey, "ir_%04XR%d", code , repeat_count) ; // Form key in preferences
+                ir.command, protocol_names[ir.protocol], ir.repeat_counter ) ;
+      sprintf ( mykey, "ir_%04XR%d", ir.command , 
+                          ir.repeat_counter) ;              // Form key in preferences
       if ( nvssearch ( mykey ) )                            // Search for specific ir_XXXXRY  
       {
         done = true ;                                       // If found, we will not search for ir_XXXXr later
         val = nvsgetstr ( mykey ) ;                         // Get the contents
-        dbgprint ( "IR code %s received. Will execute %s",
+        dbgprint ( "IR code for %s received. Will execute %s",
                   mykey, val.c_str() ) ;
         reply = analyzeCmds ( val ) ;                       // Analyze command and handle it
         dbgprint ( reply ) ;                                // Result for debugging
-        ir_repeatcode = ir_repeatcode & 0xffff ;            // Reset repeat count to zero
+        ir.repeat_counter = 0 ;                             // Reset repeat count to zero
       }
       if ( !done )                                          // Did we not find a specific ir_XXXXRY before?
       {
-        sprintf ( mykey, "ir_%04Xr%d", code, repeat_count ) ; // Form key in preferences
+        sprintf ( mykey, "ir_%04Xr%d", 
+                   ir.command, ir.repeat_counter ) ;        // Form key in preferences
         if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
         {
           val = nvsgetstr ( mykey ) ;                       // Get the contents
-          dbgprint ( "IR code %s received. Will execute %s",
+          dbgprint ( "IR code for %s received. Will execute %s",
                     mykey, val.c_str() ) ;
           reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
           dbgprint ( reply ) ;                              // Result for debugging
@@ -3259,11 +3454,11 @@ void scanIR()
       }
       if ( !done )                                          // Did we not find a specific ir_XXXXRY or ir_XXXXrY before?
       {
-        sprintf ( mykey, "ir_%04Xr", code ) ;               // Form key in preferences
+        sprintf ( mykey, "ir_%04Xr", ir.command ) ;         // Form key in preferences
         if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
         {
           val = nvsgetstr ( mykey ) ;                       // Get the contents
-          dbgprint ( "IR code %s received. Will execute %s",
+          dbgprint ( "IR code for %s received. Will execute %s",
                     mykey, val.c_str() ) ;
           reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
           dbgprint ( reply ) ;                              // Result for debugging
@@ -3272,21 +3467,22 @@ void scanIR()
     }
     else                                                    // On first press, do just search for ir_XXXX
     {
-      sprintf ( mykey, "ir_%04X", code ) ;                  // Form key in preferences
+      sprintf ( mykey, "ir_%04X", ir.command ) ;              // Form key in preferences
       if ( nvssearch ( mykey ) )
       {
         val = nvsgetstr ( mykey ) ;                           // Get the contents
-        dbgprint ( "IR code %04X received. Will execute %s",
-                   code, val.c_str() ) ;
+        dbgprint ( "IR code for %s received. Will execute %s",
+                   mykey, val.c_str() ) ;
         reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
         dbgprint ( reply ) ;                                  // Result for debugging
       }
       else
       {
-        dbgprint ( "IR code %04X received, but not found in preferences!  Timing %d/%d",
-                   code, ir_0, ir_1 ) ;
+        dbgprint ( "IR code %04X (protocol %s) received, but not found in preferences!  Timing %d/%d",
+                   ir.command, protocol_names[ir.protocol], ir_0, ir_1 ) ;
       }
     }
+  ir.protocol = IR_NONE ;                                     // Indicate IR code has been handled to ISR
   }
 }
 
@@ -3676,11 +3872,29 @@ void setup()
                               ini_block.vs_shutdownx_pin ) ;
   if ( ini_block.ir_pin >= 0 )
   {
-    dbgprint ( "Enable pin %d for IR",
+    dbgprint ( "Enable pin %d for IR (NEC and RC5)",
                ini_block.ir_pin ) ;
     pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
     attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
                       isr_IR, CHANGE ) ;
+  }
+  if ( ini_block.ir_pin_nec >= 0 )
+  {
+    ini_block.ir_pin = ini_block.ir_pin_nec ;            // ISR reads the pin. So decision which pin to read does not arise in ISR.
+    dbgprint ( "Enable pin %d for IR (NEC)",
+               ini_block.ir_pin ) ;
+    pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
+    attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
+                      isr_IRNEC, CHANGE ) ;
+  }
+  if ( ini_block.ir_pin_rc5 >= 0 )
+  {
+    ini_block.ir_pin = ini_block.ir_pin_rc5 ;            // ISR reads the pin. So decision which pin to read does not arise in ISR.
+    dbgprint ( "Enable pin %d for IR (RC5)",
+               ini_block.ir_pin ) ;
+    pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
+    attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
+                      isr_IRRC5, CHANGE ) ;
   }
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
@@ -5779,7 +5993,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   else if ( argument == "settings" ) {
     strncpy(reply, getradiostatus().c_str(), 179);
   } else if ( argument == "eq" ) {
-    setEqualizer (ivalue);
+    setEqualizer (value, ivalue);
     strcpy(reply, "OK");
   } else if ( argument == "channels" ) {
     doChannels (value);
