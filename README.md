@@ -65,12 +65,12 @@ There is a define now in the very first line of ***RetroRadio.ino*** that reads 
 	  the full timeframe defined by 'ETHERNET_CONNECT_TIMEOUT'). 
 - the following defines are used. They are set to default values in 'ETH.h' (and 'pins_ardunio.h' for ethernet boards). If you need to change
 	  those (not for **OLIMEX ESP32-PoE...**, you need to re-define them before '#include ETH.h' (search in ***RetroRadio.ino***) or set them in the preferences (see below):
-  - ETH_PHY_ADDR 
-	- ETH_PHY_POWER
-	- ETH_PHY_MDC
-	- ETH_PHY_MDIO
-	- ETH_PHY_TYPE
-	- ETH_CLK_MODE
+  - ETH_PHY_ADDR
+  - ETH_PHY_POWER
+  - ETH_PHY_MDC
+  - ETH_PHY_MDIO
+  - ETH_PHY_TYPE
+  - ETH_CLK_MODE
 	  
 ### Preference settings for Ethernet	  
 This section is only valid if you compiled with Ethernet support as described in the paragraph above. If not, all preference settings in this
