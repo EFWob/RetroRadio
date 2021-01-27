@@ -372,6 +372,7 @@ struct ini_struct
   int            eth_phy_mdio;                        // Ethernet Phy MDIO setting
   int            eth_phy_type;                        // Ethernet Phy Type setting
   int            eth_clk_mode;                        // Ethernet clock mode setting
+  int            eth_timeout;                         // Ethernet timeout (in seconds)
 #endif
 #ifdef MEDIONRADIO
 //Settings
@@ -2493,7 +2494,7 @@ uint32_t ethTimeout = ETHERNET_CONNECT_TIMEOUT * 1000;
       ethTimeout = ETHERNET_CONNECT_TIMEOUT; 
     else if (ethTimeout > 2 * ETHERNET_CONNECT_TIMEOUT)
     {
-      dbgprint ("eth_timeout set to %d (seconds) in preferences. This could cause a long delay if ethernet fails!");
+      dbgprint ("eth_timeout set to %d (seconds) in preferences. This will cause a long delay if ethernet fails/is not connected!", ethTimeout);
     }
     ethTimeout *= 1000;
   }

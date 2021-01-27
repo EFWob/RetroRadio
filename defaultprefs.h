@@ -2,11 +2,14 @@
 //
 #define defaultprefs_version 1808016
 const char defprefs_txt[] PROGMEM = 
-#if defined(ETHERNET)
 R"=====(
-+switch0 = eq=0;usetunings=0;nvs=@0t0.1=channel=up
-+switch1 = eq=1;usetunings=1;nvs=@0t0.1=preset=any
-+switch2 = usetunings=2;nvs=@0t0.1=preset=any
+$homedorit = volume=@$inivol;channels = 0,1,2,3,4,5,6,7,10;channel=1
+#
+$inivol = 70
+#
++switch0 = eq=0;usetunings=0;channels=0,1,2,3,4,5,6,7,10;nvs=@0t0.1=channel=up
++switch1 = eq=1;usetunings=1;channels=1,2,10,11,12,13,14,15,16,17,18,19,20;nvs=@0t0.1=preset=any
++switch2 = usetunings=2;channels=21,22,23,24,25,26,27,28;nvs=@0t0.1=preset=any
 #
 @0t0.1 = channel=up
 @0t0.2 = debug=0;mp3track=0
@@ -39,10 +42,39 @@ R"=====(
 #
 channels = 0,1,2,3,4,5,6,7,10
 #
+eth_clk_mode = 3
+eth_phy_power = 12
+eth_timeout = 6
+#
 ir_10EF = channel = 4 # (4)
 ir_18E7 = channel = 2 # (2)
 ir_22DD = volume=70;channels = 0,1,2,3,4,5,6,7,10;channel=1; #(|<<)
 ir_22DDR4 = upvolume = 3 # (|<<) longpressed
+ir_3000 = preset = 1        # (0) Philips
+ir_3001 = channel = 1       # (1) Philips
+ir_3002 = channel = 2       # (2) Philips
+ir_3003 = channel = 3       # (3) Philips
+ir_3004 = channel = 4       # (4) Philips
+ir_3005 = channel = 5       # (5) Philips
+ir_3006 = channel = 6       # (6) Philips
+ir_3007 = channel = 7       # (7) Philips
+ir_3008 = channel = 8       # (8) Philips
+ir_3009 = channel = 9       # (9) Philips
+ir_300C = @$homedorit # volume=70;channels =  0,1,2,3,4,5,6,7,10;channel=1; #(|) auf Philips
+ir_300CR5 = upvolume = 3    # (|) Philips longpress
+ir_300D = mute              # (mute) Philips
+ir_300F = preset = 11       # (links unten) Philips
+ir_3010 = upvolume = 2     # (Vol+) Philips
+ir_3010r = upvolume = 1    # (Vol+) Philips longpress
+ir_3011 = downvolume = 2   # (Vol-) Philips
+ir_3011r = downvolume = 1  # (Vol-) Philips longpress
+ir_3020 = channel = up      # (P+) Philips
+ir_3021 = channel = down    # (P-) Philips
+ir_3022 = preset = 22       # (rechts unten) Philips
+ir_30CA = eq = downwrap     # (unter Note) Philips
+ir_30CAR7 = eq = downwrap   # (unter Note) Philips longpress
+ir_30CB = eq = upwrap       # (Note) Philips
+ir_30CBR7 = eq = upwrap     # (Note) Philips longpress
 ir_30CF = channel = 1 # (1)
 ir_38C7 = channel = 5 # (5)
 ir_42BD = channel = 7 # (7)
@@ -79,46 +111,22 @@ ir_E01Fr15 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E01Fr16 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E01Fr17 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E21D = channel = up      #(CH+)
-ir_F8010 = upvolume = 2     # (Vol+) Philips
-ir_F8010r = upvolume = 2    # (Vol+) Philips longpress
-ir_F8011 = downvolume = 2   # (Vol-) Philips
-ir_F8011r = downvolume = 2  # (Vol-) Philips longpress
-ir_F80C = volume=70;channels = 0,1,2,3,4,5,6,7,10;channel=1; #(|) auf Philips
-ir_F80CR5 = upvolume = 3    # (|) Philips longpress
-ir_F810 = upvolume = 2      # (Vol+) Philips
-ir_F810r = upvolume = 2     # (Vol+) Philips longpress
-ir_F811 = downvolume = 2    # (Vol-) Philips
-ir_F811r = downvolume = 2   # (Vol-) Philips longpress
-ir_F800 = preset = 1        # (0) Philips
-ir_F801 = channel = 1       # (1) Philips
-ir_F802 = channel = 2       # (2) Philips
-ir_F803 = channel = 3       # (3) Philips
-ir_F804 = channel = 4       # (4) Philips
-ir_F805 = channel = 5       # (5) Philips
-ir_F806 = channel = 6       # (6) Philips
-ir_F807 = channel = 7       # (7) Philips
-ir_F808 = channel = 8       # (8) Philips
-ir_F809 = channel = 9       # (9) Philips
-ir_F80D = mute              # (mute) Philips
-ir_F80F = preset = 11       # (links unten) Philips
-ir_F822 = preset = 22       # (rechts unten) Philips
-ir_F820 = channel = up      # (P+) Philips
-ir_F821 = channel = down    # (P-) Philips
 #
-pin_ir = 39            # GPIO Pin number for IR receiver
-pin_rr_led = -1#27       # GPIO Pin for RetroRadio LED
-pin_rr_switch = -1#35    # GPIO Pin for RetroRadio Switch Knob (ADC1-Pin required)
-pin_rr_tune = -1#14      # GPIO Pin for RetroRadio Tune Knob (Touch-Pin required)
-pin_rr_vol = -1#33       # GPIO Pin for RetroRadio Volume Potentiometer (ADC1-Pin required)
-pin_sd_cs = 5# 22        # GPIO Pin number for SD card "CS"
-pin_spi_miso = 15    # GPIO Pin for SPI MISO
-pin_spi_mosi = 2     # GPIO Pin for SPI MOSI
-pin_spi_sck = 14     # GPIO Pin for SPI SCK
+pin-ir_rc5 = 0       # GPIO Pin for IR receiver (RC5 only)
+pin_ir = 0           # GPIO Pin for IR receiver
+pin_rr_led = -1       # GPIO Pin for RetroRadio LED
+pin_rr_switch = -1    # GPIO Pin for RetroRadio Switch Knob (ADC1-Pin required)
+pin_rr_tune = -1      # GPIO Pin for RetroRadio Tune Knob (Touch-Pin required)
+pin_rr_vol = -1       # GPIO Pin for RetroRadio Volume Potentiometer (ADC1-Pin required)
+pin_sd_cs = 5        # GPIO Pin number for SD card "CS"
+pin_spi_miso = 15
+pin_spi_mosi = 2
+pin_spi_sck = 14
 pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
-pin_vs_dcs = 16# 21       # GPIO Pin number for VS1053 "DCS" (war 32)
+pin_vs_dcs = 16       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
-preset = 4
+preset = 3
 preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
 preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
 preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
@@ -179,13 +187,12 @@ rr_tunepos1 = 80,95, 99,105, 110,115, 120,125, 132,140, 150,160, 170,180, 190,20
 rr_vol_min = 50
 rr_vol_zero = 1
 #
-toneha = 5
-tonehf = 3
-tonela = 15
-tonelf = 12
+toneha = 7
+tonehf = 4
+tonela = 8
+tonelf = 14
 #
 volume = 80
 #
 wifi_00 = SSID/passwd
 )=====" ;
-#endif
