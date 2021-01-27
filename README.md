@@ -64,7 +64,7 @@ There is a define now in the very first line of ***RetroRadio.ino*** that reads 
 	  my experience 4 seconds is too short. If the connection succeds earlier, the radio will commence earlier (and will not wait to consume
 	  the full timeframe defined by 'ETHERNET_CONNECT_TIMEOUT'). 
 - the following defines are used. They are set to default values in 'ETH.h' (and 'pins_ardunio.h' for ethernet boards). If you need to change
-	  those (not for **OLIMEX ESP32-PoE...**, you need to re-define them before '#include ETH.h' (search in ***RetroRadio.ino***) or set them in the preferences (see below):
+	  those (not for **OLIMEX ESP32-PoE...**), you need to re-define them before '#include ETH.h' (search in ***RetroRadio.ino***) or set them in the preferences (see below):
   - ETH_PHY_ADDR
   - ETH_PHY_POWER
   - ETH_PHY_MDC
@@ -74,7 +74,46 @@ There is a define now in the very first line of ***RetroRadio.ino*** that reads 
 	  
 ### Preference settings for Ethernet	  
 This section is only valid if you compiled with Ethernet support as described in the paragraph above. If not, all preference settings in this
-paragraph are ignored
+paragraph are ignored.
+
+The easy part here is the preference setting of **eth_timeout**:
+
+- if **eth_timeout = 0** is found, ethernet connection will not be used
+- if any other setting **eth_timeout = x** is found, x is evaluated as number and that number will be used as timeout (in seconds) to wait for an 
+  IP connection to be established over Ethernet.
+  - If that is not a valid number, '0' will be assumed as that number.
+  - If that number is below the value defined by *ETHERNET_CONNECT_TIMEOUT* it will be set to *ETHERNET_CONNECT_TIMEOUT*.
+  - If that number is bigger than two times *ETHERNET_CONNECT_TIMEOUT* a debug warning will be issued (but the value would be used anyway).
+
+The other Ethernet settings that can be configured are:
+- "eth_phy_addr" to override the '#define' for ETH_PHY_ADDR
+- "eth_phy_power" to override the '#define' for ETH_PHY_POWER
+- "eth_phy_mdc" to override the '#define' for ETH_PHY_MDC
+- "eth_phy_mdio" to override the '#define' for ETH_PHY_MDIO
+- "eth_phy_type" to override the '#define' for ETH_PHY_TYPE
+- "eth_clk_mode" to override the '#define' for ETH_CLK_MODE
+
+The problem here is, that *eth_phy_type* and *eth_clk_mode* are enums. They are defined in the sdk include file ***esp_eth.h***. In the preferences they
+are expected as int-type. For the current core 1.0.4 implementation they are defined as follow:
+'''
+typedef enum {
+    ETH_CLOCK_GPIO0_IN = 0,   /*!< RMII clock input to GPIO0 */
+    ETH_CLOCK_GPIO0_OUT = 1,  /*!< RMII clock output from GPIO0 */
+    ETH_CLOCK_GPIO16_OUT = 2, /*!< RMII clock output from GPIO16 */
+    ETH_CLOCK_GPIO17_OUT = 3  /*!< RMII clock output from GPIO17 */
+} eth_clock_mode_t;
+'''
+
+and
+
+'''
+typedef enum {
+    ETH_MODE_RMII = 0, /*!< RMII mode */
+    ETH_MODE_MII,      /*!< MII mode */
+} eth_mode_t;
+'''
+
+For future/different core versions that assignment might change.
 
 
 ## Command handling enhacements
