@@ -86,15 +86,15 @@ The easy part here is the preference setting of **eth_timeout**:
   * If that number is bigger than two times *ETHERNET_CONNECT_TIMEOUT* a debug warning will be issued (but the value would be used anyway).
 
 The other Ethernet settings that can be configured are:
-1 "eth_phy_addr" to override the '#define' for ETH_PHY_ADDR
-1 "eth_phy_power" to override the '#define' for ETH_PHY_POWER
-1 "eth_phy_mdc" to override the '#define' for ETH_PHY_MDC
-1 "eth_phy_mdio" to override the '#define' for ETH_PHY_MDIO
-1 "eth_phy_type" to override the '#define' for ETH_PHY_TYPE
-1 "eth_clk_mode" to override the '#define' for ETH_CLK_MODE
+1. "eth_phy_addr" to override the '#define' for ETH_PHY_ADDR
+1. "eth_phy_power" to override the '#define' for ETH_PHY_POWER
+1. "eth_phy_mdc" to override the '#define' for ETH_PHY_MDC
+1. "eth_phy_mdio" to override the '#define' for ETH_PHY_MDIO
+1. "eth_phy_type" to override the '#define' for ETH_PHY_TYPE
+1. "eth_clk_mode" to override the '#define' for ETH_CLK_MODE
 
 The problem here is, that *eth_phy_type* and *eth_clk_mode* are enums. They are defined in the sdk include file ***esp_eth.h***. In the preferences they
-are expected as int-type. For the current core 1.0.4 implementation they are defined as follow:
+are expected as int-type. For the current core 1.0.4 implementation the mapping is defined as follow:
 '''
 typedef enum {
     ETH_CLOCK_GPIO0_IN = 0,   /*!< RMII clock input to GPIO0 */
@@ -109,11 +109,11 @@ and
 '''
 typedef enum {
     ETH_MODE_RMII = 0, /*!< RMII mode */
-    ETH_MODE_MII,      /*!< MII mode */
+    ETH_MODE_MII,      /* equals 1 !< MII mode */
 } eth_mode_t;
 '''
 
-For future/different core versions that assignment might change.
+**For future/different core versions that assignment might change.**
 
 
 ## Command handling enhacements
