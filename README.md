@@ -29,16 +29,52 @@ There are also some enhancements which are not necessarily associated with the e
  - Ethernet can be used (I had to place one radio at a spot with weak WLAN reception)
  - Philips RC5 protocol is implemented in addition to the NEC protocol. (you can configure in the preference
 	  to use both or only either one of that protocol. By default both are enabled)
- - IR remote handling has been extended to recognise longpress events
+ - IR remote handling has been extended to recognise longpress and release events
  - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
-	  can execute not a single command only, but command sequences also. A command sequence is a list of commands
+	  can execute not only a single command, but command sequences also. A command sequence is a list of commands
 	  separated by _;_
  - when a value for a command is evaluated, you can reference an additional nvs element by _@key_. Simple 
 	  example: if the command _volume = @def_volume_ is encountered, the preferences are searched for key _def_volume_ 
 	  which will be used as paramter (if not found, will be substituted by empty string)
 
-# Generic enhancements
-Generic enhancements are not specific to the Retro radio idea but can be used in general with the ESP32 Radio.
+# Generic additions
+Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio.
+
+## Ethernet support
+### Caveat Emptor
+Ethernet support is the most experimental feature. It is just tested with one specific board, namely the Olimex Esp POE.
+I am pretty sure it will work the same for the Olimex Esp32 POE ISO.
+I have not tested it for any other hardware configurations, but it should work with any hardware combination that is based
+on the native ethernet implementation of the Esp32 chip. 
+
+**USE AT YOUR OWN RISK!**
+
+### Compile time settings for Ethernet
+There is a define now in the very first line of ***RetroRadio.ino*** that reads '#define ETHERNET 1'
+	- this will compile **with** Ethernet support
+	- if changed to '#define ETHERNET 0' (or any value different from '1'), support for Ethernet is **not** compiled
+	- if this line is deleted/commented out, Ethernet support will be compiled depending on the Boards setting in the Tools menu of Arduino IDE.
+	  Currently, only the settings **OLIMEX ESP32-PoE** and **OLIMEX ESP32-PoE-ISO** would then compile Ethernet support.
+	- if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
+	- if compiled with Ethernet support, there is another define that controls the ethernet connection: '#define ETHERNET_CONNECT_TIMEOUT 5'
+	  that defines how long the radio should wait for an ethernet connection to be established (in seconds). If no IP connection over 
+	  ethernet is established in that timeframe, WiFi will be used. That value can be extended by preference settings (but not lowered). In
+	  my experience 4 seconds is too short. If the connection succeds earlier, the radio will commence earlier (and will not wait to consume
+	  the full timeframe defined by 'ETHERNET_CONNECT_TIMEOUT'). 
+	- the following defines are used. They are set to default values in 'ETH.h' (and 'pins_ardunio.h' for ethernet boards). If you need to change
+	  those (not for **OLIMEX ESP32-PoE...**, you need to re-define them before '#include ETH.h' (search in ***RetroRadio.ino***) or set them in the preferences (see below):
+	  	- ETH_PHY_ADDR 
+		- ETH_PHY_POWER
+		- ETH_PHY_MDC
+		- ETH_PHY_MDIO
+		- ETH_PHY_TYPE
+		- ETH_CLK_MODE
+	  
+### Preference settings for Ethernet	  
+This section is only valid if you compiled with Ethernet support as described in the paragraph above. If not, all preference settings in this
+paragraph are ignored
+
+
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
 command. Commands in a sequence must be seperated by ';'. 
@@ -66,7 +102,7 @@ If you want your radio to react on NEC or RC5 codes only, change the pin-setting
   (so if for instance pin_ir_nec and pin_ir_rc5 are defined, the setting for pin_ir_rc5 is ignored and only NEC protocol is decoded using the pin
   specified by pin_ir_rc5)
 
-### Added support for longpress on IR-Remotes
+### Added support for longpress and release on IR-Remotes
 Sometimes it is desirable to have the radio to react on longpress of an IR remote key (Vol+/Vol- for instance). As implemented in the original 
 version, you would get only one ir_XXXX event on pressing a certain key, no matter how long the key is pressed.
 
@@ -86,4 +122,9 @@ Longpress events follwoing that initial press can be catched by the following:
   called at slower rate (roughly every 0.3 seconds instead every 0.1 seconds). *This really resets the repeat counter.* That means any command 
   with a repeat counter > 3 in this example will never get executed. If _ir_XXXXRZ_ is defined, neither _ir_XXXXrZ_ (if defined) nor _ir_XXXXr_ (if
   defined) are executed.
+- If there are no more keypress repeats detected the entry _ir_XXXXx_ will be searched in preferences and (if found) its value will be executed as 
+  command sequence. As said above, the order will always be maintained, so _ir_XXXXx_ will always be last in a key press sequence. 
+- Key release is detected after timeout. This timeout is set to 500ms which counts from the last valid key information reported to scanIR().
+
+
 

@@ -1,3 +1,6 @@
+#define ETHERNET 1  // Set to '0' if you do not want Ethernet support at all
+                    // Uncomment this line if you want Ethernet support depending
+                    // on board setting (works for Olimex POE and most likely Olimex POE ISO)
 //***************************************************************************************************
 //*  ESP32_Radio -- Webradio receiver for ESP32, VS1053 MP3 module and optional display.            *
 //*                 By Ed Smallenburg.                                                              *
@@ -179,8 +182,10 @@
 //#define ILI9341                      // ILI9341 240*320
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
 //
-#if defined(ARDUINO_ESP32_POE)
-#define ETHERNET
+
+#if !defined(ETHERNET) && (defined(ARDUINO_ESP32_POE) || defined(ARDUINO_ESP32_POE_ISO))
+#define ETHERNET 1
+#else define ETHERNET 0
 #endif
 
 #include <nvs.h>
@@ -199,13 +204,9 @@
 #include <driver/adc.h>
 #include <Update.h>
 #include <base64.h>
-#if defined(ETHERNET)
+#if (ETHERNET == 1)
 #include <ETH.h>
-#define ETHERNET_CONNECT_TIMEOUT      6000 // How long to wait for ethernet?
-
-//#define ETH_CLK_MODE ETH_CLOCK_GPIO17_OUT
-//#define ETH_PHY_POWER 12
-
+#define ETHERNET_CONNECT_TIMEOUT      5 // How long to wait for ethernet (at least)?
 #endif
 // Number of entries in the queue
 #define QSIZ 400
@@ -304,6 +305,8 @@ enum RC5State
 struct IR_data 
 {
    uint16_t command ;                                 // Command received
+   uint16_t exitcommand ;                             // Last command, key released, release event due
+   uint32_t exittimeout ;                             // Start for exittimeout
    uint16_t repeat_counter ;                          // Repeat counter
    IR_protocol protocol ;                             // Protocol of command (set to IR_NONE to report to ISR as consumed)
 } ;
@@ -339,49 +342,57 @@ struct ini_struct
   String         clk_server ;                         // Server to be used for time of day clock
   int8_t         clk_offset ;                         // Offset in hours with respect to UTC
   int8_t         clk_dst ;                            // Number of hours shift during DST
-  int8_t         ir_pin ;                             // GPIO connected to output of IR decoder (both RC5 & NEC protocol)
-  int8_t         ir_pin_nec ;                         // GPIO for IR decoder if explicitely NEC protocol only is desired
-  int8_t         ir_pin_rc5 ;                         // GPIO for IR decoder if explicitely RC5 protocol only is desired  
-  int8_t         enc_clk_pin ;                        // GPIO connected to CLK of rotary encoder
-  int8_t         enc_dt_pin ;                         // GPIO connected to DT of rotary encoder
-  int8_t         enc_sw_pin ;                         // GPIO connected to SW of rotary encoder
-  int8_t         tft_cs_pin ;                         // GPIO connected to CS of TFT screen
-  int8_t         tft_dc_pin ;                         // GPIO connected to D/C or A0 of TFT screen
-  int8_t         tft_scl_pin ;                        // GPIO connected to SCL of i2c TFT screen
-  int8_t         tft_sda_pin ;                        // GPIO connected to SDA of I2C TFT screen
-  int8_t         tft_bl_pin ;                         // GPIO to activate BL of display
-  int8_t         tft_blx_pin ;                        // GPIO to activate BL of display (inversed logic)
-  int8_t         sd_cs_pin ;                          // GPIO connected to CS of SD card
-  int8_t         vs_cs_pin ;                          // GPIO connected to CS of VS1053
-  int8_t         vs_dcs_pin ;                         // GPIO connected to DCS of VS1053
-  int8_t         vs_dreq_pin ;                        // GPIO connected to DREQ of VS1053
-  int8_t         vs_shutdown_pin ;                    // GPIO to shut down the amplifier
-  int8_t         vs_shutdownx_pin ;                   // GPIO to shut down the amplifier (inversed logic)
-  int8_t         spi_sck_pin ;                        // GPIO connected to SPI SCK pin
-  int8_t         spi_miso_pin ;                       // GPIO connected to SPI MISO pin
-  int8_t         spi_mosi_pin ;                       // GPIO connected to SPI MOSI pin
-  int8_t         ch376_cs_pin ;                       // GPIO connected to CH376 SS
-  int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
+  int            ir_pin ;                             // GPIO connected to output of IR decoder (both RC5 & NEC protocol)
+  int            ir_pin_nec ;                         // GPIO for IR decoder if explicitely NEC protocol only is desired
+  int            ir_pin_rc5 ;                         // GPIO for IR decoder if explicitely RC5 protocol only is desired  
+  int            enc_clk_pin ;                        // GPIO connected to CLK of rotary encoder
+  int            enc_dt_pin ;                         // GPIO connected to DT of rotary encoder
+  int            enc_sw_pin ;                         // GPIO connected to SW of rotary encoder
+  int            tft_cs_pin ;                         // GPIO connected to CS of TFT screen
+  int            tft_dc_pin ;                         // GPIO connected to D/C or A0 of TFT screen
+  int            tft_scl_pin ;                        // GPIO connected to SCL of i2c TFT screen
+  int            tft_sda_pin ;                        // GPIO connected to SDA of I2C TFT screen
+  int            tft_bl_pin ;                         // GPIO to activate BL of display
+  int            tft_blx_pin ;                        // GPIO to activate BL of display (inversed logic)
+  int            sd_cs_pin ;                          // GPIO connected to CS of SD card
+  int            vs_cs_pin ;                          // GPIO connected to CS of VS1053
+  int            vs_dcs_pin ;                         // GPIO connected to DCS of VS1053
+  int            vs_dreq_pin ;                        // GPIO connected to DREQ of VS1053
+  int            vs_shutdown_pin ;                    // GPIO to shut down the amplifier
+  int            vs_shutdownx_pin ;                   // GPIO to shut down the amplifier (inversed logic)
+  int            spi_sck_pin ;                        // GPIO connected to SPI SCK pin
+  int            spi_miso_pin ;                       // GPIO connected to SPI MISO pin
+  int            spi_mosi_pin ;                       // GPIO connected to SPI MOSI pin
+  int            ch376_cs_pin ;                       // GPIO connected to CH376 SS
+  int            ch376_int_pin ;                      // GPIO connected to CH376 INT
+#if (ETHERNET == 1)
+  int            eth_phy_addr;                        // Ethernet Phy Address setting
+  int            eth_phy_power;                       // Ethernet Power setting
+  int            eth_phy_mdc;                         // Ethernet MDC setting
+  int            eth_phy_mdio;                        // Ethernet Phy MDIO setting
+  int            eth_phy_type;                        // Ethernet Phy Type setting
+  int            eth_clk_mode;                        // Ethernet clock mode setting
+#endif
 #ifdef MEDIONRADIO
 //Settings
-  int8_t         retr_led0_pin ;                       // GPIO connected to Retro Radio LED
-  int8_t         retr_led1_pin ;                       // up to 10 LEDs can be controlled
-  int8_t         retr_led2_pin ;                       // 
-  int8_t         retr_led3_pin ;                       //
-  int8_t         retr_led4_pin ;                       //
-  int8_t         retr_led5_pin ;                       //
-  int8_t         retr_led6_pin ;                       //
-  int8_t         retr_led7_pin ;                       //
-  int8_t         retr_led8_pin ;                       //
-  int8_t         retr_led9_pin ;                       //
-  int8_t         retr_switch_pin ;                     // GPIO connected to Retro Radio WaveBandSwitch
-  int8_t         retr_tune_pin ;                       // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
-  int8_t         retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
-  int8_t         retr_vol_pin ;                       // GPIO connected to Retro Radio Vol Pin
-  bool           retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
-  uint8_t        retr_vol_min;                         // minimum volume
-  uint8_t        retr_vol_max;                         // maximum volume
-  bool           retr_vol_force_zero;                  // volume will be set to zero if set below retr_vol_min
+  int            retr_led0_pin ;                       // GPIO connected to Retro Radio LED
+  int            retr_led1_pin ;                       // up to 10 LEDs can be controlled
+  int            retr_led2_pin ;                       // 
+  int            retr_led3_pin ;                       //
+  int            retr_led4_pin ;                       //
+  int            retr_led5_pin ;                       //
+  int            retr_led6_pin ;                       //
+  int            retr_led7_pin ;                       //
+  int            retr_led8_pin ;                       //
+  int            retr_led9_pin ;                       //
+  int            retr_switch_pin ;                     // GPIO connected to Retro Radio WaveBandSwitch
+  int            retr_tune_pin ;                       // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
+  int            retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
+  int            retr_vol_pin ;                       // GPIO connected to Retro Radio Vol Pin
+  int            retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
+  int            retr_vol_min;                         // minimum volume
+  int            retr_vol_max;                         // maximum volume
+  int            retr_vol_force_zero;                  // volume will be set to zero if set below retr_vol_min
 #endif
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
@@ -484,8 +495,8 @@ bool              muteflag = false ;                     // Mute output
 bool              resetreq = false ;                     // Request to reset the ESP32
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
-#if defined(ARDUINO_ESP32_POE)
                                                          // Or Ethernet connected. To distinguish use next flag
+#if (ETHERNET == 1)
 bool              EthernetFound = false ;                // True if Ethernet connected
 #endif
 bool              mqtt_on = false ;                      // MQTT in use
@@ -501,7 +512,7 @@ int               chunkcount = 0 ;                       // Counter for chunked 
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
 bool              http_response_flag = false ;           // Response required
-volatile IR_data  ir = { 0, 0, IR_NONE } ;               // IR data received
+volatile IR_data  ir = { 0, 0, 0, 0, IR_NONE } ;         // IR data received
 //uint32_t          ir_value = 0 ;                         // IR code
 //volatile uint32_t ir_repeatcode = 0;                     // Code to report, if repeat shot has been detected
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
@@ -1842,10 +1853,11 @@ void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
           rc5_command = (rc5_command & 0x37ff) ; // + ((rc5_command & 0x1000) >> 1)+ 0xf000;
           if (ir.protocol == IR_NONE) 
           {
-            if ((rc5_command == ir.command) && (t0 - rc5_lasttime < 120000))
+            if ((rc5_command == ir.command) && (t0 - rc5_lasttime < 220000))
               ir.repeat_counter++ ;
             else 
             {
+              ir.exitcommand = ir.command ;
               ir.command = rc5_command ;
               ir.repeat_counter = 0 ;
             }
@@ -1907,6 +1919,7 @@ void decoder_IRNEC ( uint32_t intval, uint32_t t0 )
   }
   else if ( ir_loccount == 65 )                      // Value is correct after 65 level changes
   {
+    ir.exitcommand = ir.command ;
     ir.command = 0 ;
     while ( mask_in )                                // Convert 32 bits to 16 bits
     {
@@ -2447,7 +2460,7 @@ uint32_t ssconv ( const uint8_t* bytes )
 }
 
 
-#if defined(ETHERNET)
+#if (ETHERNET==1)
 
 
 //**************************************************************************************************
@@ -2464,21 +2477,40 @@ uint32_t ssconv ( const uint8_t* bytes )
 //**************************************************************************************************
 bool connecteth() {
 uint32_t myStartTime = millis();
-  if (0 == strcmp(nvsgetstr("ethernet").c_str(), "wifi")) {       // last ethernet attempt failed?
-      nvssetstr("ethernet", "retry");                             // reset flag
-      return false;                                               // but do not attempt Ethernet connection again
+uint32_t ethTimeout = ETHERNET_CONNECT_TIMEOUT * 1000;
+  if (nvssearch("eth_timeout"))                                   // Ethernet timeout in preferences?
+  {
+    String val = String(nvsgetstr ("eth_timeout"));               // De-reference to another NVS-Entry?
+    chomp_nvs(val);                                               // remove anything unnecessary
+    if (val == "0")                                               // Explicitely set to Zero?
+    {
+      dbgprint ( "Ethernet disabled in preferences "              // Tell it
+                 "(""eth_timeout = 0"" found)" );
+      return false;                                               // And do not not attempt
+    }
+    ethTimeout = val.toInt();                                     // convert to integer
+    if (ethTimeout < ETHERNET_CONNECT_TIMEOUT)
+      ethTimeout = ETHERNET_CONNECT_TIMEOUT; 
+    else if (ethTimeout > 2 * ETHERNET_CONNECT_TIMEOUT)
+    {
+      dbgprint ("eth_timeout set to %d (seconds) in preferences. This could cause a long delay if ethernet fails!");
+    }
+    ethTimeout *= 1000;
   }
   WiFi.disconnect(true);                                          // Make sure old connections are stopped
   myStartTime = millis();
   WiFi.onEvent(ethevent);                                         // Event handler to catch connect status
-  ETH.begin();
-  while (!EthernetFound && (millis() - myStartTime < ETHERNET_CONNECT_TIMEOUT))
-    delay(5);                                                     // wait for ethernet to succeed (or timeout)
+  if (ETH.begin(ini_block.eth_phy_addr, ini_block.eth_phy_power, ini_block.eth_phy_mdc, 
+                ini_block.eth_phy_mdio, 
+                (eth_phy_type_t)ini_block.eth_phy_type, 
+                (eth_clock_mode_t)ini_block.eth_clk_mode))
+    while (!EthernetFound && (millis() - myStartTime < ethTimeout))
+      delay(5);                                                     // wait for ethernet to succeed (or timeout)
   WiFi.removeEvent(ethevent);                                     // event handler not needed anymore
   if (!EthernetFound) {                                           // connection failed?
-      dbgprint("Ethernet did not work! Reset with WiFi-Only!");   
-      nvssetstr("ethernet", "wifi");                              // set flag (to avoid ethernet attempt on next boot)
-      ESP.restart();                                              // and force reset
+      dbgprint("Ethernet did not work! Will try WiFi next!");   
+      esp_eth_deinit();                                           // leaving Ethernet stack on would lead to 
+                                                                  // distortions on WiFi
   }
   return EthernetFound;
 }
@@ -2990,8 +3022,8 @@ void readIOprefs()
   struct iosetting
   {
     const char* gname ;                                   // Name in preferences
-    int8_t*     gnr ;                                     // GPIO pin number
-    int8_t      pdefault ;                                // Default pin
+    int*        gnr ;                                     // GPIO pin number
+    int         pdefault ;                                // Default pin
   };
   struct iosetting klist[] = {                            // List of I/O related keys
     { "pin_ir",        &ini_block.ir_pin,           -1 },
@@ -3014,16 +3046,21 @@ void readIOprefs()
     { "pin_vs_dreq",   &ini_block.vs_dreq_pin,      -1 },
     { "pin_shutdown",  &ini_block.vs_shutdown_pin,  -1 }, // Amplifier shut-down pin
     { "pin_shutdownx", &ini_block.vs_shutdownx_pin, -1 }, // Amplifier shut-down pin (inversed logic)
-#if defined(ARDUINO_ESP32_POE)
     { "pin_spi_sck",   &ini_block.spi_sck_pin,      SCK },
     { "pin_spi_miso",  &ini_block.spi_miso_pin,     MISO },
     { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     MOSI },
-#else
-    { "pin_spi_sck",   &ini_block.spi_sck_pin,      18 },
-    { "pin_spi_miso",  &ini_block.spi_miso_pin,     19 },
-    { "pin_spi_mosi",  &ini_block.spi_mosi_pin,     23 },
+#if (ETHERNET == 1)
+    { "_noreserve_",   NULL,                        -2 },
+    { "eth_phy_addr",  &ini_block.eth_phy_addr,     ETH_PHY_ADDR },    // Ethernet Phy Address setting
+    { "eth_phy_power", &ini_block.eth_phy_power,    ETH_PHY_POWER },   // Ethernet Power setting
+    { "eth_phy_mdc",   &ini_block.eth_phy_mdc,      ETH_PHY_MDC },     // Ethernet MDC setting
+    { "eth_phy_mdio",  &ini_block.eth_phy_mdio,     ETH_PHY_MDIO },    // Ethernet Phy MDIO setting
+    { "eth_phy_type",  &ini_block.eth_phy_type,     ETH_PHY_TYPE },    // Ethernet Phy Type setting
+    { "eth_clk_mode",  &ini_block.eth_clk_mode,     ETH_CLK_MODE },    // Ethernet clock mode setting
 #endif
+
 #if defined(MEDIONRADIO)
+    { "_noreserve_",   NULL,                        -2 },
     { "pin_rr_led0",   &ini_block.retr_led0_pin,     -1}, // GPIO connected to Retro Radio LED
     { "pin_rr_led1",   &ini_block.retr_led1_pin,     -1}, // GPIO connected to Retro Radio LED
     { "pin_rr_led2",   &ini_block.retr_led2_pin,     -1}, // GPIO connected to Retro Radio LED
@@ -3044,27 +3081,34 @@ void readIOprefs()
   int         i ;                                         // Loop control
   int         count = 0 ;                                 // Number of keys found
   String      val ;                                       // Contents of preference entry
-  int8_t      ival ;                                      // Value converted to integer
-  int8_t*     p ;                                         // Points to variable
-
+  int         ival ;                                      // Value converted to integer
+  int*        p ;                                         // Points to variable
+  bool        noreserve = false ;                         // After *gnr == NULL found, do no longer reserve 
+                                                          // pins (but do ini_block setting still) 
   for ( i = 0 ; klist[i].gname ; i++ )                    // Loop trough all I/O related keys
   {
     p = klist[i].gnr ;                                    // Point to target variable
-    ival = klist[i].pdefault ;                            // Assume pin number to be the default
-    if ( nvssearch ( klist[i].gname ) )                   // Does it exist?
+    if (!p)
+      noreserve = true ;
+    else
     {
-      val = nvsgetstr ( klist[i].gname ) ;                // Read value of key
-      if ( val.length() )                                 // Parameter in preference?
+      ival = klist[i].pdefault ;                          // Assume pin number to be the default
+      if ( nvssearch ( klist[i].gname ) )                 // Does it exist?
       {
-        count++ ;                                         // Yes, count number of filled keys
-        ival = val.toInt() ;                              // Convert value to integer pinnumber
-        reservepin ( ival ) ;                             // Set pin to "reserved"
+        val = nvsgetstr ( klist[i].gname ) ;              // Read value of key
+        if ( val.length() )                               // Parameter in preference?
+        {
+          count++ ;                                       // Yes, count number of filled keys
+          ival = val.toInt() ;                            // Convert value to integer pinnumber
+          if (!noreserve)
+            reservepin ( ival ) ;                         // Set pin to "reserved"
+        }
       }
+      *p = ival ;                                         // Set pinnumber in ini_block
+      dbgprint ( "%s set to %d",                          // Show result
+                 klist[i].gname,
+                 ival ) ;
     }
-    *p = ival ;                                           // Set pinnumber in ini_block
-    dbgprint ( "%s set to %d",                            // Show result
-               klist[i].gname,
-               ival ) ;
   }
 }
 
@@ -3389,6 +3433,75 @@ void  scandigital()
   }
 }
 
+//**************************************************************************************************
+//                             E X E C U T E _ I R _ C O M M A N D                                 *
+//**************************************************************************************************
+// Searches NVS-Keys for specific IR command(s) and executes command(s) if found                   *
+// The keycode is taken from ir-data struct.                                                       *  
+//    if type == "", ir_XXXX commands will be searched for (key pressed)                           *
+//    if type == "r", in order ir_XXXXRY, ir_XXXXrY and ir_XXXXr commands will be searched for (in *
+//    that order) and the commands stored for first found key will be executed (key hold)          *
+//    if type == "x", irXXXXx commands will be searched for (key released)                         *
+//    for any other type content, type is assumed to already contain the nvs-searchkey             *
+//  Returns true if any commands have been found (and executed)                                    * 
+//  If verbose is set to "true", will also report if no entry has been found in NVS                *
+//**************************************************************************************************
+
+bool execute_ir_command ( String type, bool verbose=true ) 
+{
+  char *protocol_names[] = {"", " (NEC)", " (RC5)"} ;           // Known IR protocol names
+  bool ret = false;
+  char mykey[20];
+  bool done = false;                                            // If more than one possible key results, set to 
+                                                                // true if one of those keys already "fired"
+  strcpy(mykey, type.c_str());                                  // Default: type contains the key already
+  if ( type == "" )                                             // If not
+    sprintf ( mykey, "ir_%04X", ir.command );                   // Generate key for "key pressed"
+  else if ( type == "x" )                                       // Or
+    sprintf ( mykey, "ir_%04Xx", ir.exitcommand );              // Generate key for "key released"
+  else if ( type == "r" ) {                                     // Or 
+    done = true;                                                // Generate and already execute sequence of "repeat" events
+    sprintf ( mykey, "ir_%04XR%d",                              // First check, if there is a cyclic command sequence defined
+          ir.command, ir.repeat_counter );
+    ret = execute_ir_command ( String(mykey) );                 // did we have a cyclic sequence?
+    if (ret)                                                    // if so
+    {
+      ir.repeat_counter = 0;                                    // Reset repeat counter
+    }
+    else                                                        // no cyclic sequence found
+    {
+      sprintf ( mykey, "ir_%04Xr%d",                            // Do we have a "longpress" with precise current repeat counter?
+              ir.command, ir.repeat_counter );
+      ret = execute_ir_command ( String(mykey), false );        // try and execute
+      if (!ret)                                                 // Longpress event key for this precise repeat counter found?
+      {                                                         // If not  
+        sprintf ( mykey, "ir_%04Xr", ir.command );              // Search for "unspecific" longpress event ir_XXXXr
+        ret = execute_ir_command ( String(mykey), false );
+      }
+    }
+  }
+  if (! done )                                                  // Did we already (tried) some key(s) (can be from longpress only)
+  {                                                             // If not, mykey now contains the NVS key to check
+    ret = nvssearch ( mykey ) ;                     
+    if (! ret )                                                 // Key not found?
+    {
+      if ( verbose )                                            // Show info if key not found?
+        dbgprint ( "IR event %s%s received but not found in preferences.",
+          mykey, protocol_names[ir.protocol] ) ;
+    }
+    else 
+    {
+      String val = nvsgetstr ( mykey ) ;                    // Get the contents
+      const char* reply;
+      chomp_nvs ( val );
+      dbgprint ( "IR code for %s%sreceived. Will execute %s",
+               mykey, protocol_names[ir.protocol], val.c_str() ) ;
+      reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
+      dbgprint ( reply ) ;                                  // Result for debugging
+    }
+  }
+  return ret;
+}
 
 //**************************************************************************************************
 //                                     S C A N I R                                                 *
@@ -3397,17 +3510,23 @@ void  scandigital()
 //**************************************************************************************************
 void scanIR()
 {
-  char        mykey[20] ;                                   // For numerated key
-  String      val ;                                         // Contents of preference entry
-  const char* reply ;                                       // Result of analyzeCmd
+//  char        mykey[20] ;                                   // For numerated key
+//  String      val ;                                         // Contents of preference entry
+//  const char* reply ;                                       // Result of analyzeCmd
 //  uint16_t    code ;                                        // The code of the Remote key
 //  uint16_t    repeat_count ;                                // Will be increased by every repeated
                                                             // call to scanIR() until the key is released.
                                                             // Zero on first detection
 
+  if ( ir.exitcommand != 0 )                                // Key release detected?
+  {
+    execute_ir_command ( "x" ) ;
+    ir.exitcommand = 0;
+    ir.exittimeout = 0;
+  }
   if ( ir.protocol != IR_NONE )                             // Any input?
   {
-    char *protocol_names[] = {"", "NEC", "RC5"} ;           // Known IR protocol names
+//    char *protocol_names[] = {"", "NEC", "RC5"} ;           // Known IR protocol names
 //    code = ir.command ;                                     // Key code is stored in lower word of ir_value
 //    repeat_count = ir_value >> 16 ;                         // Repeat counter in upper word of if_value
     if ( 0 < ir.repeat_counter )                            // Is it a "longpress"?
@@ -3423,71 +3542,28 @@ void scanIR()
                                                             // specific repeat count, ir_XXXXr will NOT fire.
                                                             // (BTW: ir_XXXXr0 will never fire. ir_XXXX cannot be masked)
                                                             // If the 'R' is in uppercase, the event will fire and also 
-                                                            // reset the repeat count.
-      bool done = false ;                                   // Will be set to true if specific ir_XXXXrY has been found.
-      dbgprint ( "Longpress IR code %04X (%s) received, "
-                 "repeat count is: %d",
-                ir.command, protocol_names[ir.protocol], ir.repeat_counter ) ;
-      sprintf ( mykey, "ir_%04XR%d", ir.command , 
-                          ir.repeat_counter) ;              // Form key in preferences
-      if ( nvssearch ( mykey ) )                            // Search for specific ir_XXXXRY  
-      {
-        done = true ;                                       // If found, we will not search for ir_XXXXr later
-        val = nvsgetstr ( mykey ) ;                         // Get the contents
-        chomp_nvs ( val );
-        dbgprint ( "IR code for %s received. Will execute %s",
-                  mykey, val.c_str() ) ;
-        reply = analyzeCmds ( val ) ;                       // Analyze command and handle it
-        dbgprint ( reply ) ;                                // Result for debugging
-        ir.repeat_counter = 0 ;                             // Reset repeat count to zero
-      }
-      if ( !done )                                          // Did we not find a specific ir_XXXXRY before?
-      {
-        sprintf ( mykey, "ir_%04Xr%d", 
-                   ir.command, ir.repeat_counter ) ;        // Form key in preferences
-        if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
-        {
-          val = nvsgetstr ( mykey ) ;                       // Get the contents
-          chomp_nvs ( val );
-          dbgprint ( "IR code for %s received. Will execute %s",
-                    mykey, val.c_str() ) ;
-          reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
-          dbgprint ( reply ) ;                              // Result for debugging
-        }
-      }
-      if ( !done )                                          // Did we not find a specific ir_XXXXRY or ir_XXXXrY before?
-      {
-        sprintf ( mykey, "ir_%04Xr", ir.command ) ;         // Form key in preferences
-        if ( nvssearch ( mykey ) )                          // Search for more generic ir_XXXXr
-        {
-          val = nvsgetstr ( mykey ) ;                       // Get the contents
-          chomp_nvs ( val ) ;
-          dbgprint ( "IR code for %s received. Will execute %s",
-                    mykey, val.c_str() ) ;
-          reply = analyzeCmds ( val ) ;                     // Analyze command and handle it
-          dbgprint ( reply ) ;                              // Result for debugging
-        }
-      }
+                                                            // reset the repeat count. This is all handled in function                                                            
+      execute_ir_command ( "r" );                           // execute_ir_command ( "r" );
     }
     else                                                    // On first press, do just search for ir_XXXX
     {
-      sprintf ( mykey, "ir_%04X", ir.command ) ;              // Form key in preferences
-      if ( nvssearch ( mykey ) )
-      {
-        val = nvsgetstr ( mykey ) ;                           // Get the contents
-        chomp_nvs ( val ) ;
-        dbgprint ( "IR code for %s received. Will execute %s",
-                   mykey, val.c_str() ) ;
-        reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
-        dbgprint ( reply ) ;                                  // Result for debugging
-      }
-      else
-      {
-        dbgprint ( "IR code %04X (protocol %s) received, but not found in preferences!  Timing %d/%d",
-                   ir.command, protocol_names[ir.protocol], ir_0, ir_1 ) ;
-      }
+      execute_ir_command ( "" ) ;
     }
-  ir.protocol = IR_NONE ;                                     // Indicate IR code has been handled to ISR
+    ir.protocol = IR_NONE ;                                 // Indicate IR code has been handled to ISR
+    ir.exittimeout = millis() ;                             // Set timeout for generating "key released event"  
+  }
+  else                                                      // No new key press/longpress detected
+  {
+    if (( ir.command != 0 ) && (ir.exittimeout != 0 ) )     // was there a valid keypress before
+      if ( millis() - ir.exittimeout > 500 )                // That is too long ago (so no further repeat can be expected)
+      {
+        ir.exitcommand = ir.command ;                       // Set exitcode
+        ir.command = 0 ;                                    // Clear code info  
+        ir.repeat_counter = 0 ;                             // Clear repeat counter (just to be sure)
+        ir.exittimeout = 0 ;                                // Clear exitcode timeout (jsut to be sure)
+        execute_ir_command ( "x" );                         // Search NVS for "key release" ir_XXXXx
+        ir.exitcommand = 0 ;                                // Clear exitcode after it has been used.
+      }
   }
 }
 
@@ -3929,43 +4005,6 @@ void setup()
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
-#if 0
-//  defined(ETHERNET)
-  if (0 == strcmp(nvsgetstr("ethernet").c_str(), "fail")) {
-    nvssetstr("ethernet", "wifi");
-    WiFi.disconnect(true);
-    delay(100);
-    mk_lsan() ;                                            // Make a list of acceptable networks
-    WiFi.disconnect() ;                                    // After restart router could still
-    readprefs ( false ) ;                                  // Read preferences
-    vs1053player->begin() ;                                // Initialize VS1053 player
-    delay ( 500 ) ;                                        // keep old connection
-    WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
-    delay ( 500 ) ;                                        // ??
-    WiFi.persistent ( false ) ;                            // Do not save SSID and password
-    listNetworks() ;                                       // Find WiFi networks
-    tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
-                                   NAME ) ;
-    p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
-    tftlog ( p ) ;                                         // On TFT too
-    NetworkFound = connectwifi() ;                         // Connect to WiFi network
-                                                          // in preferences.
-
-  }
-  else {
-    starteth();
-    readprefs ( false ) ;                                  // Read preferences
-    vs1053player->begin() ;                                // Initialize VS1053 player
-    delay(10);
-    setup_CH376() ;                                        // Init CH376 if configured
-    NetworkFound = connecteth();
-    if (!NetworkFound) {
-      dbgprint("Ethernet did not work! Reset with WiFi-Only!");
-      nvssetstr("ethernet", "fail");
-      ESP.restart();
-    }
-    }
-#else
 
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
@@ -3974,13 +4013,11 @@ void setup()
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
   WiFi.disconnect() ;                                    // After restart router could still
-#if defined(ETHERNET)
+#if (ETHERNET==1)
   adc_power_on();                                        // Workaround to allow GPIO36/39 as IR-Input
   NetworkFound = connecteth();                           // Try ethernet
   if (NetworkFound) {                                    // Ethernet success??
     WiFi.mode(WIFI_OFF);
-//    SerialBT = new BluetoothSerial;                      // yes, so we can start Bluetooth-Serial
-//    SerialBT.begin(NAME);                               // as WiFi is not needed 
   }
 #else
   delay ( 500 ) ;                                        // keep old connection
@@ -3996,7 +4033,7 @@ void setup()
     tftlog ( p ) ;                                         // On TFT too
     NetworkFound = connectwifi() ;                         // Connect to WiFi network
   }
-#endif
+
   dbgprint ( "Start server for commands" ) ;
   cmdserver.begin() ;                                    // Start http server
   if ( NetworkFound )                                    // OTA and MQTT only if Wifi network found
@@ -5559,7 +5596,7 @@ void chomp ( String &str )
 //**************************************************************************************************
 void chomp_nvs ( String &str )
 {
-  Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
+  //Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
   chomp ( str ) ;                                     // Normal chomp first
   if (str.c_str()[0] == '@' )                         // Reference to NVS-Key?
   {
