@@ -95,6 +95,7 @@ The other Ethernet settings that can be configured are:
 
 The problem here is, that *eth_phy_type* and *eth_clk_mode* are enums. They are defined in the sdk include file ***esp_eth.h***. In the preferences they
 are expected as int-type. For the current core 1.0.4 implementation the mapping is defined as follow:
+
 `
 typedef enum {
     ETH_CLOCK_GPIO0_IN = 0,   /*!< RMII clock input to GPIO0 */
