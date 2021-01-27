@@ -51,14 +51,14 @@ on the native ethernet implementation of the Esp32 chip.
 **USE AT YOUR OWN RISK!**
 
 ### Compile time settings for Ethernet
-There is a define now in the very first line of ***RetroRadio.ino*** that reads '#define ETHERNET 1'
+There is a define now in the very first line of ***RetroRadio.ino*** that reads `#define ETHERNET 1`
 	
 * this will compile **with** Ethernet support
-* if changed to '#define ETHERNET 0' (or any value different from '1'), support for Ethernet is **not** compiled
+* if changed to `#define ETHERNET 0` (or any value different from '1'), support for Ethernet is **not** compiled
 * if this line is deleted/commented out, Ethernet support will be compiled depending on the Boards setting in the Tools menu of Arduino IDE.
 	  Currently, only the settings **OLIMEX ESP32-PoE** and **OLIMEX ESP32-PoE-ISO** would then compile Ethernet support.
 * if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
-* if compiled with Ethernet support, there is another define that controls the ethernet connection: '#define ETHERNET_CONNECT_TIMEOUT 5'
+* if compiled with Ethernet support, there is another define that controls the ethernet connection: `#define ETHERNET_CONNECT_TIMEOUT 5`
 	  that defines how long the radio should wait for an ethernet connection to be established (in seconds). If no IP connection over 
 	  ethernet is established in that timeframe, WiFi will be used. That value can be extended by preference settings (but not lowered). In
 	  my experience 4 seconds is too short. If the connection succeds earlier, the radio will commence earlier (and will not wait to consume
@@ -86,14 +86,14 @@ The easy part here is the preference setting of **eth_timeout**:
   * If that number is bigger than two times *ETHERNET_CONNECT_TIMEOUT* a debug warning will be issued (but the value would be used anyway).
 
 The other Ethernet settings that can be configured are:
-1. "eth_phy_addr" to override the '#define' for ETH_PHY_ADDR
-1. "eth_phy_power" to override the '#define' for ETH_PHY_POWER
-1. "eth_phy_mdc" to override the '#define' for ETH_PHY_MDC
-1. "eth_phy_mdio" to override the '#define' for ETH_PHY_MDIO
-1. "eth_phy_type" to override the '#define' for ETH_PHY_TYPE
-1. "eth_clk_mode" to override the '#define' for ETH_CLK_MODE
+1. "eth_phy_addr" to override the `#define` for ETH_PHY_ADDR
+1. "eth_phy_power" to override the `#define` for ETH_PHY_POWER
+1. "eth_phy_mdc" to override the `#define` for ETH_PHY_MDC
+1. "eth_phy_mdio" to override the `#define` for ETH_PHY_MDIO
+1. "eth_phy_type" to override the `#define` for ETH_PHY_TYPE
+1. "eth_clk_mode" to override the `#define` for ETH_CLK_MODE
 
-The problem here is, that *eth_phy_type* and *eth_clk_mode* are enums. They are defined in the sdk include file ***esp_eth.h***. In the preferences they
+The problem here is, that *`eth_phy_type`* and *`eth_clk_mode`* are enums. They are defined in the sdk include file ***esp_eth.h***. In the preferences they
 are expected as int-type. For the current core 1.0.4 implementation the mapping is defined as follow:
 
 ```
