@@ -14,6 +14,7 @@ These type of radio usally have:
   
 In the original version that type of inputs and outputs are not supported directly. This
 version here now supports:
+   
    - analog input (i. e. to control volume by turning the variable resistor attached to
      the volume knob)
    - extended touch input (i. e. to evaluate the position of a variable capacitor to switch
@@ -51,7 +52,8 @@ on the native ethernet implementation of the Esp32 chip.
 
 ### Compile time settings for Ethernet
 There is a define now in the very first line of ***RetroRadio.ino*** that reads '#define ETHERNET 1'
-	- this will compile **with** Ethernet support
+	
+  - this will compile **with** Ethernet support
 	- if changed to '#define ETHERNET 0' (or any value different from '1'), support for Ethernet is **not** compiled
 	- if this line is deleted/commented out, Ethernet support will be compiled depending on the Boards setting in the Tools menu of Arduino IDE.
 	  Currently, only the settings **OLIMEX ESP32-PoE** and **OLIMEX ESP32-PoE-ISO** would then compile Ethernet support.
@@ -63,7 +65,7 @@ There is a define now in the very first line of ***RetroRadio.ino*** that reads 
 	  the full timeframe defined by 'ETHERNET_CONNECT_TIMEOUT'). 
 	- the following defines are used. They are set to default values in 'ETH.h' (and 'pins_ardunio.h' for ethernet boards). If you need to change
 	  those (not for **OLIMEX ESP32-PoE...**, you need to re-define them before '#include ETH.h' (search in ***RetroRadio.ino***) or set them in the preferences (see below):
-	  	- ETH_PHY_ADDR 
+	  - ETH_PHY_ADDR 
 		- ETH_PHY_POWER
 		- ETH_PHY_MDC
 		- ETH_PHY_MDIO
