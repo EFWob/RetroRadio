@@ -54,7 +54,7 @@ on the native ethernet implementation of the Esp32 chip.
 There is a define now in the very first line of ***RetroRadio.ino*** that reads '#define ETHERNET 1'
 	
   - this will compile **with** Ethernet support
-	- if changed to '#define ETHERNET 0' (or any value different from '1'), support for Ethernet is **not** compiled
+  - if changed to '#define ETHERNET 0' (or any value different from '1'), support for Ethernet is **not** compiled
 	- if this line is deleted/commented out, Ethernet support will be compiled depending on the Boards setting in the Tools menu of Arduino IDE.
 	  Currently, only the settings **OLIMEX ESP32-PoE** and **OLIMEX ESP32-PoE-ISO** would then compile Ethernet support.
 	- if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
