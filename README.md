@@ -10,21 +10,29 @@ These type of radio usally have:
   - a power LED
   - a switch for selecting AM/FM/AUX
   - a volume knob (variable resistor)
-  - a tuning knob (variable resistor) 
+  - a tuning knob (variable capacitor) 
   
 In the original version that type of inputs and outputs are not supported directly. This
 version here now supports:
    
    - analog input (i. e. to control volume by turning the variable resistor attached to
-     the volume knob)
+     the volume knob). Two additional lines in the preferences settings will achieve that.
    - extended touch input (i. e. to evaluate the position of a variable capacitor to switch
-     presets accordingly)
-   - led output. Up to 10 LEDs can be controlled with PWM capability
-   - the functionality of digital inputs and touch inputs can be extended to define reactions
+     presets accordingly). (Also two additional lines only)
+   - TODO: led output. With PWM capability / blink pattern support
+   - TODO: the functionality of inputs can be extended to define reactions
      to double-click like events (or longpress)
+   - the capabilities of of the commands/preference settings have been extended to include 
+     (a limited) scripting 'programming language'. You can react on events (changing inputs or
+     changing system variables). Silly example: if the user does not like the current program
+     he might turn the volume down to 0. You can have a 'hook' linked to the internal variable
+     that holds the current volume level. If by that hook, you identify that '0' is reached, you
+     can switch the preset to a station that hopefully plays something better. As that hook can be 
+     linked to the internal variable, it does not matter which input channel is used to set the volume to
+     zero...
 	 
 All of these options can be configured by the preference settings. So if you compile this version
-and use your standard preference settings as before you should notice no difference.
+and use your standard preference settings as before you should notice only little difference.
 
 There are also some enhancements which are not necessarily associated with the extended input capabilities:
  - Ethernet can be used (I had to place one radio at a spot with weak WLAN reception)
@@ -120,7 +128,8 @@ typedef enum {
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
 if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
-location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used).
+location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used.
+TODO:: may be it is better the other way round!?).
 - NVS pairs can be set using the preferences as usual
 - There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
   _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
@@ -136,6 +145,7 @@ location can either be in NVS as usual or in RAM. (If a specific _key_ exists in
     still stay at _'42'_.
 - you can list the RAM/NVS command with the commands _nvslist=Argument_ or _ramlist=Argument_. _Argument_ is optional, if set only keys that 
   contain _Argument_ as substring are listed. Try _ramlist=tst_ for example.
+- TODO:: there is no command for deleting RAM or NVS-entries.
 
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
@@ -146,6 +156,7 @@ to achieve that.
 Command values can also be referenced to other preference settings. So if you have a setting _limp_home = volume = 75; preset = 0_
 in the preset, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
 are not permitted). If the given key does not exist, an empty string is used as replacement.
+Commands in a sequence are executed from left to right.
 
 ## The execute-command
 The execute-command takes the form _execute = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
@@ -159,6 +170,23 @@ running, preferences are read, VS module is initialized. I. e. ready to play).
 If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
 to level 70.
 
+## Channel concept
+The channel concept allows a simple re-mapping of the preferences. There are two new commands to implement the channel concept. (as usual, the
+commands can be defined either by preference settings or through the input channels at runtime, i. e. Serial input).
+
+- _channels = comma-delimited-integer-list_ will (re-)define the channel list. In the list numbers (decimal) are expected which are treated as 
+   reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total witch Channel1 mapped to 
+   _preset_1_ to Channel9 mapped to _preset_16_
+- That assignment does not change the current preset. To use that channel-list (i. e. to switch channel), the command _channel = Argument_ must be
+    used.
+- Argument can be:
+  - A number between '1' and 'max' whith 'max' being the number of channels as defined by the command _channels_ above. In our example '9'. This
+    will change the preset accordingly (but only if different from current channel).
+  - The word 'any': chose a random preset from the channellist. (It is guaranteed that the chosen preset will be different from current preset.)
+  - The word 'up': if the current channel is not the last channel, tune to next preset in channel-list. (if the current preset is not in the channel
+    list, i. e. if tuned to by other means, make Channel1 the current channel).
+  - The word 'down': if the current channel is not the Channel1, tune to previous preset in channel-list. (if the current preset is not in the channel
+    list, i. e. if tuned to by other means, make ChannelMax the current channel).
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
@@ -202,23 +230,71 @@ Longpress events follwoing that initial press can be catched by the following:
   command sequence. As said above, the order will always be maintained, so _ir_XXXXx_ will always be last in a key press sequence. 
 - Key release is detected after timeout. This timeout is set to 500ms which counts from the last valid key information reported to scanIR().
 
-## Channel concept
-The channel concept allows a simple re-mapping of the preferences. There are two new commands to implement the channel concept. (as usual, the
-commands can be defined either by preference settings or through the input channels at runtime, i. e. Serial input).
+### Detailed IR-Example
+For this example, I use a cheap generic ebay-IR from China.
+The following buttons will be supported by assigned:
+- (CH-) to switch channel down, (CH) to tune to another (random) channel, (CH+) to tune one channel up.
+- (Vol-) and (Vol+) to decrease/increase the volume
+- (Play/Pause) to toggle mute
+- (PREV) and (NEXT) will be used to alter the channel assignment for 2 different users.
+- Number keys (1) to (9) switch to Channel1..Channel9
+(A few buttons are not assigned in this example).
 
-- _channels = comma-delimited-integer-list_ will (re-)define the channel list. In the list numbers (decimal) are expected which are treated as 
-   reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total witch Channel1 mapped to 
-   _preset_1_ to Channel9 mapped to _preset_16_
-- That assignment does not change the current preset. To use that channel-list (i. e. to switch channel), the command _channel = Argument_ must be
-    used.
-- Argument can be:
-  - A number between '1' and 'max' whith 'max' being the number of channels as defined by the command _channels_ above. In our example '9'. This
-    will change the preset accordingly (but only if different from current channel).
-  - The word 'any': chose a random preset from the channellist. (It is guaranteed that the chosen preset will be different from current preset.)
-  - The word 'up': if the current channel is not the last channel, tune to next preset in channel-list. (if the current preset is not in the channel
-    list, i. e. if tuned to by other means, make Channel1 the current channel).
-  - The word 'down': if the current channel is not the Channel1, tune to previous preset in channel-list. (if the current preset is not in the channel
-    list, i. e. if tuned to by other means, make ChannelMax the current channel).
-    
+Lets start with the (CHANNEL)-keys. Here _channel = down_ is executed, if (CH-) is pressed on remote, _channel = up_ if (CH+) has been pressed and
+_channel = any_ if (CH) has been pressed. If (CH) is hold for about 2 seconds, the command _channel = any_ is executed again. And again if the key
+is still pressed 2 seconds later... (If the channels are linked to reliable streams, that should give some time to listen before switching to the 
+next channel).
+For (CH-) and (CH+) no longpress events are defined.
+```
+ir_A25D = channel = down    # (CH-) pressed
+ir_629D = channel = any     # (CH)  pressed
+ir_629DR22 = channel = any  # (CH)  (repeatedly) longpressed for about 2 seconds
+ir_E21D = channel = up      # (CH+) pressed
+```
 
+For the volume keys (and (Play/Pause)), the settings are similar:
+```
+ir_E01F = downvolume = 2    # (Vol-) pressed
+ir_E01Fr = downvolume = 1   # (Vol-) longpressed
+ir_A857 = upvolume = 2      # (Vol+) pressed
+ir_A857r = upvolume = 1     # (Vol+) longpressed
+ir_C23D = mute              # (Play/Pause)
+```
+So if (Vol-) or (Vol+) is pressed, volume will be decreased/increased by 2 on initial press and decreased/increased by 1 as long as the key is being
+pressed at roughly 100ms intervals.
 
+The setting for the 'Number-Keys' (1)..(9) is obvious (only 3 examples shown). There are no longpress-events used.
+```
+...
+ir_42BD = channel = 7 # (7)
+ir_4AB5 = channel = 8 # (8)
+ir_52AD = channel = 9 # (9)
+```
+
+The 'tricky' part is the switching the user (and hence the channel assignment). I use a separate (NVS)-entry to store the commands list 
+to be executed if switching between users. That way, the same sequence can be re-used later if the switch is happening by another input event.
+By my convention, I use '$' sign as starting character for NVS-Keys that store constants for later use:
+```
+$user1 = channels=0,1,2,3,4,5,6,7,10;channel=1;volume=70
+$user2 = channels=1,2,10,11,12,13,14,15,16;channel=1;
+```
+So if that commands are executed, for both users different presets would be assigned to Channel1 to Channel9, but in both cases the preset
+referenced by Channel1 would be tuned to (i. e. _preset_00_ for _$user1_ and _preset_1_ for _$user2_). For _$user1_ the volume would also
+be set to 70 (but will stay at current value if switching to _$user2_).
+
+With these two settings the user switch by the intended remote-keys (PREV) and (NEXT) can be achieved:
+```
+ir_22DD = execute = $user1 # (PREV)
+ir_02FD = execute = $user2 # (NEXT)
+```
+
+By the execute command, the contents of the value linked to _$user1_ or _$user2_ are executed as command sequence.
+
+Now there is only one thing left to do: at start, no channels are defined. You should use _::start_ to define channel settings. The most 
+obvious way is to force user1 at start:
+```
+::start = execute = $user1
+```
+
+If this assignment would not have been made, all (CH)-keys and the (1) to (9) keys would have no effect (until a user setting would have been 
+done by pressing (PREV) or (NEXT)).
