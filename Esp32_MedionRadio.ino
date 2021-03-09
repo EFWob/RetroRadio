@@ -6169,6 +6169,7 @@ const char* analyzeCmd ( const char* par, const char* val )
         value = value.substring(idx + 1);
         argument.toLowerCase();
         chomp(argument);
+        chomp(value);
         if ( argument == "nvs" )
           nvssetstr(argument.c_str(), value);  
         else

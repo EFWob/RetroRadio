@@ -117,10 +117,25 @@ typedef enum {
 **For future/different core versions that assignment might change.**
 
 
-## Storing values into RAM
-In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. More on
-that later, however from now on, if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
-location can either be in NVS as usual or in RAM. (If a specific _key_ exists in either NVS and RAM, the one in NVS will be used).
+## Storing values into RAM (or NVS)
+In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
+if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
+location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used).
+- NVS pairs can be set using the preferences as usual
+- There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
+  _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
+  _value_ starts with '@', then _value_ (without leading '@') is considered to be a key-name by itself and is exchanged with the 
+  content of the resulting search for the dereferenced key.
+- There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent for the _nvs_-command above. 
+- In both cases, if _key_ exists the value associated to set key will be replaced. Otherwise the _key_-_value_-pair will be created and stored.
+- Example:
+  * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst_ and _value_ == _'42'_
+  * _ram.tst2 = @tst1_ will create entry _tst2_ in RAM with the _value_ == _'42'_
+  * _ram = tst3 = @tst1_ will create entry _tst3_ in RAM with the _value_ == _'@tst1'_ 
+  * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
+    still stay at _'42'_.
+- you can list the RAM/NVS command with the commands _nvslist=Argument_ or _ramlist=Argument_. _Argument_ is optional, if set only keys that 
+  contain _Argument_ as substring are listed. Try _ramlist=tst_ for example.
 
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
@@ -137,8 +152,9 @@ The execute-command takes the form _execute = key-name_. If _key-name_ is define
 retrieved and executed as commands-list (whith each command being seperated by semicolon).
 
 ## Startup event
-If the key-value-pair _::start = value_ is defined, the associated value is retreived and executed as commands-list.
-The 'event' is generated after setup is finished just before the first _call to loop()_.
+If the key-value-pair _::start = value_ is defined, the associated _value_ is retrieved and executed as commands-list.
+The 'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
+running, preferences are read, VS module is initialized. I. e. ready to play).
 
 If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
 to level 70.

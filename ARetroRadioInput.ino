@@ -580,7 +580,7 @@ void RetroRadioInput::showInfo(bool hint) {
       doprint(" * Change-event: \"%s\"", getEvent());
       if (nvssearch(cmnds)) {
         String commands = nvsgetstr(cmnds);
-        chomp_nvs(commands);
+        //chomp_nvs(commands);
         doprint("    defined in NVS as: \"%s\"", commands.c_str());   
       } else if (ramsearch(cmnds)) {
         String commands = ramgetstr(cmnds);
