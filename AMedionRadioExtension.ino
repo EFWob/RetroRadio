@@ -2,9 +2,9 @@
 #include "AMedionRadioExtension.h"
 #include "ARetroRadioExtension.h"
 
-RetroRadioInput *dummy = NULL;//("a33");
-RetroRadioInputADC *dummyVol = NULL;//("a33");
-RetroRadioInputADC *dummySwitch = NULL;//("a35")
+//RetroRadioInput *dummy = NULL;//("a33");
+//RetroRadioInputADC *dummyVol = NULL;//("a33");
+//RetroRadioInputADC *dummySwitch = NULL;//("a35")
 
 #define NVS_ERASE     true            // NVS will be completely deleted if set to true (only use for development, must be false in field SW)
 #define NUMCHANNELS   15
@@ -120,7 +120,7 @@ void readDataList(std::vector<int16_t>& v, String value) {
   }
 }
 
-void executeCmds(String commands, String value) {
+void executeCmdsold(String commands, String value) {
 //    Serial.printf("EXECUTE: %s, value=$(%s)\r\n", commands.c_str(), value.c_str());
     bool haveValue = value.length() > 0;
     char *s = strdup(commands.c_str());
@@ -133,7 +133,7 @@ void executeCmds(String commands, String value) {
           *p1 = 0;
           p1++;
         }
-        if (haveValue && (NULL != (pv = strchr(p, '$')))) {
+        if (haveValue && (NULL != (pv = strchr(p, '?')))) {
           String valueExpansion = "";
           while (pv) {
             *pv = 0;
@@ -152,7 +152,7 @@ void executeCmds(String commands, String value) {
     }    
 }
   
-
+/*
 bool executeCmdsFromNVSKey(const char *key, String value) {
   bool ret = false;
   if (nvssearch(key)) 
@@ -160,10 +160,11 @@ bool executeCmdsFromNVSKey(const char *key, String value) {
       executeCmds(nvsgetstr(key), value);
   return ret;
 }
-
+*/
 
 bool executeCmdsFromEvent(const char *event, bool executeOnlyExtra = false, String value = "") {
   bool ret = executeOnlyExtra;
+/*
   char s[20];
   strcpy(s+2, event);
   s[0] = '@';
@@ -182,6 +183,7 @@ bool executeCmdsFromEvent(const char *event, bool executeOnlyExtra = false, Stri
     s[1] = '+';
     executeCmdsFromNVSKey(s + 1, value);
   }
+*/
   return ret;
 }
 
@@ -303,65 +305,6 @@ void setEqualizer(String setMode, int idx) {
   }
 }
 
-std::vector<int16_t> channelList;
-int16_t currentChannel = 0;
-
-void doChannels(String value) {
-  channelList.clear();
-  currentChannel = 0;
-  readDataList(channelList, value);  
-  dbgprint("CHANNELS: %s", value.c_str());
-}
-
-void doChannel(String value, int ivalue) {
-  if (channelList.size() > 0) {
-    int16_t channel = currentChannel;
-    Serial.printf("CurrentChannel = %d, value=%s, ivalue=%d\r\n", channel, value.c_str(), ivalue);
-    if (channel)
-      if (channelList[channel - 1] != ini_block.newpreset) {
-        Serial.println("Channel set to ZERO: does not match current preset");
-        channel = currentChannel = 0;
-      }
-    if (ivalue) {
-      if (ivalue <= channelList.size()) {
-        channel = ivalue;
-      }
-    } else {
-      if (!channel) {
-        currentChannel = channelList.size();
-        while ((currentChannel > 0) && (ini_block.newpreset != channelList[currentChannel - 1]))
-          currentChannel--;
-        channel = currentChannel;
-      }
-      if (value == "up") {
-        if (channel) {
-          if (channel < channelList.size())
-            channel++;
-        } else
-          channel = 1;
-      } else if (value == "down") {
-        if (channel) {
-          if (channel > 1)
-            channel--;
-        } else
-          channel = channelList.size();
-      } else if (value = "any") {
-        if (0 == channel) 
-          channel = 1 + random(channelList.size());
-        else if (channelList.size() > 1)
-          while (channel == currentChannel)
-            channel = 1 + random(channelList.size());
-      }
-    }
-    if (channel != currentChannel) {
-      Serial.printf("New Channel found: %d (was %d) with preset=%d\r\n", channel, currentChannel, channelList[channel-1]);
-      char s[20];   
-      sprintf(s, "%d", channelList[channel - 1]);
-      analyzeCmd("preset", s);  
-      currentChannel = channel;
-    }
-  }
-}
 
 
 uint16_t tpCapaRead() {
@@ -405,6 +348,7 @@ uint16_t medionSwitchPositionCalibrationDefault[] = {
 };
 
 
+/*
 void doInput(String value) {
   Serial.printf("INPUT with value %s\r\n", value.c_str());
   dummy->setParameters(value);
@@ -414,7 +358,7 @@ void doRead(String value) {
   Serial.printf("Read Input Value=%d\r\n", dummy->read());
 
 }
-
+*/
 
 enum led_mode_t {
   LED_MODE_LOW = 0,
@@ -515,7 +459,7 @@ void doRandomPlay() {
   else {
     if (randMode.length() > 1) {
       //Serial.printf("Executing randmode: %s\r\n", randMode.c_str());
-      executeCmds(randMode);
+      //executeCmds(randMode);
     }
     else {
       //Serial.println("Selecting random preset!");
@@ -680,16 +624,16 @@ char key[20];
   if ((API_EVENT_TONE_LONGPRESSED == event) || (API_EVENT_TONE_2LONGPRESSED == event) || (API_EVENT_TONE_3LONGPRESSED == event)) {
     sprintf(key, "t%c.%d.%d", (direct?'0':'1'), event, repeatCount);
     Serial.printf("  TOUCH EVENT: %s\r\n", key);
-    eventConsumed = executeCmdsFromEvent(key, false);
+    //eventConsumed = executeCmdsFromEvent(key, false);
     sprintf(key, "t%c.%d", (direct?'0':'1'), event, repeatCount);
     Serial.printf("  TOUCH EVENT: %s\r\n", key);
-    eventConsumed = executeCmdsFromEvent(key, eventConsumed);
+    //eventConsumed = executeCmdsFromEvent(key, eventConsumed);
   } else {
     sprintf(key, "t%c.%d", (direct?'0':'1'), event);
     Serial.printf("  TOUCH EVENT: %s\r\n", key);
-    eventConsumed = executeCmdsFromEvent(key, false);
+    //eventConsumed = executeCmdsFromEvent(key, false);
   }
-  executeCmdsFromEvent("touch", eventConsumed);
+  //executeCmdsFromEvent("touch", eventConsumed);
   strcpy(s, "");
   
   return;
@@ -828,10 +772,10 @@ bool isTouchEvent;
         lastSetChannel = channel;
         toggleMedionLED(LED_MODE_HIGH);
         sprintf(key, "tune%d.%d", useTuneReadings, channel);
-        bool haveCommand = executeCmdsFromEvent(key, false);
+        bool haveCommand = false;//executeCmdsFromEvent(key, false);
         sprintf(key, "tune%d", useTuneReadings);
-        haveCommand = executeCmdsFromEvent(key, haveCommand);
-        haveCommand = executeCmdsFromEvent("tune", haveCommand);
+        haveCommand = false;//executeCmdsFromEvent(key, haveCommand);
+        haveCommand = false;//executeCmdsFromEvent("tune", haveCommand);
         if (!haveCommand)
           if (useTuneReadings < 10) {
           for (int i = 0;i < useTuneReadings;i++)
@@ -849,7 +793,7 @@ bool isTouchEvent;
     else {
         char key[20];
         sprintf(key, "switch%d", param);
-        executeCmdsFromEvent(key);
+        //executeCmdsFromEvent(key);
       }
   } else if (event == API_EVENT_VOLUME) {
     char s1[40];
@@ -885,12 +829,12 @@ bool isTouchEvent;
 //    sprintf(s, "API event for LED%d: sequence done.", param & 0xff);        
     
     sprintf(key, "led%d", param & 0xff);
-    executeCmdsFromEvent(key);
+    //executeCmdsFromEvent(key);
   }
   else if (API_EVENT_START == event) {
     char key[10];
     sprintf(s, "API event START.");        
-    executeCmdsFromEvent("start");
+    //executeCmdsFromEvent("start");
   }
   else 
     sprintf(s, "Unknown API event: %d with param: %ld\r\n", event, param);
@@ -945,7 +889,8 @@ void setupMedionExtension() {
   }*/
   touch_pad_init();
   touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
-  touch_pad_filter_start(10);  
+  touch_pad_filter_start(16);  
+  adc_power_on();
 /*
   for(tunePin = TOUCH_PAD_NUM0;tunePin < TOUCH_PAD_MAX;tunePin = (touch_pad_t)((int)tunePin + 1))
     if (touchpin[(int)tunePin].gpio == ini_block.retr_tune_pin)
@@ -969,8 +914,10 @@ void setupMedionExtension() {
     pinMode(ini_block.retr_switch_pin, INPUT);
     //capaReadPin = new VirtualTouchPin(medionPins.capaPin);
 */
-   readPresetList();  
+//   readPresetList();  
   retroRadioSetupDone = true;
+  Serial.println("About to start ::start");
+  analyzeCmds(nvsgetstr("::start"));
 //  executeCmdsFromEvent("start");
 //  tuneKnobRead();
 //  dummy = new RetroRadioInputTouch("t6");
@@ -1009,6 +956,16 @@ static int ledToShow = 0;
    //dummy->check();
    //dummyVol->check();
    //dummySwitch->check();
+   static uint32_t last39;
+   if (millis() - last39 > 1000) 
+   {
+//      Serial.printf("GPIO39: %d\r\n", analogRead(39));
+      //Serial.printf("GPIO36: %d\r\n", analogRead(36));
+      //Serial.printf("GPIO35: %d\r\n", analogRead(35));
+      //Serial.printf("GPIO34: %d\r\n", analogRead(34));
+      last39 = millis();
+   }
+  RetroRadioInput::checkAll();
 }
 
 
@@ -1200,8 +1157,8 @@ static bool init = true;
 static uint8_t minVolume;
   if (-1 != ini_block.retr_vol_pin) {
     if (init) {
-      if (0 < (minVolume = ini_block.retr_vol_min))
-        if (ini_block.retr_vol_force_zero)
+      if (0 < (minVolume = ini_block.vol_min))
+        if (ini_block.vol_zero)
           minVolume--;
     }
     static uint16_t readCount = 0;
@@ -1212,7 +1169,7 @@ static uint8_t minVolume;
     if (init || (readCount >= (localfile?5:100))) {
         int8_t idx;      
         readTotal = readTotal / readCount;
-        idx = map(readTotal, 0, 4095, minVolume, ini_block.retr_vol_max);
+        idx = map(readTotal, 0, 4095, minVolume, ini_block.vol_max);
         if ((calibrationFlags & CALIBRATE_VOLUME )!= 0){
           static uint32_t lastShowTime = 0;
           if (init || (millis() - lastShowTime > 1000)) {
@@ -1580,12 +1537,6 @@ String retroradioSetup(String argument, String value, int iValue) {
     addEqualizer(value);
   } else if ( argument == "led_inv") {
     ini_block.retr_led_inv = (bool)iValue;
-  } else if ( argument == "vol_min") {
-    ini_block.retr_vol_min = (uint8_t)iValue;
-  } else if ( argument == "vol_max") {
-    ini_block.retr_vol_max = (uint8_t)iValue;
-  } else if ( argument == "vol_zero") {
-    ini_block.retr_vol_force_zero = (bool)iValue;
   } else if ( argument.startsWith("sw_pos")) {
     setSwitchPositions(value); 
   } else if ( argument.startsWith("tunepos") )

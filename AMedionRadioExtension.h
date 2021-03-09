@@ -22,7 +22,7 @@ typedef enum api_event_t {
 };
 
 extern void handleApiEvent(int event, uint32_t param, bool ignoreLock=false);
-extern bool executeCmdsFromNVSKey(const char *key, String value = "");
+//extern bool executeCmdsFromNVSKey(const char *key, String value = "");
 
 
 #endif

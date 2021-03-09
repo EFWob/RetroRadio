@@ -240,7 +240,7 @@
 // Size of metaline buffer
 #define METASIZ 1024
 // Max. number of NVS keys in table
-#define MAXKEYS 200
+#define MAXKEYS 500
 // Time-out [sec] for blanking TFT display (BL pin)
 #define BL_TIME 45
 //
@@ -391,9 +391,9 @@ struct ini_struct
   int            retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
   int            retr_vol_pin ;                       // GPIO connected to Retro Radio Vol Pin
   int            retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
-  int            retr_vol_min;                         // minimum volume
-  int            retr_vol_max;                         // maximum volume
-  int            retr_vol_force_zero;                  // volume will be set to zero if set below retr_vol_min
+  int            vol_min;                              // minimum volume
+  int            vol_max;                              // maximum volume
+  int            vol_zero;                             // volume will be set to zero if set below vol_min
 #endif
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
@@ -3916,11 +3916,11 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
+  ini_block.vol_min = 0;
+  ini_block.vol_max = 100;
+  ini_block.vol_zero = true;
 #if defined(MEDIONRADIO)
 //Settings
-  ini_block.retr_vol_min = 0;
-  ini_block.retr_vol_max = 100;
-  ini_block.retr_vol_force_zero = true;
   ini_block.retr_led_inv = false;
 #endif
 
@@ -4563,8 +4563,8 @@ void handleSaveReq()
     return ;
   }
   savetime = millis() ;                                   // Set time of last save
-  nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
-  nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
+  //nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
+  //nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
   nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
   nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
   nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
@@ -4920,7 +4920,7 @@ void mp3loop()
     queuefunc ( QSTOPSONG ) ;                            // Queue a request to stop the song
     metaint = 0 ;                                        // No metaint known now
     setdatamode ( STOPPED ) ;                            // Yes, state becomes STOPPED
-    Serial.println("Datamode STOPPED reached\r\n");
+    //Serial.println("Datamode STOPPED reached\r\n");
     return ;
   }
   if ( localfile )                                       // Playing from SD?
@@ -5595,9 +5595,16 @@ void chomp ( String &str )
 //  - if resulting string starts with '@', nvs is looked if a key with the name following @ is     *
 //    found in nvs. If so, that string (chomped) is returned or empty if key is not found          *
 //**************************************************************************************************
-void chomp_nvs ( String &str )
+void chomp_nvs ( String &str , const char* substitute)
 {
   //Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
+  if (substitute) {
+    int idx = str.indexOf('?');
+    while(idx >= 0) {
+      str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
+      idx = str.indexOf('?');
+    }
+  }
   chomp ( str ) ;                                     // Normal chomp first
   if (str.c_str()[0] == '@' )                         // Reference to NVS-Key?
   {
@@ -5606,6 +5613,11 @@ void chomp_nvs ( String &str )
       str = nvsgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
     }
+    else if ( ramsearch (str.c_str() + 1 ) ) 
+    { 
+      str = ramgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    } 
     else
       str = "";   
   }
@@ -5629,8 +5641,20 @@ const char* analyzeCmds ( String commands )
   {
     char *s = cmds ;
     while ( s ) 
-    {
-      char * next = strchr (s, ';' ) ;
+    { 
+      char *p = s;
+      char * next = NULL;
+      int nesting = 0;
+      while (*p && !next) {
+        if (*p == '(')
+          nesting++;
+        else if (nesting == 0) {
+          if (*p == ';' ) 
+            next = p;
+        } else if (*p == ')')
+          nesting--;
+        p++;
+      }
       if ( next ) 
       {
         *next = 0 ;
@@ -5765,50 +5789,92 @@ const char* analyzeCmd ( const char* par, const char* val )
                argument.c_str() ) ;
   }
 
-  if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
+  if (argument == "execute") {    
+/*    Serial.println("Running Execute!");Serial.flush();
+   dbgprint ( "Command: %s with parameter %s",
+               argument.c_str(), tmpstr.c_str() ) ;
+    Serial.println("Next Showing tmpstr!?");Serial.flush();
+    Serial.printf("tmpstr.length()=%d\r\n", tmpstr.length());Serial.flush();
+    Serial.printf("Tmpstr = \"%s\"\r\n", tmpstr.c_str());Serial.flush();
+    Serial.println("Next Showing Value!?");Serial.flush();
+    Serial.printf("Value.length()=%d\r\n", value.length());Serial.flush();
+    Serial.printf("Value = \"%s\"\r\n", value.c_str());Serial.flush();
+    chomp(value);
+    Serial.printf("ChompedValue = \"%s\"\r\n", value.c_str());Serial.flush();
+    value.toLowerCase();
+    Serial.printf("lowercaseValue = \"%s\"\r\n", value.c_str());Serial.flush();
+    Serial.printf("Execute command from nvs[\"%s\"]=%s\r\n", value.c_str(), nvsgetstr(value.c_str()).c_str());
+*/
+    chomp(value);
+    analyzeCmds(nvssearch(value.c_str())?nvsgetstr(value.c_str()):ramgetstr(value.c_str()));  
+  } else if ((argument == "ramlist") || (argument == "nvslist")) {
+    const char* p = NULL;
+    value.toLowerCase();
+    chomp(value);
+    if (value  != "0")
+      p = value.c_str();
+    if (argument.c_str()[0] == 'r')
+      doRamlist(p);
+    else
+      doNvslist(p);
+  }else if (argument == "inlist")  {
+    const char* p = NULL;
+    value.toLowerCase();
+    chomp(value);
+    if (value != "0")
+      p = value.c_str();
+    Serial.printf("inlist found with value'%s', length=%d, resulting p=%ld\r\n", value.c_str(), value.length(), p);
+    doInlist(p);
+  } else if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
+    // Or minimum ("volume_min") or maximum ("vol_max") or Zerfo-Flag ("volume_zero") setting
     oldvol = vs1053player->getVolume() ;              // Get current volume
     if ( relative )                                   // + relative setting?
     {
       ini_block.reqvol = oldvol + ivalue ;            // Up/down by 0.5 or more dB
     }
+    else if (argument.indexOf ( "_max" ) > 0 )
+    {
+      ini_block.vol_max = ivalue;
+    }
+    else if (argument.indexOf ( "_min" ) > 0 )
+    {
+      ini_block.vol_min = ivalue;
+//      Serial.printf ("\r\n\r\nMinvol=%d\r\n", ini_block.vol_min);
+    }
+    else if (argument.indexOf ("_zero") > 0 )
+    {
+      if ( value == "0" )
+        ini_block.vol_zero = 0;
+      else
+        ini_block.vol_zero = 1;
+    }
     else
     {
       ini_block.reqvol = ivalue ;                     // Absolue setting
     }
-#if defined(MEDIONRADIO)
     if (( ini_block.reqvol > 127 ) ||                 // Wrapped around?
-        (ini_block.reqvol < ini_block.retr_vol_min))  // or below defined minimum?                        
+        (ini_block.reqvol < ini_block.vol_min))  // or below defined minimum?                        
     { 
-      if (ini_block.retr_vol_force_zero) {               // can go to absolute zero?
+      if (ini_block.vol_zero) {               // can go to absolute zero?
         if (!relative || (ivalue < 0))                  // coming from above defined minimum?
           ini_block.reqvol = 0 ;                          // Yes, go to zero
         else
-          ini_block.reqvol = ini_block.retr_vol_min;
+          ini_block.reqvol = ini_block.vol_min;
       }
       else
-        ini_block.reqvol = ini_block.retr_vol_min;      // keep at defined minimum
+        ini_block.reqvol = ini_block.vol_min;      // keep at defined minimum
     }
-    if ( ini_block.reqvol > ini_block.retr_vol_max )
+    if ( ini_block.reqvol > ini_block.vol_max )
     {
-      ini_block.reqvol = ini_block.retr_vol_max ;                        // Limit to normal values
+      ini_block.reqvol = ini_block.vol_max ;                        // Limit to normal values
     }
-    
-#else
-    if ( ini_block.reqvol > 127 )                     // Wrapped around?
-    {
-      ini_block.reqvol = 0 ;                          // Yes, keep at zero
-    }
-    if ( ini_block.reqvol > 100 )
-    {
-      ini_block.reqvol = 100 ;                        // Limit to normal values
-    }
-#endif
     muteflag = false ;                                // Stop possibly muting
 
     sprintf ( reply, "Volume is now %d",              // Reply new volume
               ini_block.reqvol ) ;
+//    Serial.printf ("\r\n\r\n%s\r\n", reply);
   }
   else if ( argument == "mute" )                      // Mute/unmute request
   {
@@ -6087,21 +6153,30 @@ const char* analyzeCmd ( const char* par, const char* val )
      if ((idx < 0) || (idx > 10))
       idx = 0;
      doLed(idx, value);
-  } else if ( argument == "nvs" ) {
-    int idx = value.indexOf('=');
-    if (idx > 0) {
-      argument = value.substring(0, idx);
-      value = value.substring(idx + 1);
-      argument.toLowerCase();
+  } else if ( argument.startsWith("nvs" ) || argument.startsWith ("ram" )) {
+    if (argument.c_str()[3] == '.') {
+      bool isNvs = (argument.c_str()[0] == 'n');
+      argument = argument.substring(4);
       chomp(argument);
-      nvssetstr(argument.c_str(), value);  
-    } 
+      if ( isNvs )
+          nvssetstr(argument.c_str(), value);  
+      else
+          ramsetstr(argument.c_str(), value);  
+    } else {
+      int idx = value.indexOf('=');
+      if (idx > 0) {
+        argument = value.substring(0, idx);
+        value = value.substring(idx + 1);
+        argument.toLowerCase();
+        chomp(argument);
+        if ( argument == "nvs" )
+          nvssetstr(argument.c_str(), value);  
+        else
+          ramsetstr(argument.c_str(), value);  
+      }
+    }  
   } else if (argument == "randmode") {
       doRandMode(value);
-  } else if (argument == "execute") {
-    chomp(value);
-    value.toLowerCase();
-    executeCmdsFromNVSKey(value.c_str());
   } else if (argument == "nop") {
       ; // relax: nothing to do!!!!
   } else if (argument == "lock") {
@@ -6112,11 +6187,20 @@ const char* analyzeCmd ( const char* par, const char* val )
       chomp(value);
       value.toLowerCase();
       doLockVol(value, ivalue); 
-  } else if (argument == "input") {
+  } else if (argument.startsWith("in.")) {
+    doInput(argument.substring(3), value);
+  } else if (argument.startsWith("if")) {
+    doIf(value, argument.c_str()[2] == 'v');
+  } else if (argument.startsWith("calc")) {
+    doCalc(value, argument.c_str()[4] == 'v');
+  }
+/*  
+  else if (argument == "input") {
     doInput(value);
   } else if (argument == "read") {
     doRead(value);                                //TBD: Debug only
   }
+*/
 #endif
 #if defined(TRACKLIST)
   else if (argument == "tracklist") {

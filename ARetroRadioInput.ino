@@ -1,4 +1,12 @@
 #include "ARetroRadioExtension.h"
+#include <nvs.h>
+
+std::vector<int16_t> channelList;     // The channels defined currently (by command "channels")
+int16_t currentChannel = 0;           // The channel that has been set by command "channel" (0 if not set, 1..numChannels else)
+int16_t numChannels = 0;              // Number of channels defined in current channellist
+
+
+
 
 //**************************************************************************************************
 //                                          D O P R I N T                                          *
@@ -18,6 +26,7 @@ char* doprint ( const char* format, ... )
     Serial.print ( "D: " ) ;                           // Yes, print prefix
   }
   Serial.println ( sbuf ) ;                            // always print the info
+  Serial.flush();
   return sbuf ;                                        // Return stored string
 }
 
@@ -68,6 +77,285 @@ bool ret = false;
   return ret;
 }
 
+String extractgroup(String& inValue) {
+  String(ret);
+  chomp(inValue);
+  if (inValue.c_str()[0] != '(') {
+    ret = inValue;
+    inValue = ""; 
+  } else {
+    const char *p = inValue.c_str() + 1;
+    int nesting = 1;
+    while (*p && nesting) {
+      if (*p == '(')
+        nesting++;
+      else if (*p == ')')
+        nesting--;
+      if (nesting)
+        p++;
+    }
+    ret = inValue.substring(0, p - inValue.c_str());
+    if (*p) 
+      inValue = String(p + 1);
+    else
+      inValue = "";
+  }
+  return ret;
+}
+
+//**************************************************************************************************
+//                          P A R S E G R O U P                                                    *
+//**************************************************************************************************
+// Extracts the left and the right part of a group                                                 *
+//  - A group is considered to be enclosed by round paranthesis ()                                 *
+//  - Groups can be nested.                                                                        *
+//  - The opening paranthesis is optional but expected to be the first char of input value         *
+//  - If no closing paranthesis is found, full input value is considered to be the group           *
+//  - Remaining characters are ignored.                                                            *
+//  - String inValue is set to the contents of remainder after the group                           *
+//  - Group content (if any) is then split in left and right part by the strings contained in the  *
+//    delimters arry. Last entry in delimiters arry must be NULL to denote end of delimiters       *
+//  - If no delimiter is found, right part will be empty String("")                                *
+//  - returns the index of used delimiter within array of delimters or < 0 if not found            *
+//  - If delimiters==NULL, left will be set to full group (and -1 is returned)                     * 
+//  - If -1 is returned, right will be empty String("")                                            *
+//  - All altered Strings (inValue, left, right) will be chomped upon return                       *
+//  - If extendNvs (defaults to false) is true, left and right will be assumed to be reference to  *
+//    nvs-key if preceeded by '@'                                                                  *
+//**************************************************************************************************
+int parseGroup(String & inValue, String& left, String& right, char** delimiters = NULL, bool extendNvs = false) {
+  int idx = -1, i;
+  bool found;
+  chomp(inValue);
+  int nesting = 0;
+  if (inValue.c_str()[0] == '(') {
+    inValue = inValue.substring(1);
+    chomp(inValue);
+    nesting = 1;
+  } 
+//    else return -1;
+  const char *p = inValue.c_str();
+  idx = -1;
+  while (*p && (idx == -1)) {
+    if (*p == '(')
+      nesting++;
+    else if (*p == ')') {
+      if (nesting <= 1)
+        idx = p - inValue.c_str();
+      else
+        nesting--;
+    }
+    p++;
+  }
+//  idx = inValue.indexOf(')');
+  if (idx == -1) {
+    left = inValue;
+    inValue = "";
+  } else {
+    left = inValue.substring(0, idx);
+    chomp(left);
+    inValue = inValue.substring(idx + 1);
+    chomp(inValue);
+  }
+  found = false;
+  i = 0;
+  if (delimiters)
+    while (!found && (delimiters[i] != NULL))
+      if (!(found = (-1 != (idx = left.indexOf(delimiters[i])))))
+        i++;
+  if (found) {
+    right = left.substring(idx + strlen(delimiters[i]));
+    left = left.substring(0, idx);
+    if (extendNvs) {
+      chomp_nvs(left);
+      chomp_nvs(right);
+    } else {  
+      chomp(left);
+      chomp(right);
+    }
+    return i;
+  } else {
+    right = "";
+    if (extendNvs)
+      chomp_nvs(left);
+    return -1;
+  }
+}
+
+#ifdef OLD
+int parseGroup(String & inValue, String& left, String& right, char** delimiters = NULL, bool extendNvs = false) {
+  int idx, i;
+  bool found;
+  chomp(inValue);
+  int nesting = 0;
+  if (inValue.c_str()[0] == '(') {
+    inValue = inValue.substring(1);
+    chomp(inValue);
+    nesting = 1;
+  }
+  const char *p = inValue.c_str();
+  idx = -1;
+  while (*p && (idx == -1)) {
+    if (*p == '(')
+      nesting++;
+    else if (*p == ')') {
+      if (nesting <= 1)
+        idx = p - inValue.c_str();
+      else
+        nesting--;
+    }
+    p++;
+  }
+//  idx = inValue.indexOf(')');
+  if (idx == -1) {
+    left = inValue;
+    inValue = "";
+  } else {
+    left = inValue.substring(0, idx);
+    chomp(left);
+    inValue = inValue.substring(idx + 1);
+    chomp(inValue);
+  }
+  found = false;
+  i = 0;
+  if (delimiters)
+    while (!found && (delimiters[i] != NULL))
+      if (!(found = (-1 != (idx = left.indexOf(delimiters[i])))))
+        i++;
+  if (found) {
+    right = left.substring(idx + strlen(delimiters[i]));
+    left = left.substring(0, idx);
+    if (extendNvs) {
+      chomp_nvs(left);
+      chomp_nvs(right);
+    } else {  
+      chomp(left);
+      chomp(right);
+    }
+    return i;
+  } else {
+    right = "";
+    if (extendNvs)
+      chomp_nvs(left);
+    return -1;
+  }
+}
+#endif
+
+int doCalculation(String& value, bool show) {
+char *operators[] = {"==", "!=", "<=", "<" , ">=", ">", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", NULL};
+String opLeft, opRight;
+int idx = parseGroup(value, opLeft, opRight, operators, true);
+int op1, op2, ret = 0;
+  if (show) doprint("Calculate: (\"%s\" [%d] \"%s\")", opLeft.c_str(), idx, opRight.c_str());
+  if (opLeft.c_str()[0] == '(')
+    op1 = doCalculation(opLeft, show);
+  else
+    op1 = opLeft.toInt();  
+  if (opRight.c_str()[0] == '(')
+    op2 = doCalculation(opRight, show);
+  else
+    op2 = opRight.toInt();  
+  switch(idx) {
+    case -1: 
+      ret = op1;
+      break;
+    case 0:
+      ret = op1 == op2;
+      break;      
+    case 1:
+      ret = op1 != op2;
+      break;      
+    case 3:
+      ret = op1 < op2;
+      break;      
+    case 2:
+      ret = op1 <= op2;
+      break;      
+    case 5:
+      ret = op1 > op2;
+      break;      
+    case 4:
+      ret = op1 >= op2;
+      break;      
+    case 6:
+      ret = op1 + op2;
+      break;      
+    case 7:
+      ret = op1 ^ op2;
+      break;      
+    case 8:
+      ret = op1 * op2;
+      break;      
+    case 9:
+      ret = op1 / op2;
+      break;      
+    case 10:
+      ret = op1 % op2;
+      break;      
+    case 11:
+      ret = op1 && op2;
+      break;      
+    case 12:
+      ret = op1 & op2;
+      break;      
+    case 13:
+      ret = op1 || op2;
+      break;      
+    case 14:
+      ret = op1 | op2;
+      break;      
+    case 15:
+      ret = op1 - op2;
+      break;      
+      
+  }
+  if (show)
+    doprint("Caclulation result=%d", ret);
+  return ret;
+}
+
+void doIf(String value, bool show) {
+  String ifCommand, elseCommand;
+  String dummy;
+  int isTrue;
+  if (show) doprint("Start if=\"%s\"\r\n", value.c_str());
+  isTrue = doCalculation(value, show);
+  parseGroup(value, ifCommand, dummy);
+  parseGroup(value, elseCommand, dummy);
+  dummy = String(isTrue);
+  if (show) {
+    doprint("  IfCommand = \"%s\"", ifCommand.c_str());
+    doprint("ElseCommand = \"%s\"", elseCommand.c_str());
+    doprint("Condition is %s (%d)", isTrue?"TRUE":"false", isTrue);Serial.flush();
+  }
+  if (isTrue) {
+    chomp_nvs(ifCommand, dummy.c_str());
+    if (show) doprint("Running \"if(true)\" with (expanded) command \"%s\"", ifCommand.c_str());
+    analyzeCmds(ifCommand);
+  } else {
+    chomp_nvs(elseCommand, dummy.c_str());
+    if (show) doprint("Running \"else(false)\" with (expanded) command \"%s\"", elseCommand.c_str());
+    analyzeCmds(elseCommand);
+  }
+}
+
+void doCalc(String value, bool show) {
+  String calcCommand;
+  String dummy;
+  int result;
+  if (show) doprint("Start calc=\"%s\"\r\n", value.c_str());
+  result = doCalculation(value, show);
+  parseGroup(value, calcCommand, dummy);
+  dummy = String(result);
+  if (show) {
+    doprint("CalcCommand = \"%s\"", calcCommand.c_str());
+  }
+  chomp_nvs(calcCommand, dummy.c_str());
+  if (show) doprint("Running \"calc\" with (expanded) command \"%s\"", calcCommand.c_str());
+  analyzeCmds(calcCommand);
+}
+
 
 //**************************************************************************************************
 // Class: RetroRadioInput                                                                          *
@@ -80,6 +368,8 @@ bool ret = false;
 //**************************************************************************************************
 
 
+std::vector<RetroRadioInput *> RetroRadioInput::_inputList;
+
 //**************************************************************************************************
 // Class: RetroRadioInput.Constructor                                                              *
 //**************************************************************************************************
@@ -90,13 +380,33 @@ bool ret = false;
 //    by application. That name is used to generate events at changes on input, again the          *
 //    application layer is responsible for validity.                                               *
 //**************************************************************************************************
-RetroRadioInput::RetroRadioInput(const char* id):_valid(false), _show(0), _lastShowTime(0),
-                          _debounceTime(0), _force(false), _calibrate(false), _delta(1), _step(0), _fastStep(0) {
-  if (_name = strdup(id))
-    _id = strdup(id);
+RetroRadioInput::RetroRadioInput(const char* id): _show(0), _lastShowTime(0), _reader(NULL), _lastInputType(NONE), _mode(0),
+                          _event(NULL), _id(NULL), _debounceTime(0), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0) {
   _maximum = _lastRead = _lastUndebounceRead = INT16_MIN;                 // _maximum holds the highest value ever read, _lastRead the 
                                                     // last read value (after mapping. Is below 0 if no valid read so far)
-  setParameters("@/input");
+  setId(id);
+  _inputList.push_back(this);
+  //setParameters("@/input");
+}
+
+
+//**************************************************************************************************
+// Class: RetroRadioInput.get(const char *id)                                                      *
+//**************************************************************************************************
+//  - Returns the handle to the RetroRadioInput identified by 'id'                                 *
+//  - If id is not known, create new input handler and add it to the list of known handlers        *
+//**************************************************************************************************
+RetroRadioInput* RetroRadioInput::get(const char *id) {
+String idStr = String(id);
+  RetroRadioInput *p;
+  chomp(idStr);
+  idStr.toLowerCase();
+  if (idStr.length() == 0)
+    return NULL;
+  for(int i = 0; i  < _inputList.size();i++)
+   if (strcmp(_inputList[i]->getId(), idStr.c_str()) == 0)
+      return _inputList[i];
+  return new RetroRadioInput(id);
 }
 
 //**************************************************************************************************
@@ -108,51 +418,75 @@ const char* RetroRadioInput::getId() {
   return _id;
 }
 
+
 //**************************************************************************************************
-// Class: RetroRadioInput.getName()                                                                  *
+// Class: RetroRadioInput.setId()                                                                  *
 //**************************************************************************************************
-//  - Returns the name of the RetroRadioInput                                                        *
+//  - Sets the id of the RetroRadioInput                                                        *
 //**************************************************************************************************
-const char* RetroRadioInput::getName() {
-  return _name;
+void RetroRadioInput::setId(const char *id) {
+  if (_id)
+    free(_id);
+  _id = NULL;
+  if (id)
+    if (strlen(id))
+      _id = strdup(id);
 }
 
 //**************************************************************************************************
-// Class: RetroRadioInput.setName(const char* name)                                                *
+// Class: RetroRadioInput.getEvent()                                                               *
 //**************************************************************************************************
-//  - Sets the name of the RetroRadioInput object. Defaults to _id, if (NULL == name)              *
+//  - Returns the name of the RetroRadioInput change event                                         *
 //**************************************************************************************************
-void RetroRadioInput::setName(const char* name) {
-  if (_name)
-    free(_name);
+const char* RetroRadioInput::getEvent() {
+  return _event;
+}
+
+//**************************************************************************************************
+// Class: RetroRadioInput.setEvent(const char* name)                                               *
+//**************************************************************************************************
+//  - Sets the change event of the RetroRadioInput object.                                         *
+//**************************************************************************************************
+void RetroRadioInput::setEvent(const char* name) {
+  if (_event)
+    free(_event);
+  _event = NULL;
   if (name)
-    _name = strdup(name);
-  else
-    _name = strdup(_id);
+    if (strlen(name))
+      _event = strdup(name);
 }
 
 //**************************************************************************************************
 // Class: RetroRadioInput.setParameters(String value)                                              *
 //**************************************************************************************************
 //  - Sets one or more parameters of the Input objects                                             *
-//  - Multiple parameters can be seperated by ';'                                                  *
+//  - Multiple parameters can be seperated by ','                                                  *
 //  - If a parameter starts with '@' it is considered to reference an NVS-key (w/o leading '@') to * 
 //    read parameter(s) from                                                                       *
 //**************************************************************************************************
 void RetroRadioInput::setParameters(String params) {
   static int recursion = 0;
+  /*
+  doprint("Set Parameters!");
+  doprint("Parameter id=%s", getId());
+  doprint("Parameter value=%s", params.c_str());
   doprint("SetParameters for input%s=%s", getId(), params.c_str());
-  recursion++;
+  */
   if (recursion > 5)
     return;
+  recursion++;
   chomp(params);
   while(params.length()) {                              // anything left
-    String value = getStringPart(params, ';');          // separate next parameter
+    String value = getStringPart(params, ',');          // separate next parameter
     int ivalue;
-    String param = getStringPart(value, '.');         // see if value is set
+    String param = getStringPart(value, '=');         // see if value is set
     if (param.c_str()[0] == '@') {                       // reference to NVS?
       setParameters(nvsgetstr(param.c_str() + 1));             // if yes, read NVS from key
     } else {
+      chomp(value);
+      value.toLowerCase();
+      if (value.c_str()[0] == '@')
+        value = nvsgetstr(value.c_str() + 1);
       ivalue = atoi(value.c_str());                       // usally value is an int number 
       if (param.length() > 0)
         setParameter(param, value, ivalue);
@@ -175,10 +509,10 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
     _show = (uint32_t)ivalue * 1000UL;
   } else if (param == "map") {                        // set the valueMap for the input
     setValueMap(value);                               // see RetroRadioInput::setValueMap() for details
-  } else if (param == "force") {                      // force a readout event
-    _force = true;                                    // on mapped input, if not hit, nearest valid value will be used
-  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
-    _calibrate = ivalue;
+  } else if (param == "event") {                      // set the change event
+    setEvent(value.c_str());                          // on mapped input, if not hit, nearest valid value will be used
+//  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
+//    _calibrate = ivalue;
   } else if (param == "debounce") {                     // how long must a value be read before considered valid?
       _debounceTime = ivalue;                           // (in msec).
   } else if (param == "delta") {
@@ -186,49 +520,156 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
       _delta = ivalue;
     else
       _delta = 1;
-  } else if (param == "step") {
-    if (ivalue >= 0)
-      _step = ivalue;
-  } else if (param == "faststep") {
-    if (ivalue >= 0)
-      _fastStep = ivalue;
+  } else if (param == "mode") {
+    _mode = ivalue;
+    if (_reader)
+      _reader->mode(_mode);
+  } else if ((param == "nvs") || (param == "ram")) {
+    if (value.length()) 
+      if (_reader) {
+        int x = _lastRead;
+        if (_lastInputType == NONE) {
+          x = read(false);
+        }
+        if (param == "nvs")
+          nvssetstr(value.c_str(), String(x));
+        else
+          ramsetstr(value.c_str(), String(x));
+      }
+  } else if (param == "src") {
+    setReader(value);
+  } else if (param == "start") {
+    _lastInputType = NONE;
+    read(true);
+  } else if (param == "stop") {
+    _lastInputType = NONE;
+  } else if (param == "info") {
+    showInfo(true);
   }
 }
 
+//**************************************************************************************************
+// Class: RetroRadioInput::showInfo(String value, bool hint)                                       *
+//**************************************************************************************************
+//  - Displays (all) relevant settings for the Input on Serial (even if DEBUG = 0)                 *
+//  - Can be used for debugging (to see if all settings are as expected), no functional impact     *
+//  - Will not read the input (for this, set the "property" 'show' to a value > 0 to have cyclic   *
+//    display of the readings (with distance between readings set by the value assigned to 'show'  *
+//  - If 'hint' is true, an info is displayed showing all other known inputs                       *
+//**************************************************************************************************
+void RetroRadioInput::showInfo(bool hint) {
+    doprint("Info for Input \"in.%s\":", getId());
+    if (_valueMap.size() >= 4) {
+      doprint(" * Value map contains %d entries:", _valueMap.size() / 4);
+      for(int i = 0;i < _valueMap.size();i += 4)
+        doprint("    %3d: (%d..%d = %d..%d)", 1 + i / 4, 
+          _valueMap[i], _valueMap[i + 1], _valueMap[i + 2], _valueMap[i+ 3]);
+    } else
+      doprint(" * Value map is NOT set!");
+    if (_reader == NULL)
+      doPrint(" * No source linked, Input not operational!");
+    else {
+      doprint(" * Source link: %s", _reader->info().c_str()); 
+      if (_lastInputType == NONE)
+        doprint(" * Input is not started (no cyclic polling)");
+      else
+        doprint(" * Cyclic polling is active");
+    }
+    const char *cmnds = getEvent();
+    if (cmnds) {
+      doprint(" * Change-event: \"%s\"", getEvent());
+      if (nvssearch(cmnds)) {
+        String commands = nvsgetstr(cmnds);
+        chomp_nvs(commands);
+        doprint("    defined in NVS as: \"%s\"", commands.c_str());   
+      } else if (ramsearch(cmnds)) {
+        String commands = ramgetstr(cmnds);
+        chomp_nvs(commands);
+        doprint("    defined in RAM as: \"%s\"", commands.c_str());   
+      } else 
+        doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+    } else
+      doprint(" * No change-event defined.");
+    doprint(" * Delta: %d", _delta);  
+    doprint(" * Show: %d (seconds)", _show / 1000);
+    doprint(" * Debounce-Time: %d (ms)", _debounceTime);
+    if (hint)
+      if (_inputList.size() > 1) {
+        doprint("There are %d more Inputs defined:", _inputList.size() - 1);
+        int n = 0;
+        for (int i = 0;i < _inputList.size();i++)
+          if (_inputList[i] != this)
+            doprint(" %2d: \"in.%s\"", ++n, _inputList[i]->getId());
+      }
+}
 
 //**************************************************************************************************
 // Class: RetroRadioInput.setValueMap(String value)                                                *
 //**************************************************************************************************
 //  - Set the mapping table of the RetroRadioInput object                                          *
-//  - more than one mapping entry can be added, separate mapping entries must be separated by '|'  *
+//  - more than one mapping entry can be added, each entry must be surrounded by '( )'             *
 //  - if value (after chomp) starts with @ the remaining string is treated as key to an NVS entry  *
-//    from preferences                                                                             *
+//    from preferences or RAM entry if no NVS entry is associated with that key                    *
 //  - One single entry is expected to have the format:                                             *
-//        x1[,x2] = y1[,y2]                                                                        *
-//    Interpretation: if read is called, the phyical value obtained from physRead() (if valid)     *
+//        x1[..x2] = y1[..y2]                                                                      *
+//    Interpretation: if read is called, the phyical value obtained from physRead()                *
 //    is compared with all defined map-entries if it fits within x1 and x2 (x2 can be below x1)    *
 //    x1 and x2 are inclusive, if x2 is not provided it will be set equal to x1.                   *
 //    If there is a hit, x will be mapped to y1 to y2. (if y2 is not provided, y2 will set to y1)  *
 //    both x and y range can be in reverse order (but for y must not be below 0)                   *
 //    Examples:                                                                                    *
-//       0 = 1; 1 = 0  (expanded to 0,0 = 1,1;1,1 = 0,0) will iverse a digital input               *
-//       0,1 = 1,0 would do the same with just one map entry                                       *
+//       (0 = 1) (1 = 0) (expanded to (0..0 = 1..1)(1..1 = 0..0) will iverse a digital input       *
+//       (0..1 = 1..0) would do the same with just one map entry                                   *
 //       0, 4095 = 100, 0  will convert input values between 0-4095 (i. e. from analog input) to   *
 //                 an output range of 100 to 0                                                     *
 //  - A map entry with empty left part is also possible. In that case the left part will be set to *
-//    x1 = 0 and x2 = INT16_MAX. This cancels also the map setting, as this entry will cover the   *
-//    full possible input range.                                                                   *
+//    x1 = INT16_MIN and x2 = INT16_MAX. This cancels also the map setting, as this entry will     *
+//    cover the full possible input range.                                                         *
 //  - In case of overlapping map ranges, the first defined map enty will fire. Example:            *
-//    1000,3000 = 1;=2;4000,4050=3;                                                                *
+//    (1000..3000 = 1)(=2)(4000..4050=3)                                                           *
 //    will yield 1 for all readings between 1000 and 3000 (inclusive), and 2 in any other case     *
 //    (the third entry will be ignored since the range between 4000 and 4050 is also covered by    *
 //    the second  
 //  - calling setMap will erase the old mapping                                                    *                                       
 //**************************************************************************************************
+void RetroRadioInput::setValueMap(String value) {
+  chomp_nvs(value);
+  value.toLowerCase();
+  _valueMap.clear();
+  while(value.length() > 0) {
+    String mapEntryLeft, mapEntryRight;
+    char *delimiters[] = {"=", NULL};
+    int idx = parseGroup(value, mapEntryLeft, mapEntryRight, delimiters);
+    if (idx == 0) {
+      char *delimiters[] = {"..", NULL};
+      String from1, from2, to1, to2;
+      if (mapEntryLeft.length() == 0) {
+        from1 = String(INT16_MIN);
+        from2 = String(INT16_MAX);
+      }
+      else if (-1 == parseGroup(mapEntryLeft, from1, from2, delimiters, true))
+        from2 = from1;
+      if (-1 == parseGroup(mapEntryRight, to1, to2, delimiters, true))
+        to2 = to1;        
+      _valueMap.push_back(from1.toInt());                  // add to map if both x and y pair is valid
+      _valueMap.push_back(from2.toInt());
+      _valueMap.push_back(to1.toInt());
+      _valueMap.push_back(to2.toInt());        
 
+      Serial.printf("Map entry for input_%s: %d, %d = %d, %d\r\n", getId(), _valueMap[_valueMap.size() - 4],
+                               _valueMap[_valueMap.size() - 3],_valueMap[_valueMap.size() - 2],_valueMap[_valueMap.size() - 1]);
+
+    }
+  }
+  _lastInputType = NONE;  
+}
+
+#ifdef OLD
 void RetroRadioInput::setValueMap(String value) {
   chomp(value);
-  clearValueMap();
+  _valueMap.clear();
+
+  //clearValueMap();
   if (value.c_str()[0] == '@') {                 // value pointing to NVS-Entry?
     value = nvsgetstr(value.c_str() + 1);         // yes: get that entry
   }
@@ -254,8 +695,245 @@ void RetroRadioInput::setValueMap(String value) {
     }
     chomp(value);
   } while (value.length() > 0);                   // repeat if there is more in the input
+  _lastInputType = NONE;
 }
+#endif
 
+
+class RetroRadioInputReaderDigital: public RetroRadioInputReader {
+  public:
+    RetroRadioInputReaderDigital(int pin, int mod) {
+      _pin = pin;
+      mode(mod);
+    };
+    int16_t read() {
+      return _inverted?!digitalRead(_pin):digitalRead(_pin);
+    };
+    void mode(int mod) {
+       _mode = mod;
+        _inverted = 0 != (mod & 0b1);
+        if (0 != (mod & 0b10))
+          pinMode(_pin, INPUT_PULLUP);
+        else
+          pinMode(_pin, INPUT);
+    }
+    String info() {
+       return String("Digital Input, pin: ") + _pin +
+              ", Inverted: " + _inverted + ", PullUp: " + (0 != (_mode & 0b10));
+    }
+
+  private:
+    int _pin;
+    bool _inverted;
+};
+
+
+class RetroRadioInputReaderAnalog: public RetroRadioInputReader {
+  public:
+    RetroRadioInputReaderAnalog(int pin, int mod) {
+      _pin = pin;
+      _last = -1;
+      _filter = 0;
+      mode(mod);
+    };
+    void mode(int mod) {
+        _mode = mod;
+        _inverted = 0 != (mod & 0b1);
+        if (0 != (mod & 0b10))
+          pinMode(_pin, INPUT_PULLUP);
+        else
+          pinMode(_pin, INPUT);
+        _filter = (0b11100 & mod) >> 2;
+    }
+    int16_t read() {
+      uint32_t t = millis();
+      if (_last >= 0)
+        if ((t - _lastReadTime) < 20)
+          return (_inverted?(4095 - _last):_last);
+      _lastReadTime = t; 
+      int x = analogRead(_pin);
+   //   Serial.printf("AnalogRead(%d) = %d\r\n", _pin, x);
+      if ((_last >= 0) && (_filter > 0)) {
+        _last = (_last * _filter + x) / (_filter + 1);
+        if (_last < x)
+          _last++;
+        else if (_last > x)
+          _last--;
+      }
+      else
+        _last = x;
+      return (_inverted?(4095 - _last):_last);
+    };
+    
+    String info() {
+       return String("Analog Input, pin: ") + _pin +
+              ", Inverted: " + _inverted + ", PullUp: " + (0 != (_mode & 0b10)) + ", Filter: " + (7 & (_mode >> 2));
+    }
+  private:
+    int _pin, _last, _filter;
+    bool _inverted;
+    uint32_t _lastReadTime;
+};
+
+class RetroRadioInputReaderCapa: public RetroRadioInputReader {
+  public:
+    RetroRadioInputReaderCapa(int pin) {
+      _pin = pin;
+      touch_pad_config((touch_pad_t)pin, 0);
+      _last = 0xffff;
+    };
+    int16_t read() {
+      uint16_t x;
+      touch_pad_read_filtered((touch_pad_t)_pin, &x);
+//      if (_last == 0xffff)
+        _last = x;
+//      else
+//        _last = ((_last * 7) + x) / 4;
+      return (_last);
+    };
+    void mode(int mod) {
+      
+    }
+  private:
+    int _pin;
+    uint16_t _last;
+};
+
+
+class RetroRadioInputReaderTouch: public RetroRadioInputReader {
+  public:
+    RetroRadioInputReaderTouch(int pin, int mod) {
+      _pin = pin;
+      touch_pad_config((touch_pad_t)pin, 0);
+      _maxTouch = 100;
+      mode(mod);
+    };
+    void mode(int mod) {
+      _auto = (0 != (mod & 0b1));
+      
+    }
+
+    int16_t read() {
+      uint16_t x;
+      touch_pad_read_filtered((touch_pad_t)_pin, &x);
+      if (x == 0)
+        x = _maxTouch;
+      if (x >= _maxTouch)
+        _maxTouch = x;
+      else if (_auto && (_maxTouch - x < 5) && (_maxTouch > 100))
+        _maxTouch--;
+/*
+      static uint32_t lastShow = 0;
+      if (millis() - lastShow > 1000) {
+        Serial.printf("touch=%d, max=%d\r\n", x, _maxTouch);
+        lastShow = millis();  
+      }
+*/
+      return _auto?map(x, 0, _maxTouch, 0, 1023):x;
+    };
+    String info() {
+       return String("Touch Input: T") + _pin +
+              ", Auto: " + _auto + (_auto?" (auto calibration to 1023 if not touched)":" (pin value is used direct w/o calibration)");
+    }
+  private:
+    int _pin;
+    bool _auto;
+    uint16_t _maxTouch;
+};
+
+class RetroRadioInputReaderSystem: public RetroRadioInputReader {
+  public:
+    RetroRadioInputReaderSystem(const char* reference): _readf(NULL), _refname(NULL), _ref(NULL) {
+      int i;
+      for(int i = 0;(_readf == NULL) && (i < sizeof(_references) / sizeof(_references[0]));i++)
+        if (0 == strcmp(reference, _references[i].id)) 
+          if ((NULL != _references[i].ref) && (NULL != _references[i].readf)) {
+            _ref = _references[i].ref;
+            _readf = _references[i].readf;
+            _refname = _references[i].id;
+          }
+      if (NULL == _refname)  
+        _refname = strdup(reference);
+      //Serial.printf("sytem[%s] has ref=%ld\r\n", reference, _ref); 
+    };
+    
+    void mode(int mod) {
+    }
+
+    int16_t read() {
+      if (_readf)
+        return _readf(_ref);
+      return 0;
+    };
+
+    String info() {
+      String ret;
+      if (!_ref)
+        ret = "Set to unknown ";
+      ret = ret + "Variable: " + _refname;
+      if (!_ref)
+        ret += " (will always read as 0)";
+      return ret;
+    }
+    
+    static int readUint8(void *ref) {
+      return (int) (*((uint8_t*)ref));
+    }
+    static int readInt16(void *ref) {
+      return (int) (*((uint16_t*)ref));
+    }
+
+  private:
+    struct {
+      const char *id;
+      void *ref;
+      int (*readf)(void*);
+    } _references[8] = {
+      {"volume", &ini_block.reqvol, RetroRadioInputReaderSystem::readUint8},
+      {"preset", &ini_block.newpreset, RetroRadioInputReaderSystem::readInt16},
+      {"toneha", &ini_block.rtone[0], RetroRadioInputReaderSystem::readUint8},
+      {"tonehf", &ini_block.rtone[1], RetroRadioInputReaderSystem::readUint8},
+      {"tonela", &ini_block.rtone[2], RetroRadioInputReaderSystem::readUint8},
+      {"tonelf", &ini_block.rtone[3], RetroRadioInputReaderSystem::readUint8},
+      {"channel", &currentChannel, RetroRadioInputReaderSystem::readInt16},
+      {"channels", &numChannels, RetroRadioInputReaderSystem::readInt16}
+    };
+    
+    void *_ref;
+    const char* _refname;
+    int (*_readf)(void *);
+};
+
+
+
+void RetroRadioInput::setReader(String value) {
+  RetroRadioInputReader *reader = NULL;
+  chomp(value);
+  value.toLowerCase();
+  int idx = value.substring(1).toInt();
+  Serial.printf("SetReader, value = %s\r\n", value.c_str());
+  switch(value.c_str()[0]) {
+    case 'd': reader = new RetroRadioInputReaderDigital(idx, _mode);
+              break;
+    case 'a': if ((_reader == NULL) && (_mode == 0))
+                _mode = 0b11100;
+              reader = new RetroRadioInputReaderAnalog(idx, _mode);
+              break;
+    case 'c': reader = new RetroRadioInputReaderCapa(idx);
+              break;
+    case 't': reader = new RetroRadioInputReaderTouch(idx, _mode);
+              break;
+    case '.': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
+              break;
+  }
+  if (reader) {
+    if (_reader)
+      delete _reader;
+    _reader = reader;
+    _lastInputType = NONE;
+    Serial.printf("Reader %lX set for %lX!", _reader, this);
+  }
+}
 
 //**************************************************************************************************
 // Class: RetroRadioInput.clearValueMap()                                                          *
@@ -263,12 +941,15 @@ void RetroRadioInput::setValueMap(String value) {
 //  - Clears the value map, if that map is not empty. In that case, also _lastRead is reset, as    *
 //    from now on the mapping used to calculate _lastRead is no longer valid                       *
 //**************************************************************************************************
+/*
 void RetroRadioInput::clearValueMap() {
   if (_valueMap.size()) {
     _valueMap.clear();
     _lastRead = _lastUndebounceRead = INT16_MIN;
   }
+  _lastInputType = NONE;
 }
+*/
 
 //**************************************************************************************************
 // Class: RetroRadioInput.valid()                                                                  *
@@ -277,10 +958,11 @@ void RetroRadioInput::clearValueMap() {
 //    the calling object.                                                                          *
 //    from now on the mapping used to calculate _lastRead is no longer valid                       *
 //**************************************************************************************************
+/*
 bool RetroRadioInput::valid() {
   return _valid;
 }
-
+*/
 
 //**************************************************************************************************
 // Class: RetroRadioInput.physRead()                                                               *
@@ -289,7 +971,14 @@ bool RetroRadioInput::valid() {
 //  - Invalid, if below 0                                                                          *
 //**************************************************************************************************
 int16_t RetroRadioInput::physRead() {
-  return -1;
+  if (!_reader) {
+    _lastInputType = NONE;
+    return 0;
+  } else {
+    if (_lastInputType == NONE)
+      _lastInputType = HIT;
+    return _reader->read();
+  }
 }
 
 //**************************************************************************************************
@@ -298,11 +987,169 @@ int16_t RetroRadioInput::physRead() {
 RetroRadioInput::~RetroRadioInput() { 
   if (_id)
     free(_id);
-  if (_name)
-    free(_name);
+  if (_event)
+    free(_event);
+  if (_reader)
+    delete _reader;
 };
 
+int RetroRadioInput::read(bool doStart) {
+  bool forced = (_lastInputType == NONE);
+  bool show = (_show > 0) && (millis() - _lastShowTime > _show);
+  int16_t x = physRead();
+  int16_t nearest;
+  if (show)
+    _lastShowTime = millis();
+  if (NONE == _lastInputType) {
+    if (show)
+      doprint("Input \"%s\" fail: no source associated", getId());
+    return 0;
+  } else if (show)
+    doprint("Input \"%s\", phys read=%d", getId(), x);
+  bool found = true;
+  if (_valueMap.size() >= 4) {
+    size_t idx = 0;
+    uint16_t maxDelta = UINT16_MAX;
+    found = false;
+    while (idx < _valueMap.size() && !found) {
+      int16_t c1, c2;
+      int16_t x1, x2, y1, y2;
+      x1 = _valueMap[idx++];
+      x2 = _valueMap[idx++];
+      y1 = _valueMap[idx++];
+      y2 = _valueMap[idx++];  
+      c1 = x1 = (x1 < 0?_maximum+x1:x1);
+      c2 = x2 = (x2 < 0?_maximum+x2:x2);
+      if (c1 > c2) {
+        int16_t t = c1;
+        c1 = c2;
+        c2 = t;
+      }
+      if ((x >= c1) && (x <= c2)) {
+        found = true;
+        if (y1 == y2)
+          x = y1;
+        else 
+          x = map(x, x1, x2, y1, y2);
+      } else {
+        int16_t newNearest;
+        uint16_t myDelta = x < c1?c1 - x: x - c2;
+        if (x < c1) {
+          //newNearest = -y1 - 1;
+          newNearest = y1;
+          myDelta = c1 - x;  
+        } else {
+          //newNearest = -y2 - 1;
+          newNearest = y2;
+          myDelta = x - c2;
+        }
+        if (myDelta < maxDelta) {
+          maxDelta = myDelta;
+          nearest = newNearest;
+        }
+      }
+    }; 
+  }
+  if (found) {
+    if (show && (_valueMap.size() >= 4)) 
+      doprint("Input \"%s\" value mapped to=%d", getId(), x);
+    _lastInputType = HIT;
+  }
+  else {
+    if (forced) {
+      x = nearest; 
+      _lastInputType = NEAREST;
+      if (show) // (_show > 0) 
+        doprint("\"in.%s\" value mapped to nearest=%d", getId(), x);
+    } else
+      x = _lastRead;
+  }
+  if (!doStart) {
+    if (forced)
+      _lastInputType = NONE;
+    forced = false;
+  } else if (forced) {
+    _lastRead = _lastUndebounceRead = x;
+    _lastReadTime = millis();
+  } else {
+    if (x != _lastUndebounceRead) {
+      _lastUndebounceRead = x;
+      _lastReadTime = millis();
+      x = _lastRead;
+    } else if (x != _lastRead) {
+      if ((millis() - _lastReadTime < _debounceTime) || (_delta > abs(_lastRead - x)))
+        x = _lastRead;
+      else {
+        _lastRead = x;
+        forced = true;
+      }
+    } 
+  }
+  if (forced) {
+    const char *cmnds = getEvent();
+    if (cmnds) {
+//      char specificEvent[20];
+//      sprintf(specificEvent, "%s%d", cmnds, x);
+      if (_show > 0) {
+        doprint("Input \"in.%s\": change to %d (event \"%s\")", getId(), x, getEvent());
+      }
+      
+      String commands = nvssearch(cmnds)?nvsgetstr(cmnds):ramgetstr(cmnds);//nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
+      chomp_nvs(commands, String(x).c_str());
+      analyzeCmds ( commands );
+      /*
+      if (commands.length() > 0) {
+        if (commands.c_str()[0] == '@')
+          commands = nvsgetstr(commands.c_str() + 1);
+        if (commands.length() > 0)
+          executeCmdsWithSubstitute(commands, String(x));
+      }
+      */
+    }
+  }
+  return x;
+}
 
+void RetroRadioInput::executeCmdsWithSubstitute(String commands, String substitute) {
+  int idx = commands.indexOf('?');
+  while (idx >= 0) {
+    commands = commands.substring(0, idx) + substitute + commands.substring(idx + 1);
+    idx = commands.indexOf('?');
+  }
+  analyzeCmds(commands);
+}
+
+void RetroRadioInput::checkAll() {
+  for(int i = 0;i < _inputList.size();i++) {
+    RetroRadioInput *p = _inputList[i];
+    bool isRunning = p->_lastInputType != NONE;
+    if ((isRunning && (p->_event != NULL)) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
+        p->read(isRunning);
+        if (!isRunning)
+          Serial.printf("Input \"in.%s\" is STOPped!\r\n", p->getId());
+          //p->_lastInputType = NONE;
+    }
+  }
+}
+
+void RetroRadioInput::showAll(const char *p) {
+  Serial.printf("Running showAll! p=%ld\r\n",p);
+  for(int i = 0;i < _inputList.size();i++) {
+    bool match = (p == NULL);
+    if (!match)
+      match = (strstr(_inputList[i]->getId(), p) != NULL);
+    if (match)
+      _inputList[i]->showInfo(false);
+  }
+}
+
+void doInput(String id, String value) {
+  RetroRadioInput *i = RetroRadioInput::get(id.c_str());
+  if (i)
+    i->setParameters(value);
+}
+
+/*
 //To be documented....
 int16_t RetroRadioInput::read(bool show) {
   int16_t x;
@@ -377,12 +1224,13 @@ int16_t RetroRadioInput::read(bool show) {
 }
 
 
+
 void RetroRadioInput::check() {
 //todo: filtern?
 //todo: forcedRead
-bool forced = _force;
+bool forced = false;//_force;
 bool showflag = false;
-  _force = false;
+//  _force = false;
   if (_show || forced)
     showflag = forced || ((millis() - _lastShowTime > _show));
   if (showflag)
@@ -403,7 +1251,9 @@ int16_t x = read(showflag);
       return;
   }  
   // Here we now have an debounced read that was different to the last one...
-  if (forced || ((x >= 0) /*&& (_lastRead >= 0)*/ && (abs(_lastRead - x) >= _delta))) {
+  if (forced || ((x >= 0) 
+  //&& (_lastRead >= 0)
+  && (abs(_lastRead - x) >= _delta))) {
      if (_calibrate > 0)
        doprint("Change of Input_%s (from %d) to %d", getId(), _lastRead, x); 
      if ((x < 0) && forced)
@@ -450,6 +1300,7 @@ int16_t x = read(showflag);
   } 
 }
 
+
 RetroRadioInputADC::RetroRadioInputADC(const char* id):RetroRadioInput(id) {
   _valid = true;
   _pin = atoi(id + 1);
@@ -490,4 +1341,142 @@ void RetroRadioInputTouch::setParameter(String param, String value, int32_t ival
     _auto = (bool)ivalue ;
   } else 
     RetroRadioInput::setParameter(param, value, ivalue);
+}
+*/
+
+std::map<String, String> ramContent;
+
+//**************************************************************************************************
+//                                      R A M G E T S T R                                          *
+//**************************************************************************************************
+// Read a string from RAM.                                                                         *
+//**************************************************************************************************
+String ramgetstr ( const char* key )
+{
+  auto search = ramContent.find(String(key));
+  if (search == ramContent.end())
+    return String("");
+  else
+    return search->second;
+}
+
+
+//**************************************************************************************************
+//                                      R A M S E T S T R                                          *
+//**************************************************************************************************
+// Put a key/value pair in RAM.  Length is limited to allow easy read-back.                        *
+//**************************************************************************************************
+void ramsetstr ( const char* key, String val )
+{
+  ramContent[String(key)] = val;
+}
+
+//**************************************************************************************************
+//                                      R A M S E A R C H                                          *
+//**************************************************************************************************
+// Check if key exists in RAM.                                                                     *
+//**************************************************************************************************
+bool ramsearch ( const char* key )
+{
+  auto search = ramContent.find(String(key));
+  return (search != ramContent.end());
+}
+
+//**************************************************************************************************
+//                                      D O R A M L I S T                                          *
+//**************************************************************************************************
+// - command "ramlist": list the full RAM content to Serial (even if DEBUG = 0)                    *
+//**************************************************************************************************
+void doRamlist(const char* p) {
+  doprint("RAM content (%d entries)", ramContent.size());
+  auto search = ramContent.begin();
+  int i = 0;
+  while (search != ramContent.end()) {
+    bool match = (p == NULL);
+    if (!match)
+      match = (NULL != strstr(search->first.c_str(), p));
+    if (match)
+      doprint(" %2d: '%s' = '%s'", ++i, search->first.c_str(), search->second.c_str());
+    search++;
+  }
+}
+
+
+// Example of listing all the key-value pairs of any type under specified partition and namespace
+void doNvslist(const char* p) {
+  fillkeylist();
+  int i = 0;
+  int idx = 0;
+  doprint("NVS content", ramContent.size());
+  while (nvskeys[i][0] != '\0') {
+    bool match = (p == NULL);
+    if (!match)
+      match =  strstr(nvskeys[i], p) != NULL;
+    if (match)
+      doprint(" %3d: '%s' = '%s'", ++idx, nvskeys[i], nvsgetstr(nvskeys[i]).c_str());
+    i++;
+  }
+}
+
+
+void doChannels(String value) {
+  channelList.clear();
+  currentChannel = 0;
+  readDataList(channelList, value);  
+  numChannels = channelList.size();
+  dbgprint("CHANNELS (total %d): %s", value.c_str());
+}
+
+void doChannel(String value, int ivalue) {
+  if (channelList.size() > 0) {
+    int16_t channel = currentChannel;
+    Serial.printf("CurrentChannel = %d, value=%s, ivalue=%d\r\n", channel, value.c_str(), ivalue);
+    if (channel)
+      if (channelList[channel - 1] != ini_block.newpreset) {
+        Serial.println("Channel set to ZERO: does not match current preset");
+        channel = currentChannel = 0;
+      }
+    if (ivalue) {
+      if (ivalue <= channelList.size()) {
+        channel = ivalue;
+      }
+    } else {
+      if (!channel) {
+        currentChannel = channelList.size();
+        while ((currentChannel > 0) && (ini_block.newpreset != channelList[currentChannel - 1]))
+          currentChannel--;
+        channel = currentChannel;
+      }
+      if (value == "up") {
+        if (channel) {
+          if (channel < channelList.size())
+            channel++;
+        } else
+          channel = 1;
+      } else if (value == "down") {
+        if (channel) {
+          if (channel > 1)
+            channel--;
+        } else
+          channel = channelList.size();
+      } else if (value = "any") {
+        if (0 == channel) 
+          channel = 1 + random(channelList.size());
+        else if (channelList.size() > 1)
+          while (channel == currentChannel)
+            channel = 1 + random(channelList.size());
+      }
+    }
+    if (channel != currentChannel) {
+      Serial.printf("New Channel found: %d (was %d) with preset=%d\r\n", channel, currentChannel, channelList[channel-1]);
+      char s[20];   
+      sprintf(s, "%d", channelList[channel - 1]);
+      analyzeCmd("preset", s);  
+      currentChannel = channel;
+    }
+  }
+}
+
+void doInlist(const char *p) {
+  RetroRadioInput::showAll(p);
 }

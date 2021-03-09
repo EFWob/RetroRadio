@@ -3,13 +3,40 @@
 #define defaultprefs_version 1808016
 const char defprefs_txt[] PROGMEM = 
 R"=====(
-$homedorit = volume=@$inivol;channels = 0,1,2,3,4,5,6,7,10;channel=1
+$amchannels = 1,2,10,11,12,13,14,15,16
 #
-$inivol = 70
+$dorit = channels=@$fmchannels;preset=0;volume=70;in.vol=delta.5;eq=0
+#
+$equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
+$equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
+$equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
+$equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
+$erik = channels=@$amchannels;in.vol=start;in.tune=start;eq=1
+#
+$fmchannels = 0,1,2,3,4,5,6,7,10
+#
+#
+$tunemap = 100,115=1|120,130=2|135,150=3|160,185=4|205,250=5|285,330=6|350,400=7|410,450=8|470,590=9
+#
+$voldelta = 2
+$volmap = 0,15=0|16,4095=50,100
 #
 +switch0 = eq=0;usetunings=0;channels=0,1,2,3,4,5,6,7,10;nvs=@0t0.1=channel=up
 +switch1 = eq=1;usetunings=1;channels=1,2,10,11,12,13,14,15,16,17,18,19,20;nvs=@0t0.1=preset=any
 +switch2 = usetunings=2;channels=21,22,23,24,25,26,27,28;nvs=@0t0.1=preset=any
+#
+:start = execute=:starthmi;execute=$dorit
+:starthmi = execute=:startswitch;execute=:startvol;execute=:starttune
+:startswitch = in.switch=src.a36:map.0,100=0|0,4095=1:start:event.>switch:show.0
+:starttune = in.tune=src.c9:show.1:map.@$tunemap:start:event.>tune:show.0
+:startvol = in.vol=src.a39:map.@$volmap:delta.2:start:event.>vol:show.0
+#
+>switch0 = execute=$dorit
+>switch1 = execute=$erik
+#
+>tune = channel=?
+#
+>vol = volume=?;in.vol=delta.@$voldelta
 #
 @0t0.1 = channel=up
 @0t0.2 = debug=0;mp3track=0
@@ -30,8 +57,6 @@ $inivol = 70
 @2t0.3 = lock=0
 @2t0.6.5 = reset
 #
-@start = preset=0;volume=70
-#
 @t0.1 = channel=up
 @t0.3 = lock=1
 @t0.4 = downvolume=2
@@ -44,12 +69,12 @@ channels = 0,1,2,3,4,5,6,7,10
 #
 eth_clk_mode = 3
 eth_phy_power = 12
-eth_timeout = 6
 #
+ir_02FD = @$erik # (>>|)
 ir_10EF = channel = 4 # (4)
 ir_18E7 = channel = 2 # (2)
-ir_22DD = volume=70;channels = 0,1,2,3,4,5,6,7,10;channel=1; #(|<<)
-ir_22DDR4 = upvolume = 3 # (|<<) longpressed
+ir_22DD = @$dorit #(|<<)
+ir_22DDR4 = upvolume = 2 # (|<<) longpressed
 ir_3000 = preset = 1        # (0) Philips
 ir_3001 = channel = 1       # (1) Philips
 ir_3002 = channel = 2       # (2) Philips
@@ -60,7 +85,7 @@ ir_3006 = channel = 6       # (6) Philips
 ir_3007 = channel = 7       # (7) Philips
 ir_3008 = channel = 8       # (8) Philips
 ir_3009 = channel = 9       # (9) Philips
-ir_300C = @$homedorit # volume=70;channels =  0,1,2,3,4,5,6,7,10;channel=1; #(|) auf Philips
+ir_300C = @$dorit # volume=70;channels =  0,1,2,3,4,5,6,7,10;channel=1; #(|) auf Philips
 ir_300CR5 = upvolume = 3    # (|) Philips longpress
 ir_300D = mute              # (mute) Philips
 ir_300F = preset = 11       # (links unten) Philips
@@ -126,7 +151,6 @@ pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
 pin_vs_dcs = 16       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
-preset = 3
 preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
 preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
 preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
@@ -175,24 +199,23 @@ preset_45 = relay.publicdomainproject.org:80/jazz_swing.mp3 #  Swissradio Jazz &
 preset_46 = 212.77.178.166:80                        #  Radio Heimatmelodie
 preset_47 = stream.srg-ssr.ch/m/drsmw/mp3_128        #   SRF Musikwelle
 #
-rr_eq0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
-rr_eq1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
-rr_eq2 = toneha=7; tonehf=4; tonela=15; tonelf=15
-rr_eq3 = toneha=0; tonehf=3; tonela=0; tonelf=13
+rr_eq0 = @$equalizer0 #toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
+rr_eq1 = @$equalizer1 #toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
+rr_eq2 = @$equalizer2 #toneha=7; tonehf=4; tonela=15; tonelf=15
+rr_eq3 = @$equalizer3 #toneha=0; tonehf=3; tonela=0; tonelf=13
 rr_sw_pos0 = 4090, 4095
 rr_sw_pos1 = 1750, 2050
 rr_sw_pos2 = 0, 5
 rr_tunepos0 = 80,97, 103,115, 126,136, 148,166, 192,210, 222,239, 252,269 , 280,320
 rr_tunepos1 = 80,95, 99,105, 110,115, 120,125, 132,140, 150,160, 170,180, 190,200, 210,220, 230,240, 250,260, 270,280, 290,320
-rr_vol_min = 50
-rr_vol_zero = 1
 #
-toneha = 7
-tonehf = 4
-tonela = 8
-tonelf = 14
+toneha = 5
+tonehf = 3
+tonela = 15
+tonelf = 12
 #
-volume = 80
+volume_min = 50
+volume_zero = 1
 #
 wifi_00 = SSID/passwd
 )=====" ;
