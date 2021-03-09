@@ -117,6 +117,11 @@ typedef enum {
 **For future/different core versions that assignment might change.**
 
 
+## Storing values into RAM
+In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. More on
+that later, however from now on, if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
+location can either be in NVS as usual or in RAM. (If a specific _key_ exists in either NVS and RAM, the one in NVS will be used).
+
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
 command. Commands in a sequence must be seperated by ';'. 
@@ -126,6 +131,19 @@ to achieve that.
 Command values can also be referenced to other preference settings. So if you have a setting _limp_home = volume = 75; preset = 0_
 in the preset, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
 are not permitted). If the given key does not exist, an empty string is used as replacement.
+
+## The execute-command
+The execute-command takes the form _execute = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
+retrieved and executed as commands-list (whith each command being seperated by semicolon).
+
+## Startup event
+If the key-value-pair _::start = value_ is defined, the associated value is retreived and executed as commands-list.
+The 'event' is generated after setup is finished just before the first _call to loop()_.
+
+If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
+to level 70.
+
+
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
 Now also RC5 remotes (Philips protocol) can be decoded. RC5 codes are 14 bits, where the highest bit (b13) is always 1.
@@ -168,5 +186,23 @@ Longpress events follwoing that initial press can be catched by the following:
   command sequence. As said above, the order will always be maintained, so _ir_XXXXx_ will always be last in a key press sequence. 
 - Key release is detected after timeout. This timeout is set to 500ms which counts from the last valid key information reported to scanIR().
 
+## Channel concept
+The channel concept allows a simple re-mapping of the preferences. There are two new commands to implement the channel concept. (as usual, the
+commands can be defined either by preference settings or through the input channels at runtime, i. e. Serial input).
+
+- _channels = comma-delimited-integer-list_ will (re-)define the channel list. In the list numbers (decimal) are expected which are treated as 
+   reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total witch Channel1 mapped to 
+   _preset_1_ to Channel9 mapped to _preset_16_
+- That assignment does not change the current preset. To use that channel-list (i. e. to switch channel), the command _channel = Argument_ must be
+    used.
+- Argument can be:
+  - A number between '1' and 'max' whith 'max' being the number of channels as defined by the command _channels_ above. In our example '9'. This
+    will change the preset accordingly (but only if different from current channel).
+  - The word 'any': chose a random preset from the channellist. (It is guaranteed that the chosen preset will be different from current preset.)
+  - The word 'up': if the current channel is not the last channel, tune to next preset in channel-list. (if the current preset is not in the channel
+    list, i. e. if tuned to by other means, make Channel1 the current channel).
+  - The word 'down': if the current channel is not the Channel1, tune to previous preset in channel-list. (if the current preset is not in the channel
+    list, i. e. if tuned to by other means, make ChannelMax the current channel).
+    
 
 
