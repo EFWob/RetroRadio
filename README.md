@@ -370,9 +370,13 @@ The second line contains a new command _'in'_.
       less, (100 or less), the input will yield 0.
   * The arduino _map()_ function is used internally, so reversing lower and upper bounds or using negative numbers is no problem as long its within the limits of int16
   * _map_-entries can overlap both on the x and the y side. When actually performing the mapping, the entries are evaluated from left to right.
-    > if a match occures, that entry will be used for mappin. Further entries (to the right) are no longer considered.
-    > '..y2' and / or '..x2' can be omnited. (so you can have just one number on either side). If there is only one entry in the _y_-part, all of the input range
+  * if a matching entry is found, that entry will be used for mapping. Further entries (to the right) are no longer considered.
+  * '..y2' and/or '..x2' can be omnited. (so you can have just one number on either side). 
+    > If there is only one entry in the _y_-part, all of the input range
       from _'x1..x2'_ will be mapped to that single _y_-Value (see second entry in the example with _'(0..100=0)'_. If there is only one entry in the _x_-part, that 
       value will be mapped to _y_ (a setting of _y2_ will be ignored in that case).
-    > A single map entry can be read from NVS/RAM if it is derefenced by '@'. So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in NVS/RAM and would use 
+  * A single map entry can be read from NVS/RAM if it is derefenced by '@'. 
+    > So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in NVS/RAM and would use 
       this values at the time the 'in' command is executed. The resulting map-Entry will keep these values, even if later _x1_ or _x2_ are changed.
+      
+      
