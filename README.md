@@ -362,6 +362,7 @@ The second line contains a new command _'in'_.
       to propagate to the readout. For volume settings this is not a bad thing at all, and the maximum size of 7 is still fine with that usecase.
     > all other bits are reserved for future ideas and should for now be set to '0'.
   * So in our case the input is configured with the maximum filter size 7, not inverted, internal PullUp not set.  
+
 - The proprty _map_ allows a re-mapping of the physical read input value arbitrary different range
   * a _map_ can contain any number of entries
   * each entry must be surrounded by paranthesis _'(x1..x2 = y1..y2)'_. _x1..x2_ is (a part) of the input range that will be transformed into the output range _y1..y2_
