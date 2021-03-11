@@ -355,12 +355,12 @@ The second line contains a new command _'in'_.
 - _mode_ is a property that details a few aspects of the physical input. 
   * It is specific (has a different meaning) to a specific input type.
   * _mode_ is bit-coded, and for analog input b0-b4 are evaluated (28 from the example is 0b11100 in binary):
-    > b0: if set, readout is inverted (so 4095 if 0V are applied to input pin and 0 is returned if pin is at Vcc). Not inverted in our example.
-    > b1: if set, pin is configured as Input with internal PullUp (_pinMode(INPUT_PULLUP)_), otherwise (as in this example) just as Input (_pinMode(INPUT)_).
-    > b2..b4: set a filter size from 0 to 7 to smoothen out glitches/noise on the input line. The higher the filter is set (max 7 as in our example) the less noise
+  * b0: if set, readout is inverted (so 4095 if 0V are applied to input pin and 0 is returned if pin is at Vcc). Not inverted in our example.
+  * b1: if set, pin is configured as Input with internal PullUp (_pinMode(INPUT_PULLUP)_), otherwise (as in this example) just as Input (_pinMode(INPUT)_).
+  * b2..b4: set a filter size from 0 to 7 to smoothen out glitches/noise on the input line. The higher the filter is set (max 7 as in our example) the less noise
       will be on readout with the drawback that actual changes (user change of variable resistor for instance) will be less instantaneous but will take some time
       to propagate to the readout. For volume settings this is not a bad thing at all, and the maximum size of 7 is still fine with that usecase.
-    > all other bits are reserved for future ideas and should for now be set to '0'.
+  * all other bits are reserved for future ideas and should for now be set to '0'.
   * So in our case the input is configured with the maximum filter size 7, not inverted, internal PullUp not set.  
 
 - The proprty _map_ allows a re-mapping of the physical read input value arbitrary different range
