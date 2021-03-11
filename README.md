@@ -332,7 +332,7 @@ Or, if you just want to try at runtime, you can also set this from the (Serial) 
 by entering the following lines:
 ```
 ram.>volchange = volume = ?
-in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=>volchange,start
+in.vol = src=a39,mode=28,map=(101..4095=50..100)(0..100=0),event=>volchange,delta=2,start
 ```
 
 The first line defines a _key_-_value_-Pair with _key_ set to _'>volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
@@ -350,6 +350,28 @@ The second line contains a new command _'in'_.
   * If _argument_ is not provided, it is assumed to be empty String ''.
   * Some properties (_start_ or _stop_ for instance) do not require an _argument_ (in that case, _argument_ will be ignored if set)
 - The property _'src'_ specifies the link to an input
-  * Here _'a39'_ is set. This means "use pin39 as analog input" There is no checking, if that is a valid (analog) pin. In practice, it will result in an 
-  _analogRead(39)_. 
-  
+  * Here _'a39'_ is set. This means "use pin39 as analog input" There is no checking, if that is a valid (analog) pin. In practice, this assignment will result in an 
+  _analogRead(39)_. (The setting _in.vol=src=a42_ would not result in any complaints, just render the input useless, as _analogRead(42)_ will always return _0_.)
+- _mode_ is a property that details a few aspects of the physical input. 
+  * It is specific (has a different meaning) to a specific input type.
+  * _mode_ is bit-coded, and for analog input b0-b4 are evaluated (28 from the example is 0b11100 in binary):
+    > b0: if set, readout is inverted (so 4095 if 0V are applied to input pin and 0 is returned if pin is at Vcc). Not inverted in our example.
+    > b1: if set, pin is configured as Input with internal PullUp (_pinMode(INPUT_PULLUP)_), otherwise (as in this example) just as Input (_pinMode(INPUT)_).
+    > b2..b4: set a filter size from 0 to 7 to smoothen out glitches/noise on the input line. The higher the filter is set (max 7 as in our example) the less noise
+      will be on readout with the drawback that actual changes (user change of variable resistor for instance) will be less instantaneous but will take some time
+      to propagate to the readout. For volume settings this is not a bad thing at all, and the maximum size of 7 is still fine with that usecase.
+    > all other bits are reserved for future ideas and should for now be set to '0'.
+  * So in our case the input is configured with the maximum filter size 7, not inverted, internal PullUp not set.  
+- The proprty _map_ allows a re-mapping of the physical read input value arbitrary different range
+  * a _map_ can contain any number of entries
+  * each entry must be surrounded by paranthesis _'(x1..x2 = y1..y2)'_. _x1..x2_ is (a part) of the input range that will be transformed into the output range _y1..y2_
+    > In our example, if _analogRead(39)_ returns something between 101 or 4095, the input itself will return something between 50 to 100. If _analogRead()_ returns
+      less, (100 or less), the input will yield 0.
+  * The arduino _map()_ function is used internally, so reversing lower and upper bounds or using negative numbers is no problem as long its within the limits of int16
+  * _map_-entries can overlap both on the x and the y side. When actually performing the mapping, the entries are evaluated from left to right.
+    > if a match occures, that entry will be used for mappin. Further entries (to the right) are no longer considered.
+    > '..y2' and / or '..x2' can be omnited. (so you can have just one number on either side). If there is only one entry in the _y_-part, all of the input range
+      from _'x1..x2'_ will be mapped to that single _y_-Value (see second entry in the example with _'(0..100=0)'_. If there is only one entry in the _x_-part, that 
+      value will be mapped to _y_ (a setting of _y2_ will be ignored in that case).
+    > A single map entry can be read from NVS/RAM if it is derefenced by '@'. So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in NVS/RAM and would use 
+      this values at the time the 'in' command is executed. The resulting map-Entry will keep these values, even if later _x1_ or _x2_ are changed.
