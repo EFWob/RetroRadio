@@ -1,9 +1,10 @@
-# ESP32-Retroradio
-This project is based on the excellent ESP32-Radio of Edzelf.
+# Introduction to Retroradio
+## Summary
+This project is based on the ESP32-Radio by Edzelf.
 
-Please have a look there to get you started.
+This project extends the capabilities of the ESP32-Radio, so you will need to familiarise with this project first.
 
-It is called Retroradio, because the basic idea was to use an existing "retro radio" as 
+The project called Retroradio, because the basic idea was to use an existing "retro radio" as 
 amplifier and front-end for the ESP32-radio.
 
 These type of radio usally have:
@@ -13,7 +14,7 @@ These type of radio usally have:
   - a tuning knob (variable capacitor) 
   
 In the original version that type of inputs and outputs are not supported directly. This
-version here now supports:
+project now supports:
    
    - analog input (i. e. to control volume by turning the variable resistor attached to
      the volume knob). Two additional lines in the preferences settings will achieve that.
@@ -32,12 +33,68 @@ version here now supports:
      zero...
 	 
 All of these options can be configured by the preference settings. So if you compile this version
-and use your standard preference settings as before you should notice only little difference.
+and use your standard preference settings as before you should notice no difference.
 
-There are also some enhancements which are not necessarily associated with the extended input capabilities:
+
+There are also some enhancements which are not necessarily associated with the extended input capabilities. Those are found
+in the section Generic enhancements below.
+
+## Storing values into RAM (or NVS)
+In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
+if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
+location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used.
+TODO:: may be it is better the other way round!?).
+- NVS pairs can be set using the preferences as usual
+- There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
+  _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
+  _value_ starts with '@', then _value_ (without leading '@') is considered to be a key-name by itself and is exchanged with the 
+  content of the resulting search for the dereferenced key.
+- There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent for the _nvs_-command above. 
+- In both cases, if _key_ exists the value associated to set key will be replaced. Otherwise the _key_-_value_-pair will be created and stored.
+- Example:
+  * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst_ and _value_ == _'42'_
+  * _ram.tst2 = @tst1_ will create entry _tst2_ in RAM with the _value_ == _'42'_
+  * _ram = tst3 = @tst1_ will create entry _tst3_ in RAM with the _value_ == _'@tst1'_ 
+  * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
+    still stay at _'42'_.
+- you can list the RAM/NVS command with the commands _nvslist=Argument_ or _ramlist=Argument_. _Argument_ is optional, if set only keys that 
+  contain _Argument_ as substring are listed. Try _ramlist=tst_ for example.
+- TODO:: there is no command for deleting RAM or NVS-entries.
+
+## Command handling enhacements
+When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
+command. Commands in a sequence must be seperated by ';'. 
+Consider a "limp home" button on the remote, which brings you to your favorite station (_preset_0_) played
+at an convenient volume (_volume = 75_). So you can define in the preferences _ir_XXXX = volume = 75; preset = 0_
+to achieve that.
+Command values can also be referenced to other preference settings. So if you have a setting _limp_home = volume = 75; preset = 0_
+in the preset, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
+are not permitted). If the given key does not exist, an empty string is used as replacement.
+Commands in a sequence are executed from left to right.
+
+## The execute-command
+The execute-command takes the form _execute = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
+retrieved and executed as commands-list (whith each command being seperated by semicolon).
+
+## Startup event
+If the key-value-pair _::start = value_ is defined, the associated _value_ is retrieved and executed as commands-list.
+The 'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
+running, preferences are read, VS module is initialized. I. e. ready to play).
+
+If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
+to level 70.
+
+
+
+
+# Generic additions
+## Summary
+Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section extended
+input handling if you are not interested to use/understand the following features for now:
  - Ethernet can be used (I had to place one radio at a spot with weak WLAN reception)
  - Philips RC5 protocol is implemented in addition to the NEC protocol. (you can configure in the preference
 	  to use both or only either one of that protocol. By default both are enabled)
+ - A channel concept is introduced to simplify a re-mapping of presets.
  - IR remote handling has been extended to recognise longpress and release events
  - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
 	  can execute not only a single command, but command sequences also. A command sequence is a list of commands
@@ -45,9 +102,7 @@ There are also some enhancements which are not necessarily associated with the e
  - when a value for a command is evaluated, you can reference an additional nvs element by _@key_. Simple 
 	  example: if the command _volume = @def_volume_ is encountered, the preferences are searched for key _def_volume_ 
 	  which will be used as paramter (if not found, will be substituted by empty string)
-
-# Generic additions
-Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio.
+ 
 
 ## Ethernet support
 ### Caveat Emptor
@@ -125,51 +180,6 @@ typedef enum {
 **For future/different core versions that assignment might change.**
 
 
-## Storing values into RAM (or NVS)
-In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
-if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
-location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used.
-TODO:: may be it is better the other way round!?).
-- NVS pairs can be set using the preferences as usual
-- There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
-  _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
-  _value_ starts with '@', then _value_ (without leading '@') is considered to be a key-name by itself and is exchanged with the 
-  content of the resulting search for the dereferenced key.
-- There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent for the _nvs_-command above. 
-- In both cases, if _key_ exists the value associated to set key will be replaced. Otherwise the _key_-_value_-pair will be created and stored.
-- Example:
-  * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst_ and _value_ == _'42'_
-  * _ram.tst2 = @tst1_ will create entry _tst2_ in RAM with the _value_ == _'42'_
-  * _ram = tst3 = @tst1_ will create entry _tst3_ in RAM with the _value_ == _'@tst1'_ 
-  * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
-    still stay at _'42'_.
-- you can list the RAM/NVS command with the commands _nvslist=Argument_ or _ramlist=Argument_. _Argument_ is optional, if set only keys that 
-  contain _Argument_ as substring are listed. Try _ramlist=tst_ for example.
-- TODO:: there is no command for deleting RAM or NVS-entries.
-
-## Command handling enhacements
-When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
-command. Commands in a sequence must be seperated by ';'. 
-Consider a "limp home" button on the remote, which brings you to your favorite station (_preset_0_) played
-at an convenient volume (_volume = 75_). So you can define in the preferences _ir_XXXX = volume = 75; preset = 0_
-to achieve that.
-Command values can also be referenced to other preference settings. So if you have a setting _limp_home = volume = 75; preset = 0_
-in the preset, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
-are not permitted). If the given key does not exist, an empty string is used as replacement.
-Commands in a sequence are executed from left to right.
-
-## The execute-command
-The execute-command takes the form _execute = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
-retrieved and executed as commands-list (whith each command being seperated by semicolon).
-
-## Startup event
-If the key-value-pair _::start = value_ is defined, the associated _value_ is retrieved and executed as commands-list.
-The 'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
-running, preferences are read, VS module is initialized. I. e. ready to play).
-
-If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
-to level 70.
-
 ## Channel concept
 The channel concept allows a simple re-mapping of the preferences. There are two new commands to implement the channel concept. (as usual, the
 commands can be defined either by preference settings or through the input channels at runtime, i. e. Serial input).
@@ -187,6 +197,8 @@ commands can be defined either by preference settings or through the input chann
     list, i. e. if tuned to by other means, make Channel1 the current channel).
   - The word 'down': if the current channel is not the Channel1, tune to previous preset in channel-list. (if the current preset is not in the channel
     list, i. e. if tuned to by other means, make ChannelMax the current channel).
+
+
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
@@ -324,15 +336,15 @@ turned to max).
 
 That can be achieved with the following to settings in the preferences:
 ```
->volchange=volume=?
-in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=>volchange,start
+$:volchange=volume=?
+in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=$:volchange,start
 ```
 
 Or, if you just want to try at runtime, you can also set this from the (Serial) commandline (but then settings will be lost at next power-up)
 by entering the following lines:
 ```
-ram.>volchange = volume = ?
-in.vol = src=a39,mode=28,map=(101..4095=50..100)(0..100=0),event=>volchange,delta=2,start
+ram.$:volchange = volume = ?
+in.vol = src=a39,mode=28,map=(101..4095=50..100)(0..100=0),event=$:volchange,delta=2,start
 ```
 
 The first line defines a _key_-_value_-Pair with _key_ set to _'>volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
@@ -362,8 +374,7 @@ The second line contains a new command _'in'_.
       to propagate to the readout. For volume settings this is not a bad thing at all, and the maximum size of 7 is still fine with that usecase.
   * all other bits are reserved for future ideas and should for now be set to '0'.
   * So in our case the input is configured with the maximum filter size 7, not inverted, internal PullUp not set.  
-
-- The proprty _map_ allows a re-mapping of the physical read input value arbitrary different range
+- The property _map_ allows a re-mapping of the physical read input value arbitrary different range
   * a _map_ can contain any number of entries
   * each entry must be surrounded by paranthesis _'(x1..x2 = y1..y2)'_. _x1..x2_ is (a part) of the input range that will be transformed into the output range _y1..y2_
     > In our example, if _analogRead(39)_ returns something between 101 or 4095, the input itself will return something between 50 to 100. If _analogRead()_ returns
@@ -378,5 +389,152 @@ The second line contains a new command _'in'_.
   * A single map entry can be read from NVS/RAM if it is derefenced by '@'. 
     > So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in NVS/RAM and would use 
       this values at the time the 'in' command is executed. The resulting map-Entry will keep these values, even if later _x1_ or _x2_ are changed.
-      
-      
+- The property _event_ defines a key to NVS/RAM that is searched for if the input (after mapping) has changed since last check. If a change is detected,
+  the NVS/RAM will be searched for _key_ and (if key is found) the corresponding value will be executed as command-sequence. (note that exactly the key name
+  must be given here, do not dereference by adding '@')
+  * you need to explicitely start cyclic polling of the input, see below.
+  * within the _value_ associated to the event key, any occurance of the '?' will be replaced by the current reading of the 
+- The property _delta_ defines the magnitude of change that is required on the (mapped) input for an change event to be triggered.
+  * this allows, especially for analog input, to eleminate noise on the line that would lead to alternate readings and hence events on every other readout. Must be 
+    one (any change in the input would lead to an event) or above. Will be forced to 1 if set by user to 0 or below.
+- The property _start_ starts the cylic polling of the input. Only if polling is startet, the event will be generated on change.
+  * _start_ results in a direct readout of the input. If an _event_ is defined, when _start_ is set (it is in our example), that event will be called direct (to do 
+    an initial setting of volume at startup depending of the position of the variable resistor in our case). If that is not desired, _start_ must be called before 
+    _event_ is set.
+- The property _stop_ (not used in the example) is the opposite of _start_: it stops the cyclic polling (or does just nothing if cyclic polling has not yet started).
+
+There are a few more properties. However, this explanation should be enough to understand what is needed to translate the changes on a variable resistor to 
+an appropriate volume setting. If everything is connected correctly and if there were no typos in entering the commands (or the preference settings) above, it should
+already work.
+
+If not, it is time for some debugging. There are two properties, that are concerned with debugging:
+- The property _info_ shows the settings of the input (no argument needed).
+- The property _show = TimeInSeconds_ starts a cyclic output of the readout of the input. _TimeInSeconds_ is the distance between two obersvations in seconds. 
+  If TimeInSeconds is 0 or not given, the output on Serial will stop.
+  > The output will show regardless of the setting of DEBUG. If you want to concentrate on the Input-information, you probably want to stop all other output
+    by entering the command _debug=0_ first.
+    
+If you enter the command _in.vol=info_ you should read:
+
+```
+20:28:38.956 -> D: Command: in.vol with parameter info
+20:28:38.956 -> D: Info for Input "in.vol":
+20:28:38.956 -> D:  * Src: Analog Input, pin: 39, Inverted: 0, PullUp: 0, Filter: 7
+20:28:38.956 -> D:  * Cyclic polling is active
+20:28:38.956 -> D:  * Value map contains 2 entries:
+20:28:38.956 -> D:       1: (101..4095 = 50..100)
+20:28:38.956 -> D:       2: (0..100 = 0..0)
+20:28:38.956 -> D:  * Change-event: "$:volchange"
+20:28:38.956 -> D:     defined in RAM as: "volume = ?"
+20:28:38.956 -> D:  * Delta: 2
+20:28:38.956 -> D:  * Show: 0 (seconds)
+20:28:38.956 -> D:  * Debounce: 0 (ms)
+```
+
+If your output is different, you probably had a type somewhere. Please check and correct the settings.
+
+If that is comparable to your readout, everything should work. If not, it is most likely a hardware setup issue (like shortening of the input to Vcc or Gnd or wrong
+pin connected).
+
+in that case, or just to have more insight, you should run the _in_-command with the property _show_set, for instance to 1, i. e. _in.vol=show=1_. 
+That should result in somewhat like this:
+
+
+```
+20:38:29.086 -> D: Command: in.vol with parameter show=1
+20:38:29.264 -> D: Command accepted
+20:38:29.264 -> D: Input "in.vol" physRead= 2900 (mapped to:   85)
+20:38:30.112 -> D: Input "in.vol" physRead= 2901 (mapped to:   85)
+20:38:31.109 -> D: Input "in.vol" physRead= 2894 (mapped to:   84)
+20:38:32.136 -> D: Input "in.vol" physRead= 2885 (mapped to:   85)
+20:38:33.128 -> D: Input "in.vol" physRead= 2893 (mapped to:   85)
+20:38:34.121 -> D: Input "in.vol" physRead= 2907 (mapped to:   84)
+20:38:34.452 -> D: Input "in.vol": change to 86 (event "$:volchange")
+20:38:34.631 -> D: Command: volume with parameter 86
+20:38:34.631 -> D: Input "in.vol": change to 88 (event "$:volchange")
+20:38:34.631 -> D: Command: volume with parameter 88
+20:38:34.864 -> D: Input "in.vol": change to 90 (event "$:volchange")
+20:38:34.864 -> D: Command: volume with parameter 90
+20:38:35.094 -> D: Input "in.vol": change to 92 (event "$:volchange")
+20:38:35.094 -> D: Command: volume with parameter 92
+20:38:35.094 -> D: Input "in.vol": change to 94 (event "$:volchange")
+20:38:35.094 -> D: Command: volume with parameter 94
+20:38:35.329 -> D: Input "in.vol" physRead= 3654 (mapped to:   94)
+20:38:35.556 -> D: Input "in.vol": change to 96 (event "$:volchange")
+20:38:35.556 -> D: Command: volume with parameter 96
+20:38:36.140 -> D: Input "in.vol" physRead= 3930 (mapped to:   97)
+20:38:36.370 -> D: Input "in.vol": change to 98 (event "$:volchange")
+20:38:36.370 -> D: Command: volume with parameter 98
+20:38:37.133 -> D: Input "in.vol" physRead= 3929 (mapped to:   97)
+20:38:37.894 -> D: Input "in.vol": change to 96 (event "$:volchange")
+20:38:38.124 -> D: Command: volume with parameter 96
+20:38:38.124 -> D: Input "in.vol" physRead= 3751 (mapped to:   95)
+20:38:38.353 -> D: Input "in.vol": change to 94 (event "$:volchange")
+20:38:38.353 -> D: Command: volume with parameter 94
+20:38:38.353 -> D: Input "in.vol": change to 92 (event "$:volchange")
+20:38:38.353 -> D: Command: volume with parameter 92
+20:38:38.590 -> D: Input "in.vol": change to 90 (event "$:volchange")
+20:38:38.590 -> D: Command: volume with parameter 90
+20:38:38.590 -> D: Input "in.vol": change to 88 (event "$:volchange")
+20:38:38.590 -> D: Command: volume with parameter 88
+20:38:38.847 -> D: Input "in.vol": change to 86 (event "$:volchange")
+20:38:38.847 -> D: Command: volume with parameter 86
+20:38:39.076 -> D: Input "in.vol": change to 84 (event "$:volchange")
+20:38:39.076 -> D: Command: volume with parameter 84
+```
+
+
+Here, for the first 6 seconds the volume changing resistor has not been touched. Note that there is however still some change on the input line (the physical read
+value jitters between 2885 and 2907) that also results in a change to the mapped result, that changes from 85 to 84 and back. However, since the property _delta_ is
+set to 2, that will not result in a change event. That will only happen after the change in the mapped value was >=2 (from 84 to 86) after 6 seconds. The volume was 
+turned up to 98 and then back to 84.
+
+While you have that output up and running, you can play around with the properties setting to understand some effects. 
+Try _in.vol=mode=0_ to see how much noise is then on the input before going back to filter=7 again by _in.vol=mode=28_:
+
+```
+20:57:09.113 -> D: Command: in.vol with parameter mode=0
+20:57:09.358 -> D: Command accepted
+20:57:09.358 -> D: Input "in.vol" physRead= 2256 (mapped to:   76)
+20:57:10.289 -> D: Input "in.vol" physRead= 2275 (mapped to:   77)
+20:57:10.984 -> D: Input "in.vol": change to 78 (event "$:volchange")
+20:57:10.984 -> D: Command: volume with parameter 78
+20:57:10.984 -> D: Input "in.vol": change to 76 (event "$:volchange")
+20:57:11.210 -> D: Command: volume with parameter 76
+20:57:11.434 -> D: Input "in.vol" physRead= 2261 (mapped to:   77)
+20:57:12.275 -> D: Input "in.vol" physRead= 2245 (mapped to:   76)
+20:57:12.496 -> D: Input "in.vol": change to 78 (event "$:volchange")
+20:57:12.496 -> D: Command: volume with parameter 78
+20:57:12.496 -> D: Input "in.vol": change to 76 (event "$:volchange")
+20:57:12.496 -> D: Command: volume with parameter 76
+20:57:13.302 -> D: Input "in.vol" physRead= 2245 (mapped to:   76)
+20:57:14.296 -> D: Input "in.vol" physRead= 2237 (mapped to:   76)
+20:57:15.290 -> D: Input "in.vol" physRead= 2256 (mapped to:   76)
+20:57:16.283 -> D: Input "in.vol" physRead= 2278 (mapped to:   77)
+20:57:17.310 -> D: Input "in.vol" physRead= 2239 (mapped to:   76)
+20:57:18.005 -> D: Command: in.vol with parameter mode=28
+20:57:18.005 -> D: Command accepted
+20:57:18.303 -> D: Input "in.vol" physRead= 2270 (mapped to:   77)
+20:57:19.330 -> D: Input "in.vol" physRead= 2253 (mapped to:   76)
+20:57:20.323 -> D: Input "in.vol" physRead= 2261 (mapped to:   77)
+20:57:21.317 -> D: Input "in.vol" physRead= 2261 (mapped to:   77)
+20:57:22.348 -> D: Input "in.vol" physRead= 2253 (mapped to:   76)
+20:57:23.343 -> D: Input "in.vol" physRead= 2257 (mapped to:   76)
+```
+
+Whith _mode=0_ (means filter=0) the readout at the observation points was distributed between 2239 and 2278 (distance 39) and also some (unwanted) volume change
+events occured. With _mode=28_ the distance was lower at 17 (2270 - 2253) and no volume change event has been generated. So _mode=28_ is probably the better setting.
+
+While we are at it, play with _b0_ of mode. As effect, the physical readout should inverse, and the direction of increasing/decreasing voltage should reverse. Enter 
+_in.vol=mode=29_ to see (hear) the difference. Switch back to 'normal' using the command _in.vol=mode=28_.
+
+You can change every property of an input at any time. Whenever a property is changed, the others are not affected: a change to _mode_ as just done will not affect 
+the _map_ (or any other entry). You could even switch to a different input-pin, if this makes any sense from application perspective.
+
+Try: _in.vol=map=(100..2000=50..100)(2100..4000=100..50)(2000..2100=100)(0..4095=0)_
+
+This will make that the volume at either end of the tuning range (from physical read 0..100 and 4000..4095) is 0 and will increase to max volume of 100 in the middle
+if turned to the other side and will go down to 0 from the middle again. Is this a useful feature? Probably not, but its cool to be able to do this.
+
+
+

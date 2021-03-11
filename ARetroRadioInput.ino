@@ -551,7 +551,7 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
 }
 
 //**************************************************************************************************
-// Class: RetroRadioInput::showInfo(String value, bool hint)                                       *
+// Class: RetroRadioInput::showInfo(bool hint)                                                     *
 //**************************************************************************************************
 //  - Displays (all) relevant settings for the Input on Serial (even if DEBUG = 0)                 *
 //  - Can be used for debugging (to see if all settings are as expected), no functional impact     *
@@ -561,6 +561,15 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
 //**************************************************************************************************
 void RetroRadioInput::showInfo(bool hint) {
     doprint("Info for Input \"in.%s\":", getId());
+    if (_reader == NULL)
+      doPrint(" * No source linked, Input not operational!");
+    else {
+      doprint(" * Src: %s", _reader->info().c_str()); 
+      if (_lastInputType == NONE)
+        doprint(" * Input is not started (no cyclic polling)");
+      else
+        doprint(" * Cyclic polling is active");
+    }
     if (_valueMap.size() >= 4) {
       doprint(" * Value map contains %d entries:", _valueMap.size() / 4);
       for(int i = 0;i < _valueMap.size();i += 4)
@@ -568,15 +577,6 @@ void RetroRadioInput::showInfo(bool hint) {
           _valueMap[i], _valueMap[i + 1], _valueMap[i + 2], _valueMap[i+ 3]);
     } else
       doprint(" * Value map is NOT set!");
-    if (_reader == NULL)
-      doPrint(" * No source linked, Input not operational!");
-    else {
-      doprint(" * Source link: %s", _reader->info().c_str()); 
-      if (_lastInputType == NONE)
-        doprint(" * Input is not started (no cyclic polling)");
-      else
-        doprint(" * Cyclic polling is active");
-    }
     const char *cmnds = getEvent();
     if (cmnds) {
       doprint(" * Change-event: \"%s\"", getEvent());
@@ -594,7 +594,7 @@ void RetroRadioInput::showInfo(bool hint) {
       doprint(" * No change-event defined.");
     doprint(" * Delta: %d", _delta);  
     doprint(" * Show: %d (seconds)", _show / 1000);
-    doprint(" * Debounce-Time: %d (ms)", _debounceTime);
+    doprint(" * Debounce: %d (ms)", _debounceTime);
     if (hint)
       if (_inputList.size() > 1) {
         doprint("There are %d more Inputs defined:", _inputList.size() - 1);
@@ -665,7 +665,7 @@ void RetroRadioInput::setValueMap(String value, bool extend) {
 
     }
   }
-  _lastInputType = NONE;  
+  //_lastInputType = NONE;  
 }
 
 #ifdef OLD
@@ -1000,16 +1000,21 @@ RetroRadioInput::~RetroRadioInput() {
 int RetroRadioInput::read(bool doStart) {
   bool forced = (_lastInputType == NONE);
   bool show = (_show > 0) && (millis() - _lastShowTime > _show);
+  String showStr;
   int16_t x = physRead();
   int16_t nearest;
   if (show)
     _lastShowTime = millis();
   if (NONE == _lastInputType) {
     if (show)
-      doprint("Input \"%s\" fail: no source associated", getId());
+      doprint("Input \"in.%s\" fail: no source associated", getId());
     return 0;
-  } else if (show)
-    doprint("Input \"%s\", phys read=%d", getId(), x);
+  } else if (show) {
+      char xbuf[10];
+      sprintf(xbuf, "%5d", x);
+      showStr = String("Input \"in.") + getId() + "\" physRead=" + xbuf;
+  }
+
   bool found = true;
   if (_valueMap.size() >= 4) {
     size_t idx = 0;
@@ -1055,19 +1060,27 @@ int RetroRadioInput::read(bool doStart) {
     }; 
   }
   if (found) {
-    if (show && (_valueMap.size() >= 4)) 
-      doprint("Input \"%s\" value mapped to=%d", getId(), x);
+    if (show && (_valueMap.size() >= 4)) {
+      char xbuf[10];
+      sprintf(xbuf, "%5d", x);
+      showStr = showStr + " (mapped to:" + xbuf + ")";
+    }
     _lastInputType = HIT;
   }
   else {
     if (forced) {
       x = nearest; 
       _lastInputType = NEAREST;
-      if (show) // (_show > 0) 
-        doprint("\"in.%s\" value mapped to nearest=%d", getId(), x);
+      if (show) {// (_show > 0) 
+        char xbuf[10];
+        sprintf(xbuf, "%5d)", x);
+        showStr = showStr + " (mapped to nearest=" + xbuf;
+      }
     } else
       x = _lastRead;
   }
+  if (show)
+    doprint(showStr.c_str());
   if (!doStart) {
     if (forced)
       _lastInputType = NONE;
