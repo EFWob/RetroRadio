@@ -298,3 +298,58 @@ obvious way is to force user1 at start:
 
 If this assignment would not have been made, all (CH)-keys and the (1) to (9) keys would have no effect (until a user setting would have been 
 done by pressing (PREV) or (NEXT)).
+
+# Extended Input Handling
+## General
+- Inputs can be generated from Digital Pins, Analog Pins, Touch Pins or (some) internal variables
+- For each of these Inputs, the handling is identical, the difference is just in the value range used:
+  - Digital Input pins return 0 or 1
+  - Analog Input pins return 0..4095
+  - Touch Pins return 0..1023 (in theory, in practice the real values will be somewhere in between
+    (For touch pins the native Espressif-IDE is used, that increases the granularity and accuracy of the readout by magnitudes)
+  - For internal variables, the possible return range is -32768..32767 (int16 is used)
+- The Inputs could either be read cyclic in the loop() or just on request
+- In 'cyclic mode' a change event can be assigned that is executed on any change of the input detected.
+- The 'physical readout' of an input can be mapped to a different value range.
+- Each Input can be configured and reconfigured freely during runtime. 
+
+## First input example: Volume 
+We will assume the following setting for the example:
+- A variable resistor is attached to an analog pin (lets say 39) in such a way, that it applies a voltage between 0 (if turned to low) and VCC (if 
+turned to max).
+- Accordingly, we want to  change the Volume between 0 and 100.
+- However, since we know that with our device a volume setting between 1..49 is effectively not audible we would prefer the following mapping
+   * Volume = 0 if resistor is turned to low (or close to low), say if the readout of the analog pin is between 0 and 100
+   * Volume should be between 50..100 if the readout of the analog pin is between 101 and 4095
+
+That can be achieved with the following to settings in the preferences:
+```
+>volchange=volume=?
+in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=>volchange,start
+```
+
+Or, if you just want to try at runtime, you can also set this from the (Serial) commandline (but then settings will be lost at next power-up)
+by entering the following lines:
+```
+ram.>volchange = volume = ?
+in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=>volchange,start
+```
+
+The first line defines a _key_-_value_-Pair with _key_ set to _'>volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
+If set in preferences as in first snippet that would be stored to NVS, into RAM in second snippet.
+That assignment does not do anything for now, it is only used in the second line.
+
+The second line contains a new command _'in'_.
+- The command _'in'_ sets or updates the properies of a specific input.
+- Each input has a name, that name is indicated by the string following the '.' after _in_
+- In our example we have defined an input with the name 'vol'
+- The _in_ command allows to set or change the "properties" of an input.
+  * If more than one property is defined, they are separated by ','. If more than one property is set in this list, they are evaluated from left to right.
+  * most properties take an argument, that argument is assigned as usual with _propery = argument_
+  * The argument of a property is dereferenced to NVS/RAM if it starts with '@'
+  * If _argument_ is not provided, it is assumed to be empty String ''.
+  * Some properties (_start_ or _stop_ for instance) do not require an _argument_ (in that case, _argument_ will be ignored if set)
+- The property _'src'_ specifies the link to an input
+  * Here _'a39'_ is set. This means "use pin39 as analog input" There is no checking, if that is a valid (analog) pin. In practice, it will result in an 
+  _analogRead(39)_. 
+  

@@ -1,4 +1,4 @@
-#define ETHERNET 1  // Set to '0' if you do not want Ethernet support at all
+//#define ETHERNET 0  // Set to '0' if you do not want Ethernet support at all
                     // Uncomment this line if you want Ethernet support depending
                     // on board setting (works for Olimex POE and most likely Olimex POE ISO)
 //***************************************************************************************************
@@ -10,7 +10,7 @@
 //  - nvs
 //  - Adafruit_ST7735
 //  - ArduinoOTA
-//  - PubSubClientenc_dt_pin
+//  - PubSubClient
 //  - SD
 //  - FS
 //  - update

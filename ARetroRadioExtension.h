@@ -52,7 +52,7 @@ class RetroRadioInput {
 
 
     virtual void setParameter(String param, String value, int32_t ivalue);
-    void setValueMap(String value);
+    void setValueMap(String value, bool extend = false);
 //    void clearValueMap();
     int16_t physRead();
     std::vector<int16_t> _valueMap;

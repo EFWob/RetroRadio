@@ -509,6 +509,8 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
     _show = (uint32_t)ivalue * 1000UL;
   } else if (param == "map") {                        // set the valueMap for the input
     setValueMap(value);                               // see RetroRadioInput::setValueMap() for details
+  } else if (param == "map+") {                       // extent the valueMap for the input
+    setValueMap(value, true);                         // see RetroRadioInput::setValueMap() for details
   } else if (param == "event") {                      // set the change event
     setEvent(value.c_str());                          // on mapped input, if not hit, nearest valid value will be used
 //  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
@@ -604,9 +606,10 @@ void RetroRadioInput::showInfo(bool hint) {
 }
 
 //**************************************************************************************************
-// Class: RetroRadioInput.setValueMap(String value)                                                *
+// Class: RetroRadioInput::setValueMap(String value, bool extend)                                  *
 //**************************************************************************************************
 //  - Set the mapping table of the RetroRadioInput object                                          *
+//  - If extend is true, the existing map is extended (default = false will clear existing map)    *
 //  - more than one mapping entry can be added, each entry must be surrounded by '( )'             *
 //  - if value (after chomp) starts with @ the remaining string is treated as key to an NVS entry  *
 //    from preferences or RAM entry if no NVS entry is associated with that key                    *
@@ -632,10 +635,11 @@ void RetroRadioInput::showInfo(bool hint) {
 //    the second  
 //  - calling setMap will erase the old mapping                                                    *                                       
 //**************************************************************************************************
-void RetroRadioInput::setValueMap(String value) {
+void RetroRadioInput::setValueMap(String value, bool extend) {
   chomp_nvs(value);
   value.toLowerCase();
-  _valueMap.clear();
+  if (!extend)
+    _valueMap.clear();
   while(value.length() > 0) {
     String mapEntryLeft, mapEntryRight;
     char *delimiters[] = {"=", NULL};
@@ -656,8 +660,8 @@ void RetroRadioInput::setValueMap(String value) {
       _valueMap.push_back(to1.toInt());
       _valueMap.push_back(to2.toInt());        
 
-      Serial.printf("Map entry for input_%s: %d, %d = %d, %d\r\n", getId(), _valueMap[_valueMap.size() - 4],
-                               _valueMap[_valueMap.size() - 3],_valueMap[_valueMap.size() - 2],_valueMap[_valueMap.size() - 1]);
+      //Serial.printf("Map entry for input_%s: %d, %d = %d, %d\r\n", getId(), _valueMap[_valueMap.size() - 4],
+      //                         _valueMap[_valueMap.size() - 3],_valueMap[_valueMap.size() - 2],_valueMap[_valueMap.size() - 1]);
 
     }
   }
