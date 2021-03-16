@@ -1,6 +1,8 @@
 //#define ETHERNET 0  // Set to '0' if you do not want Ethernet support at all
                     // Uncomment this line if you want Ethernet support depending
                     // on board setting (works for Olimex POE and most likely Olimex POE ISO)
+#define RETRORADIO
+
 //***************************************************************************************************
 //*  ESP32_Radio -- Webradio receiver for ESP32, VS1053 MP3 module and optional display.            *
 //*                 By Ed Smallenburg.                                                              *
@@ -217,8 +219,7 @@
 // Note that the password of an AP must be at least as long as 8 characters.
 // Also used for other naming.
 #define NAME "NetzRadio"
-#define MEDIONRADIO
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
 #include "AMedionRadioExtension.h"
 #include "ARetroRadioExtension.h"
 #endif
@@ -228,7 +229,7 @@
 // Maximum number of MQTT reconnects before give-up
 #define MAXMQTTCONNECTS 5
 // Adjust size of buffer to the longest expected string for nvsgetstr
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
 #define NVSBUFSIZE 250
 #else
 #define NVSBUFSIZE 150
@@ -374,7 +375,7 @@ struct ini_struct
   int            eth_clk_mode;                        // Ethernet clock mode setting
   int            eth_timeout;                         // Ethernet timeout (in seconds)
 #endif
-#ifdef MEDIONRADIO
+#ifdef RETRORADIO
 //Settings
   int            retr_led0_pin ;                       // GPIO connected to Retro Radio LED
   int            retr_led1_pin ;                       // up to 10 LEDs can be controlled
@@ -2599,7 +2600,7 @@ bool connectwifi()
     }
     if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect
     {
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
       dbgprint("Wifi connect failed, try once again...");
       WiFi.disconnect(true);
       WiFi.softAPdisconnect(true);
@@ -2920,6 +2921,7 @@ String readhostfrompref()
 //**************************************************************************************************
 void readprogbuttons()
 {
+#if !defined(RETRORADIO)  
   char        mykey[20] ;                                   // For numerated key
   int8_t      pinnr ;                                       // GPIO pinnumber to fill
   int         i ;                                           // Loop control
@@ -2970,6 +2972,7 @@ void readprogbuttons()
       }
     }
   }
+#endif
 }
 
 
@@ -3060,7 +3063,7 @@ void readIOprefs()
     { "eth_clk_mode",  &ini_block.eth_clk_mode,     ETH_CLK_MODE },    // Ethernet clock mode setting
 #endif
 
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
     { "_noreserve_",   NULL,                        -2 },
     { "pin_rr_led0",   &ini_block.retr_led0_pin,     -1}, // GPIO connected to Retro Radio LED
     { "pin_rr_led1",   &ini_block.retr_led1_pin,     -1}, // GPIO connected to Retro Radio LED
@@ -3366,6 +3369,7 @@ void scanserial2()
 //**************************************************************************************************
 void  scandigital()
 {
+#if !defined(RETRORADIO)
   static uint32_t oldmillis = 5000 ;                        // To compare with current time
   int             i ;                                       // Loop control
   int8_t          pinnr ;                                   // Pin number to check
@@ -3432,6 +3436,7 @@ void  scandigital()
       }
     }
   }
+#endif
 }
 
 //**************************************************************************************************
@@ -3919,7 +3924,7 @@ void setup()
   ini_block.vol_min = 0;
   ini_block.vol_max = 100;
   ini_block.vol_zero = true;
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
 //Settings
   ini_block.retr_led_inv = false;
 #endif
@@ -3941,9 +3946,7 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
-#if !defined(MEDIONRADIO)
   readprogbuttons() ;                                    // Program the free input pins
-#endif
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
@@ -4906,7 +4909,7 @@ void mp3loop()
       claimSPI ( "close" ) ;                             // Claim SPI bus
       close_SDCARD() ;
       releaseSPI() ;                                     // Release SPI bus
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
       localfile = false;
 #endif
     }
@@ -4931,7 +4934,7 @@ void mp3loop()
       {
 //        Serial.println("End of mp3track");
         setdatamode ( STOPREQD ) ;                       // End of local mp3-file detected
-#if defined(MEDIONRADIO)                                 // some radio stations play from playlist. that might confuse localfile.
+#if defined(RETRORADIO)                                 // some radio stations play from playlist. that might confuse localfile.
         playlist_num = 0;                                // retroradio does not play playlists... 
 #endif
         if ( playlist_num )                              // Playing from playlist?
@@ -5056,8 +5059,8 @@ void loop()
   handleSaveReq() ;                                 // See if time to save settings
   handleIpPub() ;                                   // See if time to publish IP
   handleVolPub() ;                                  // See if time to publish volume
-#if defined MEDIONRADIO
-  handleMedionLoop();
+#if defined RETRORADIO
+  loopRetroRadio();
 #else
   chk_enc() ;                                       // Check rotary encoder functions
   check_CH376() ;                                   // Check Flashdrive insert/remove
@@ -5914,13 +5917,15 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
-#if defined(MEDIONRADIO)
+/*
+#if defined(RETRORADIO)
       chomp(value);
       value.toLowerCase();
       if ( value == "any" ) {
          selectRandomPreset();
       } else 
 #endif
+*/
       if ( relative )                                 // Relative argument?
       {
         currentpreset = ini_block.newpreset ;         // Remember currentpreset
@@ -6016,7 +6021,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "ADC reading is %d", adcval ) ;
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
-#if defined(MEDIONRADIO)    
+#if defined(RETRORADIO)    
     nvs_stats_t nvs_stats;
     nvs_get_stats(NULL, &nvs_stats);
     dbgprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
@@ -6124,18 +6129,19 @@ const char* analyzeCmd ( const char* par, const char* val )
       usb_sd = FS_SD ;                                // Otherwise to SD
     }
   }
-#if defined(MEDIONRADIO)
+#if defined(RETRORADIO)
   else if ( argument == "settings" ) {
     strncpy(reply, getradiostatus().c_str(), 179);
-  } else if ( argument == "eq" ) {
-    setEqualizer (value, ivalue);
-    strcpy(reply, "OK");
+//  } else if ( argument == "eq" ) {
+//    setEqualizer (value, ivalue);
+//    strcpy(reply, "OK");
   } else if ( argument == "channels" ) {
     doChannels (value);
     strcpy(reply, "OK");
   } else if ( argument == "channel" ) {
     doChannel (value, ivalue);
     strcpy(reply, "OK");
+/*
   } else if ( argument.startsWith ( "rr_") ) {
     strcpy(reply, retroradioSetup(argument, value, ivalue).c_str());
   } else if ( argument == "calibrate" ) {
@@ -6153,6 +6159,7 @@ const char* analyzeCmd ( const char* par, const char* val )
      if ((idx < 0) || (idx > 10))
       idx = 0;
      doLed(idx, value);
+*/
   } else if ( argument.startsWith("nvs" ) || argument.startsWith ("ram" )) {
     if (argument.c_str()[3] == '.') {
       bool isNvs = (argument.c_str()[0] == 'n');
@@ -6176,6 +6183,7 @@ const char* analyzeCmd ( const char* par, const char* val )
           ramsetstr(argument.c_str(), value);  
       }
     }  
+/*    
   } else if (argument == "randmode") {
       doRandMode(value);
   } else if (argument == "nop") {
@@ -6188,6 +6196,7 @@ const char* analyzeCmd ( const char* par, const char* val )
       chomp(value);
       value.toLowerCase();
       doLockVol(value, ivalue); 
+*/  
   } else if (argument.startsWith("in.")) {
     doInput(argument.substring(3), value);
   } else if (argument.startsWith("if")) {

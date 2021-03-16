@@ -1,3 +1,4 @@
+#ifdef OLD
 #include <nvs.h>
 #include "AMedionRadioExtension.h"
 #include "ARetroRadioExtension.h"
@@ -1543,3 +1544,4 @@ String retroradioSetup(String argument, String value, int iValue) {
     setTunePositions(argument.substring(7, 8), value);
   return ret;
 }
+#endif

@@ -1,3 +1,4 @@
+#ifdef OLD
 #ifndef __MEDIONRADIOEXTENSIONS_H__
 #define __MEDIONRADIOEXTENSIONS_H__
 typedef enum api_event_t {
@@ -25,4 +26,5 @@ extern void handleApiEvent(int event, uint32_t param, bool ignoreLock=false);
 //extern bool executeCmdsFromNVSKey(const char *key, String value = "");
 
 
+#endif
 #endif

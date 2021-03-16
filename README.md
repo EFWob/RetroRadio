@@ -39,6 +39,19 @@ and use your standard preference settings as before you should notice no differe
 There are also some enhancements which are not necessarily associated with the extended input capabilities. Those are found
 in the section Generic enhancements below.
 
+## Generic conciderations for migration
+
+If you have the ESP32 radio installed and preferences set up, so it is up and running, the RetroRadio software should run out of the box
+with a few things to notice:
+
+- 
+
+- This version needs more NVS-entries. If you are using already much space in NVS (namely if you have a lot of presets defined) you might
+  need to increase the size of the NVS-partition. 
+- You can use the command _test_ to check if there are still entries in NVS available. If the number of free entries is close to zero, or
+  you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
+  out of NVS-space.
+
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
 if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
@@ -347,7 +360,7 @@ ram.$:volchange = volume = ?
 in.vol = src=a39,mode=28,map=(101..4095=50..100)(0..100=0),event=$:volchange,delta=2,start
 ```
 
-The first line defines a _key_-_value_-Pair with _key_ set to _'>volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
+The first line defines a _key_-_value_-Pair with _key_ set to _'$>volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
 If set in preferences as in first snippet that would be stored to NVS, into RAM in second snippet.
 That assignment does not do anything for now, it is only used in the second line.
 
@@ -537,4 +550,39 @@ This will make that the volume at either end of the tuning range (from physical 
 if turned to the other side and will go down to 0 from the middle again. Is this a useful feature? Probably not, but its cool to be able to do this.
 
 
+## Second example: tuning
+If erverything is up and running, we can also chnage the input to have a totally different meaning: not to change the volume, but to change the preset.
+That is normally achieved by a variable capacitor, but since a variable resistor is already at hand and only two input modifications are required (change from 
+analog pin to touch pin and use a different mapping), we can use the input with the variable resistor as simulation.
 
+First, stop the volume input using the command _in.vol=stop_
+
+Then, create a tune-event: _ram.$:tune=preset=?_ and use this for the input: _in.vol=event=$:tune_
+Next, simplify the mapping to: _in.vol=map=(0..4095=0..2)_ to just tune between presets 0 and 2. Set _delta=
+Then, set delta to 1 and re-start the cyclic polling of the (and the debug show) input with the new mapping and event: _in.vol=start, show=1_
+Verify the settings with _in.vol=info_, output on Serial should be this:
+
+```
+22:13:08.766 ->  * Src: Analog Input, pin: 39, Inverted: 0, PullUp: 0, Filter: 7
+22:13:08.766 ->  * Cyclic polling is active
+22:13:08.766 ->  * Value map contains 1 entries:
+22:13:08.766 ->       1: (0..4095 = 0..2)
+22:13:08.766 ->  * Change-event: "$:tune"
+22:13:08.766 ->     defined in RAM as: "preset=?"
+22:13:08.766 ->  * Delta: 1
+22:13:08.766 ->  * Show: 1 (seconds)
+```
+
+If you play around, you will notice: it works in principle, but not quite. The first thing you will notice is that the mapped input value will be 0 for the first half
+, 1 for the second half and only jump to 2 with the input tuned to a full physical reading of 4095. So the _map()_ function is skewed.
+
+This can be solved with a first improvement of the input map:
+_in.vol=map=(0..1365=0)(1366..2730=1)(2731..4095=2)_
+
+This will solve the problem of the skewed distribution. However it does not solve another problem. Try to tune to a physical readout close to 1365 (or 2731, if there
+is more noise on the input). You will notice a frequent toggle between presets. To increase the problem, set the filter to 0 by using the command _in.vol=mode=0_. 
+
+To solve this problems, Gaps are permitted in the value map. If the current physical read falls within a gap, the input is considered to be unchanged. For the
+first start, if the physical read is within a gap, the next matching value in the mapping entries closest to the physical readout is assumed.
+
+_in.vol=map=(0..1165=0)(1566..2530=1)(2931..4095=2)_ should do the trick.
