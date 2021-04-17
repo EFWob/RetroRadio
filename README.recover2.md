@@ -586,3 +586,110 @@ To solve this problems, Gaps are permitted in the value map. If the current phys
 first start, if the physical read is within a gap, the next matching value in the mapping entries closest to the physical readout is assumed.
 
 _in.vol=map=(0..1165=0)(1566..2530=1)(2931..4095=2)_ should do the trick.
+
+## Tuning using variable capacitor (on touch pin)
+### General precondition
+The touch inputs of ESP32 can be used to read variable capacitors. The typical AM radios use variable capacitors in the range of around 300 pF. These can be
+read through the touch pins. If using the native Espressif-IDF APIs for touch sensors the readings are stable and precise enough to give a reading to distinguish
+for at least 10 positions (hence "tunable" stations) of the tuning knob.
+
+One terminal of the capacitor must be connected to the pin direct, the other to ground (when recycling an old radio make sure any other connection to the 
+capacitor is cut off, especially be sure that the coil of the oscillator circuit is no longer connected in parallel to the capacitor).
+
+As a rule of thumb, the wire between capacitor and input pin should be as short as possible and as freely running as possible to improve the readings.
+Especially avoid twisting with other wires if possible.
+
+### Calibrating the input
+The touch pin could return any reading between 0 and 1023 in theory. In practice, if a variable capacitor is connected, the reading would be somewhere in 
+between. The reading will also change depending on the wiring (length and path) between capacitor and ESP32. So you probably will have different readings 
+using the same capacitor on the breadboard and in the final product.
+
+For undisturbed reading during calibration it is recommended to stop any other output to Serial by entering _DEBUG = 0_ on the Serial command input.
+
+For our example we assume the capacitor to be connected to T9. To read the capacitor we can use the _'in'_ command and link the source to the touch pin T9
+with the follwing line from the serial input:
+
+_in.tune=src=t9,show=1_
+
+That should give an output on Serial like this when tuning from highest to lowest capacity (or lowest to highest frequency on the associated radio scale):
+```
+21:12:30.398 -> D: Input "in.tune" (is stopped) physRead=  104
+21:12:31.392 -> D: Input "in.tune" (is stopped) physRead=  105
+21:12:32.385 -> D: Input "in.tune" (is stopped) physRead=  107
+21:12:33.379 -> D: Input "in.tune" (is stopped) physRead=  117
+21:12:34.406 -> D: Input "in.tune" (is stopped) physRead=  152
+21:12:35.399 -> D: Input "in.tune" (is stopped) physRead=  190
+21:12:36.392 -> D: Input "in.tune" (is stopped) physRead=  276
+21:12:37.386 -> D: Input "in.tune" (is stopped) physRead=  394
+21:12:38.379 -> D: Input "in.tune" (is stopped) physRead=  477
+21:12:39.408 -> D: Input "in.tune" (is stopped) physRead=  480
+```
+
+The numbers are abritrary of course, your mileage may vary. In this example the reading range is between 104 and 480. You should observe a rather stable 
+reading if the position of the tuning knob is not changed (jitter by one only, no matter what the tuning position is). You should also observe that the 
+change is nonlinear. The higher the reading the less you have to turn for a change in the input readout.
+
+For instance on my scale I have the the frequencies 530, 600, 800, 1200 and 1600 written on the AM scale. The corresponding readings are 113, 140, 215, 365
+and 460 in my example. A possible tuning map (with some fishing range and gaps as discussed above) for 5 'channels' mapped to that positions could be defined
+(in our example into RAM, for the final product it should be defined in NVS preferences) as:
+_ram=$tuningmap=(0..120=1)(130..160=2)(180..250=3)(330..390=4)(420..600=5)_
+
+This mapping must then be linked to the input:
+_in.tune=map=$tuningmap_
+
+The reading on Serial monitor should change to something like this (depending on mapping and the position of the capacitor):
+```
+22:31:28.766 -> D: Input "in.tune" (is stopped) physRead=  480 ( mapped to:    5)
+22:31:29.759 -> D: Input "in.tune" (is stopped) physRead=  444 ( mapped to:    5)
+22:31:30.786 -> D: Input "in.tune" (is stopped) physRead=  426 ( mapped to:    5)
+22:31:31.812 -> D: Input "in.tune" (is stopped) physRead=  417 (nearest is:    5)
+22:31:32.806 -> D: Input "in.tune" (is stopped) physRead=  411 (nearest is:    5)
+22:31:33.800 -> D: Input "in.tune" (is stopped) physRead=  401 (nearest is:    4)
+22:31:34.826 -> D: Input "in.tune" (is stopped) physRead=  394 (nearest is:    4)
+22:31:35.820 -> D: Input "in.tune" (is stopped) physRead=  389 ( mapped to:    4)
+22:31:36.813 -> D: Input "in.tune" (is stopped) physRead=  378 ( mapped to:    4)
+22:31:37.807 -> D: Input "in.tune" (is stopped) physRead=  344 ( mapped to:    4)
+22:31:38.800 -> D: Input "in.tune" (is stopped) physRead=  291 (nearest is:    4)
+22:31:39.827 -> D: Input "in.tune" (is stopped) physRead=  223 ( mapped to:    3)
+22:31:40.821 -> D: Input "in.tune" (is stopped) physRead=  167 (nearest is:    2)
+22:31:41.815 -> D: Input "in.tune" (is stopped) physRead=  133 ( mapped to:    2)
+22:31:42.841 -> D: Input "in.tune" (is stopped) physRead=  106 ( mapped to:    1)
+22:31:43.835 -> D: Input "in.tune" (is stopped) physRead=  105 ( mapped to:    1)
+```
+If everything is expected, the calibration output could be stopped by issuing the command:
+_in.tune=show=0_
+
+Now the mapped reading can be used to switch presets. All what is needed to use this input to change presets is to start the cyclic polling of the preset
+and assign a 'change event'. Lets start with the change event. That could be labelled '$switchpreset'. For this example it will be stored in RAM again:
+_ram=$switchpreset=preset=?_
+
+This event must be linked to the tune input by the command:
+_in.tune=event=$switchpreset_
+
+Check the settings by entering the command:
+_in.tune=info_
+
+The resulting printout on Serial should be:
+```
+2:38:39.762 -> D: Info for Input "in.tune":
+22:38:39.762 -> D:  * Src: Touch Input: T9, Auto: 0 (pin value is used direct w/o calibration)
+22:38:39.795 -> D:  * Input is not started (no cyclic polling)
+22:38:39.795 -> D:  * Value map contains 5 entries:
+22:38:39.795 -> D:       1: (0..120 = 1..1)
+22:38:39.795 -> D:       2: (130..160 = 2..2)
+22:38:39.795 -> D:       3: (180..250 = 3..3)
+22:38:39.795 -> D:       4: (330..390 = 4..4)
+22:38:39.795 -> D:       5: (420..600 = 5..5)
+22:38:39.795 -> D:  * Change-event: "$switchpreset"
+22:38:39.795 -> D:     defined in RAM as: "preset=?"
+22:38:39.795 -> D:  * Delta: 1
+22:38:39.828 -> D:  * Show: 0 (seconds)
+22:38:39.828 -> D:  * Debounce: 0 (ms)
+```
+
+To actually make the radio change the preset by changing the tuning knob you need to start cyclic polling of the input:
+
+_in.tune=start_
+
+
+

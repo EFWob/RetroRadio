@@ -501,13 +501,15 @@ void RetroRadioInput::setParameters(String params) {
     String value = getStringPart(params, ',');          // separate next parameter
     int ivalue;
     String param = getStringPart(value, '=');         // see if value is set
-    if (param.c_str()[0] == '@') {                       // reference to NVS?
-      setParameters(nvsgetstr(param.c_str() + 1));             // if yes, read NVS from key
+    if (param.c_str()[0] == '@') {                       // reference to NVS or RAM?
+      chomp_nvs(param);setParameters(param.c_str());          // new version...
+      // old version... setParameters(nvsgetstr(param.c_str() + 1));             // if yes, read NVS from key
     } else {
-      chomp(value);
-      value.toLowerCase();
-      if (value.c_str()[0] == '@')
-        value = nvsgetstr(value.c_str() + 1);
+      value.toLowerCase();chomp_nvs(value);                             // new version
+      //old chomp(value);
+      //old value.toLowerCase();
+      //old if (value.c_str()[0] == '@')
+      //old   value = nvsgetstr(value.c_str() + 1);
       ivalue = atoi(value.c_str());                       // usally value is an int number 
       if (param.length() > 0)
         setParameter(param, value, ivalue);
@@ -882,7 +884,7 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
         return x;
     };
     String info() {
-       doprint("TouchMin: %d, TouchMax: %d", _minTouch, _maxTouch);
+       doprint("TouchMin: %d, TouchMax: %d", _minTouch, _maxTouch);  //ToDo kann weg
        return String("Touch Input: T") + _pin +
               ", Auto: " + _auto + (_auto?" (auto calibration to 1023 if not touched)":" (pin value is used direct w/o calibration)");
     }
@@ -1059,7 +1061,7 @@ int RetroRadioInput::read(bool doStart) {
   } else if (show) {
       char xbuf[10];
       sprintf(xbuf, "%5d", x);
-      showStr = String("Input \"in.") + getId() + "\" physRead=" + xbuf;
+      showStr = String("Input \"in.") + getId() + "\" (is " + (doStart?"running":"stopped") + ") physRead=" + xbuf;
   }
 
   bool found = true;
@@ -1110,19 +1112,25 @@ int RetroRadioInput::read(bool doStart) {
     if (show && (_valueMap.size() >= 4)) {
       char xbuf[10];
       sprintf(xbuf, "%5d", x);
-      showStr = showStr + " (mapped to:" + xbuf + ")";
+      showStr = showStr + " ( mapped to:" + xbuf + ")";
     }
     _lastInputType = HIT;
   }
   else {
+    if (show && (_valueMap.size() >= 4)) {
+      char xbuf[10];
+      sprintf(xbuf, "%5d", nearest);
+      showStr = showStr + " (nearest is:" + xbuf + ")";
+    }
     if (forced) {
       x = nearest; 
       _lastInputType = NEAREST;
-      if (show) {// (_show > 0) 
+/*      if (show) {// (_show > 0) 
         char xbuf[10];
         sprintf(xbuf, "%5d)", x);
         showStr = showStr + " (mapped to nearest=" + xbuf;
       }
+*/
     } else
       x = _lastRead;
   }
@@ -1189,8 +1197,8 @@ void RetroRadioInput::checkAll() {
     bool isRunning = p->_lastInputType != NONE;
     if ((isRunning && (p->_event != NULL)) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
         p->read(isRunning);
-        if (!isRunning)
-          Serial.printf("Input \"in.%s\" is STOPped!\r\n", p->getId());
+        //if (!isRunning)
+          //Serial.printf("Input \"in.%s\" is STOPped!\r\n", p->getId());
           //p->_lastInputType = NONE;
     }
   }
@@ -1443,6 +1451,8 @@ void ramsetstr ( const char* key, String val )
 bool ramsearch ( const char* key )
 {
   auto search = ramContent.find(String(key));
+  if (search == ramContent.end())
+    Serial.printf("RAM search failed for key=%s\r\n", key);
   return (search != ramContent.end());
 }
 

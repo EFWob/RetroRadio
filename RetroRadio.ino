@@ -5628,11 +5628,14 @@ void chomp_nvs ( String &str , const char* substitute)
   {
     if ( nvssearch (str.c_str() + 1 ) ) 
     { 
+      //Serial.printf("NVS Search success for key: %s, result =", str.c_str() + 1);
       str = nvsgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
+      //Serial.println(str);
     }
     else if ( ramsearch (str.c_str() + 1 ) ) 
     { 
+      //Serial.printf("NVS Search success for key: %s\r\n", str.c_str() + 1);
       str = ramgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
     } 
