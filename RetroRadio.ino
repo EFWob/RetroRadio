@@ -1,6 +1,7 @@
-//#define ETHERNET 0  // Set to '0' if you do not want Ethernet support at all
-                    // Uncomment this line if you want Ethernet support depending
-                    // on board setting (works for Olimex POE and most likely Olimex POE ISO)
+#define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
+                    // Set to 1 to compile with Ethernet support
+                    // Set to 2 to compile with Ethernet depending on board setting
+                    //      (works for Olimex POE and most likely Olimex POE ISO)
 #define RETRORADIO
 
 //***************************************************************************************************
@@ -185,11 +186,6 @@
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
 //
 
-#if !defined(ETHERNET) && (defined(ARDUINO_ESP32_POE) || defined(ARDUINO_ESP32_POE_ISO))
-#define ETHERNET 1
-#else define ETHERNET 0
-#endif
-
 #include <nvs.h>
 #include <PubSubClient.h>
 #include <WiFiMulti.h>
@@ -206,10 +202,24 @@
 #include <driver/adc.h>
 #include <Update.h>
 #include <base64.h>
+
+
+#if !defined(ETHERNET) || !defined(RETRORADIO)
+#define ETHERNET 0
+#endif
+
+#if (ETHERNET == 2) && (defined(ARDUINO_ESP32_POE) || defined(ARDUINO_ESP32_POE_ISO))
+#define ETHERNET 1
+#else 
+#define ETHERNET 0
+#endif
+
+
 #if (ETHERNET == 1)
 #include <ETH.h>
 #define ETHERNET_CONNECT_TIMEOUT      5 // How long to wait for ethernet (at least)?
 #endif
+
 // Number of entries in the queue
 #define QSIZ 400
 // Debug buffer size
@@ -220,7 +230,6 @@
 // Also used for other naming.
 #define NAME "NetzRadio"
 #if defined(RETRORADIO)
-#include "AMedionRadioExtension.h"
 #include "ARetroRadioExtension.h"
 #endif
 
@@ -376,25 +385,8 @@ struct ini_struct
   int            eth_timeout;                         // Ethernet timeout (in seconds)
 #endif
 #ifdef RETRORADIO
-//Settings
-  int            retr_led0_pin ;                       // GPIO connected to Retro Radio LED
-  int            retr_led1_pin ;                       // up to 10 LEDs can be controlled
-  int            retr_led2_pin ;                       // 
-  int            retr_led3_pin ;                       //
-  int            retr_led4_pin ;                       //
-  int            retr_led5_pin ;                       //
-  int            retr_led6_pin ;                       //
-  int            retr_led7_pin ;                       //
-  int            retr_led8_pin ;                       //
-  int            retr_led9_pin ;                       //
-  int            retr_switch_pin ;                     // GPIO connected to Retro Radio WaveBandSwitch
-  int            retr_tune_pin ;                       // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
-  int            retr_touch_pin ;                      // GPIO connected to Retro Radio touch area (must be touch pin!)
-  int            retr_vol_pin ;                       // GPIO connected to Retro Radio Vol Pin
-  int            retr_led_inv;                         // LED expects converted (if true, pin LOW will lit LED)
   int            vol_min;                              // minimum volume
   int            vol_max;                              // maximum volume
-  int            vol_zero;                             // volume will be set to zero if set below vol_min
 #endif
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
@@ -524,6 +516,8 @@ bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint32_t          clength ;                              // Content length found in http header
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
+uint32_t          max_mp3chunk = 0 ;                     // To check max chunk size requested from stream (bytes)
+uint32_t          max_mp3av = 0 ;                        // To check max bytes available on stream (bytes)
 int16_t           scanios ;                              // TEST*TEST*TEST
 int16_t           scaniocount ;                          // TEST*TEST*TEST
 uint16_t          bltimer = 0 ;                          // Backlight time-out counter
@@ -2483,7 +2477,11 @@ uint32_t ethTimeout = ETHERNET_CONNECT_TIMEOUT * 1000;
   if (nvssearch("eth_timeout"))                                   // Ethernet timeout in preferences?
   {
     String val = String(nvsgetstr ("eth_timeout"));               // De-reference to another NVS-Entry?
+#if defined(RETRORADIO)
     chomp_nvs(val);                                               // remove anything unnecessary
+#else
+    chomp(val);
+#endif
     if (val == "0")                                               // Explicitely set to Zero?
     {
       dbgprint ( "Ethernet disabled in preferences "              // Tell it
@@ -3063,6 +3061,7 @@ void readIOprefs()
     { "eth_clk_mode",  &ini_block.eth_clk_mode,     ETH_CLK_MODE },    // Ethernet clock mode setting
 #endif
 
+/*
 #if defined(RETRORADIO)
     { "_noreserve_",   NULL,                        -2 },
     { "pin_rr_led0",   &ini_block.retr_led0_pin,     -1}, // GPIO connected to Retro Radio LED
@@ -3080,6 +3079,7 @@ void readIOprefs()
     { "pin_rr_tune",   &ini_block.retr_tune_pin,     -1}, // GPIO connected to Retro Radio tuning capacitor (must be touch pin!)
     { "pin_rr_touch",  &ini_block.retr_touch_pin,    -1}, // GPIO connected to Retro Radio touch area (must be touch pin!)
 #endif
+*/
     { NULL,            NULL,                        0  }  // End of list
   } ;
   int         i ;                                         // Loop control
@@ -3142,6 +3142,7 @@ String readprefs ( bool output )
           val ;
     if ( strstr ( key, "wifi_"  ) )                         // Is it a wifi ssid/password?
     {
+   //   Serial.println("WIFIWIFIWIFWIFIWIFIWIFIWIFIWIFIWIFIWIFIWIFIWIFIWIFIWIFIWIFIWIFI");
       winx = atoi ( key + 5 ) ;                             // Get index in wifilist
       if ( ( winx < wifilist.size() ) &&                    // Existing wifi spec in wifilist?
            ( val.indexOf ( wifilist[winx].ssid ) == 0 ) )
@@ -3499,7 +3500,12 @@ bool execute_ir_command ( String type, bool verbose=true )
     {
       String val = nvsgetstr ( mykey ) ;                    // Get the contents
       const char* reply;
+#if defined(RETRORADIO)
       chomp_nvs ( val );
+#else
+      chomp ( val );
+#endif
+
       dbgprint ( "IR code for %s%sreceived. Will execute %s",
                mykey, protocol_names[ir.protocol], val.c_str() ) ;
       reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
@@ -3921,12 +3927,9 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
+#if defined(RETRORADIO)
   ini_block.vol_min = 0;
   ini_block.vol_max = 100;
-  ini_block.vol_zero = true;
-#if defined(RETRORADIO)
-//Settings
-  ini_block.retr_led_inv = false;
 #endif
 
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
@@ -4878,6 +4881,17 @@ void mp3loop()
       if ( maxchunk )                                    // Anything to read?
       {
         res = mp3client.read ( tmpbuff, maxchunk ) ;     // Read a number of bytes from the stream
+        if (maxchunk > max_mp3chunk)                     // New maximum for chunksize found?
+        {
+          max_mp3chunk = maxchunk ;                      // Yes, set new maximum
+          dbgprint ( "Chunkmax mp3loop %d", maxchunk ) ; // and report it
+        }
+        if ( av > max_mp3av )                            // New maximum for available on stream found?
+        {
+          max_mp3av = av ;                               // Yes, set new maximum
+          dbgprint ( "Maxavail mp3loop %d", av ) ;       // and report it
+          
+        }
       }
     }
     if ( maxchunk == 0 )
@@ -5590,6 +5604,7 @@ void chomp ( String &str )
   str.trim() ;                                        // Remove spaces and CR
 }
 
+#if defined(RETRORADIO)
 //**************************************************************************************************
 //                                    C H O M P _ N V S                                            *
 //**************************************************************************************************
@@ -5625,7 +5640,7 @@ void chomp_nvs ( String &str , const char* substitute)
       str = "";   
   }
 }
-
+#endif
 
 
 //**************************************************************************************************
@@ -5763,7 +5778,11 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   argument.toLowerCase() ;                            // Force to lower case
   value = String ( val ) ;                            // Get the specified value
+#if defined(RETRORADIO)
   chomp_nvs ( value ) ;                               // Remove comment and extra spaces
+#else
+  chomp ( value );
+#endif  
   ivalue = value.toInt() ;                            // Also as an integer
   ivalue = abs ( ivalue ) ;                           // Make positive
   relative = argument.indexOf ( "up" ) == 0 ;         // + relative setting?
@@ -5791,7 +5810,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "Command: %s (without parameter)",
                argument.c_str() ) ;
   }
-
+#if defined(RETRORADIO)
   if (argument == "execute") {    
 /*    Serial.println("Running Execute!");Serial.flush();
    dbgprint ( "Command: %s with parameter %s",
@@ -5828,7 +5847,12 @@ const char* analyzeCmd ( const char* par, const char* val )
       p = value.c_str();
     Serial.printf("inlist found with value'%s', length=%d, resulting p=%ld\r\n", value.c_str(), value.length(), p);
     doInlist(p);
-  } else if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
+  } 
+  
+  else 
+#endif    // RETRORADIO  
+  
+  if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
     // Or minimum ("volume_min") or maximum ("vol_max") or Zerfo-Flag ("volume_zero") setting
@@ -5837,6 +5861,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       ini_block.reqvol = oldvol + ivalue ;            // Up/down by 0.5 or more dB
     }
+#ifdef RETRORADIO
     else if (argument.indexOf ( "_max" ) > 0 )
     {
       ini_block.vol_max = ivalue;
@@ -5846,6 +5871,7 @@ const char* analyzeCmd ( const char* par, const char* val )
       ini_block.vol_min = ivalue;
 //      Serial.printf ("\r\n\r\nMinvol=%d\r\n", ini_block.vol_min);
     }
+/*
     else if (argument.indexOf ("_zero") > 0 )
     {
       if ( value == "0" )
@@ -5853,26 +5879,35 @@ const char* analyzeCmd ( const char* par, const char* val )
       else
         ini_block.vol_zero = 1;
     }
+*/
+#endif
     else
     {
       ini_block.reqvol = ivalue ;                     // Absolue setting
     }
+#ifdef RETRORADIO
     if (( ini_block.reqvol > 127 ) ||                 // Wrapped around?
         (ini_block.reqvol < ini_block.vol_min))  // or below defined minimum?                        
     { 
-      if (ini_block.vol_zero) {               // can go to absolute zero?
         if (!relative || (ivalue < 0))                  // coming from above defined minimum?
           ini_block.reqvol = 0 ;                          // Yes, go to zero
         else
           ini_block.reqvol = ini_block.vol_min;
-      }
-      else
-        ini_block.reqvol = ini_block.vol_min;      // keep at defined minimum
     }
     if ( ini_block.reqvol > ini_block.vol_max )
     {
       ini_block.reqvol = ini_block.vol_max ;                        // Limit to normal values
     }
+#else
+    if ( ini_block.reqvol > 127 )                     // Wrapped around?
+    {
+      ini_block.reqvol = 0 ;                          // Yes, keep at zero
+    }
+    if ( ini_block.reqvol > 100 )
+    {
+      ini_block.reqvol = 100 ;                        // Limit to normal values
+    }
+#endif    
     muteflag = false ;                                // Stop possibly muting
 
     sprintf ( reply, "Volume is now %d",              // Reply new volume
@@ -6022,10 +6057,16 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
 #if defined(RETRORADIO)    
+    dbgprint ( "Max. mp3_chunk size is %d", max_mp3chunk ) ;
+    dbgprint ( "Max. mp3 available was %d", max_mp3av ) ;
+    max_mp3chunk = 0;
+    max_mp3av = 0;
     nvs_stats_t nvs_stats;
     nvs_get_stats(NULL, &nvs_stats);
     dbgprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
               nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
+    dbgprint ("Total PSRAM: %d", ESP.getPsramSize());
+    dbgprint ("Free PSRAM: %d", ESP.getFreePsram());
 #endif       
     max_mp3loop_time = 0 ;                            // Start new check
   }

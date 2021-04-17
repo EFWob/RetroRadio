@@ -1,5 +1,6 @@
 #ifndef RETRORADIOEXTENSION_H__
 #define RETRORADIOEXTENSION_H__
+#if defined(RETRORADIO) 
 #include <map>
 
 extern String getStringPart(String& value, char delim = ';');
@@ -93,4 +94,5 @@ class RetroRadioInputTouch:public RetroRadioInput {
     bool _auto;
 };
 */
+#endif  // RETRORADIO
 #endif

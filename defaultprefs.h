@@ -3,103 +3,57 @@
 #define defaultprefs_version 1808016
 const char defprefs_txt[] PROGMEM = 
 R"=====(
-$amchannels = 1,2,10,11,12,13,14,15,16
+$channels_am = 1,2,10,11,12,13,14,15,16
+$channels_fm = 0,1,2,3,4,5,6,7,10
 #
-$dorit = channels=@$fmchannels;preset=0;volume=70;in.vol=delta.5;eq=0
+$equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12; ram.$$eq_idx = 0
+$equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14; ram.$$eq_idx = 1
+$equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15; ram.$$eq_idx = 2
+$equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13; ram.$$eq_idx = 3
+$equalizernum = 3
 #
-$equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
-$equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
-$equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
-$equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
-$erik = channels=@$amchannels;in.vol=start;in.tune=start;eq=1
+$tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..450=8) (470..590=9)
 #
-$fmchannels = 0,1,2,3,4,5,6,7,10
+$user1 = channels=@$channels_fm;channel=1;volume=70;ram.$$eq_idx=0;execute=:eq_set
+$user2 = channels=@$channels_am;in.vol=start;in.tune=start;ram.$$eq_idx=1;execute=:eq_set
 #
-#
-$tunemap = 100,115=1|120,130=2|135,150=3|160,185=4|205,250=5|285,330=6|350,400=7|410,450=8|470,590=9
-#
-$voldelta = 2
-$volmap = 0,15=0|16,4095=50,100
+$volmap = (0..15=0)(16..4095=45..100)
 #
 +switch0 = eq=0;usetunings=0;channels=0,1,2,3,4,5,6,7,10;nvs=@0t0.1=channel=up
 +switch1 = eq=1;usetunings=1;channels=1,2,10,11,12,13,14,15,16,17,18,19,20;nvs=@0t0.1=preset=any
 +switch2 = usetunings=2;channels=21,22,23,24,25,26,27,28;nvs=@0t0.1=preset=any
 #
-:start = execute=:starthmi;execute=$dorit
-:starthmi = execute=:startswitch;execute=:startvol;execute=:starttune
-:startswitch = in.switch=src.a36:map.0,100=0|0,4095=1:start:event.>switch:show.0
-:starttune = in.tune=src.c9:show.1:map.@$tunemap:start:event.>tune:show.0
-:startvol = in.vol=src.a39:map.@$volmap:delta.2:start:event.>vol:show.0
+::start = execute=::sthmi;execute=$user1
+::sthmi = execute=::stswitch;execute=::stvol;execute=::sttune
+::stswitch = in.switch=mode=0,src=a36,map=(0..500=0)(0..4095=1),start,event=:switch,show=0
+::sttune = in.tune=src=t9,map=@$tunemap,start,event=:tune,show=0
+::stvol = in.vol=src=a39,map=@$volmap,delta=2,start,event=:vol,show=0;execute=::stvolobsrv
+::stvolobsrv = in.volobserver=src=.volume,event=:checkvol0,map=(1..100=1)(=0),start
 #
->switch0 = execute=$dorit
->switch1 = execute=$erik
+:eq_down = ifv = (@$$eq_idx > 0)(@:eq_idx--)(ram.$$eq_idx = 0);execute = :eq_set
+:eq_downwrap = execute=:eq_idx--;ifv = (@$$eq_idx < 0)(ram.$$eq_idx = @$equalizernum);execute = :eq_set
+:eq_idx++ = calcv=(@$$eq_idx + 1)(ram = $$eq_idx = ?)
+:eq_idx-- = calcv=(@$$eq_idx - 1)(ram = $$eq_idx = ?)
+:eq_set = calcv = (@$$eq_idx) (@$equalizer?)
+:eq_up = ifv = (@$$eq_idx < @$equalizernum)(@:eq_idx++)(ram.$$eq_idx = @$equalizernum);execute = :eq_set
+:eq_upwrap = ifv = (@$$eq_idx < @$equalizernum)(@:eq_idx++)(ram=$$eq_idx = 0);execute = :eq_set
 #
->tune = channel=?
+:switch = @:switch?
+:switch0 = execute=$user1
+:switch1 = execute=$user2
 #
->vol = volume=?;in.vol=delta.@$voldelta
+:tune = channel=?
 #
-@0t0.1 = channel=up
-@0t0.2 = debug=0;mp3track=0
-@0t1.4.0 = channel=toggle
-@0tune1.0 = preset=1
-@0tune1.1 = preset=2
-#
-@1switch0 = stop;debug=1
-@1switch1 = stop;debug=1
-@1switch2 = stop;debug=1
-@1t0.1 = mp3track=0
-@1t0.2 = stop;debug=1;channel=this
-@1tune0 = mp3track=0  #avoid channel switch when in mp3playback
-@1tune1 = mp3track=0
-#
-@2t0.1 = lock=0
-@2t0.2 = lock=0
-@2t0.3 = lock=0
-@2t0.6.5 = reset
-#
-@t0.1 = channel=up
-@t0.3 = lock=1
-@t0.4 = downvolume=2
-@t0.5 = upvolume=2
-@t0.6.5 = reset
-@t1.2 = #lockvol=toggle
-@tune9 = mp3track=0
-#
-channels = 0,1,2,3,4,5,6,7,10
+:vol = volume=?
 #
 eth_clk_mode = 3
 eth_phy_power = 12
 #
-ir_02FD = @$erik # (>>|)
+ir_02FD = execute = $user2 # (>>|)
 ir_10EF = channel = 4 # (4)
 ir_18E7 = channel = 2 # (2)
-ir_22DD = @$dorit #(|<<)
+ir_22DD = execute = $user1 #(|<<)
 ir_22DDR4 = upvolume = 2 # (|<<) longpressed
-ir_3000 = preset = 1        # (0) Philips
-ir_3001 = channel = 1       # (1) Philips
-ir_3002 = channel = 2       # (2) Philips
-ir_3003 = channel = 3       # (3) Philips
-ir_3004 = channel = 4       # (4) Philips
-ir_3005 = channel = 5       # (5) Philips
-ir_3006 = channel = 6       # (6) Philips
-ir_3007 = channel = 7       # (7) Philips
-ir_3008 = channel = 8       # (8) Philips
-ir_3009 = channel = 9       # (9) Philips
-ir_300C = @$dorit # volume=70;channels =  0,1,2,3,4,5,6,7,10;channel=1; #(|) auf Philips
-ir_300CR5 = upvolume = 3    # (|) Philips longpress
-ir_300D = mute              # (mute) Philips
-ir_300F = preset = 11       # (links unten) Philips
-ir_3010 = upvolume = 2     # (Vol+) Philips
-ir_3010r = upvolume = 1    # (Vol+) Philips longpress
-ir_3011 = downvolume = 2   # (Vol-) Philips
-ir_3011r = downvolume = 1  # (Vol-) Philips longpress
-ir_3020 = channel = up      # (P+) Philips
-ir_3021 = channel = down    # (P-) Philips
-ir_3022 = preset = 22       # (rechts unten) Philips
-ir_30CA = eq = downwrap     # (unter Note) Philips
-ir_30CAR7 = eq = downwrap   # (unter Note) Philips longpress
-ir_30CB = eq = upwrap       # (Note) Philips
-ir_30CBR7 = eq = upwrap     # (Note) Philips longpress
 ir_30CF = channel = 1 # (1)
 ir_38C7 = channel = 5 # (5)
 ir_42BD = channel = 7 # (7)
@@ -116,25 +70,9 @@ ir_9867 = preset = 11      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
 ir_A857r = upvolume = 1     #(+) repeat
-ir_A857r20 = upvolume = 2   #(+) pressed for about 2 secs
-ir_A857r21 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
-ir_A857r22 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
-ir_A857r23 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
-ir_A857r24 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
-ir_A857r25 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
-ir_A857r26 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
-ir_A857r27 = upvolume = 4   #(+) pressed for about 2 secs (some time needed to change volume)
 ir_C23D = mute              #(>||)
 ir_E01F = downvolume = 2    #(-)
 ir_E01Fr = downvolume = 1   #(-) repeat
-ir_E01Fr10 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr11 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr12 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr13 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr14 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr15 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr16 = downvolume = 3 #(-) pressed for about 2 secs
-ir_E01Fr17 = downvolume = 3 #(-) pressed for about 2 secs
 ir_E21D = channel = up      #(CH+)
 #
 pin-ir_rc5 = 0       # GPIO Pin for IR receiver (RC5 only)
@@ -199,15 +137,7 @@ preset_45 = relay.publicdomainproject.org:80/jazz_swing.mp3 #  Swissradio Jazz &
 preset_46 = 212.77.178.166:80                        #  Radio Heimatmelodie
 preset_47 = stream.srg-ssr.ch/m/drsmw/mp3_128        #   SRF Musikwelle
 #
-rr_eq0 = @$equalizer0 #toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
-rr_eq1 = @$equalizer1 #toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
-rr_eq2 = @$equalizer2 #toneha=7; tonehf=4; tonela=15; tonelf=15
-rr_eq3 = @$equalizer3 #toneha=0; tonehf=3; tonela=0; tonelf=13
-rr_sw_pos0 = 4090, 4095
-rr_sw_pos1 = 1750, 2050
-rr_sw_pos2 = 0, 5
-rr_tunepos0 = 80,97, 103,115, 126,136, 148,166, 192,210, 222,239, 252,269 , 280,320
-rr_tunepos1 = 80,95, 99,105, 110,115, 120,125, 132,140, 150,160, 170,180, 190,200, 210,220, 230,240, 250,260, 270,280, 290,320
+ram.:checkvol0 = in.volobserver=ram=$$vol;ifv=(@$$vol == 0)(channel = any)
 #
 toneha = 5
 tonehf = 3

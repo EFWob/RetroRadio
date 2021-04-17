@@ -39,6 +39,19 @@ and use your standard preference settings as before you should notice no differe
 There are also some enhancements which are not necessarily associated with the extended input capabilities. Those are found
 in the section Generic enhancements below.
 
+## Generic considerations for migration
+
+If you have the ESP32 radio installed and preferences set up, so it is up and running, the RetroRadio software should run out of the box
+with a few things to notice:
+
+- 
+
+- This version needs more NVS-entries. If you are using already much space in NVS (namely if you have a lot of presets defined) you might
+  need to increase the size of the NVS-partition. 
+- You can use the command _test_ to check if there are still entries in NVS available. If the number of free entries is close to zero, or
+  you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
+  out of NVS-space.
+
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
 if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
