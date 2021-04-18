@@ -587,8 +587,8 @@ first start, if the physical read is within a gap, the next matching value in th
 
 _in.vol=map=(0..1165=0)(1566..2530=1)(2931..4095=2)_ should do the trick.
 
-## Tuning using variable capacitor (on touch pin)
-### General precondition
+## Using touch input (also to read a variable capacitor)
+### General precondition for reading variable capacitor values
 The touch inputs of ESP32 can be used to read variable capacitors. The typical AM radios use variable capacitors in the range of around 300 pF. These can be
 read through the touch pins. If using the native Espressif-IDF APIs for touch sensors the readings are stable and precise enough to give a reading to distinguish
 for at least 10 positions (hence "tunable" stations) of the tuning knob.
@@ -664,7 +664,7 @@ and assign a 'change event'. Lets start with the change event. That could be lab
 _ram=$switchpreset=preset=?_
 
 This event must be linked to the tune input by the command:
-_in.tune=event=$switchpreset_
+_in.tune=onchange=$switchpreset_
 
 Check the settings by entering the command:
 _in.tune=info_
@@ -690,6 +690,29 @@ The resulting printout on Serial should be:
 To actually make the radio change the preset by changing the tuning knob you need to start cyclic polling of the input:
 
 _in.tune=start_
+
+So if you are satisfied with those settings, the final entries in the NVS preferences could be given as follows to take effect at every start of the radio:
+```
+$tunemap =      (0..120 = 1)(130..160 = 2)(180..250 = 3)(330..390 = 4)(420..600 = 5)
+# Arbritary key to store the map for later use
+
+in.tune = src=t9,map=@$tunemap, onchange=:tune, start
+# Use touch T9 as input, using the predefined $tunemap, execure ':tune' on change of input and start cyclic polling of the input
+
+:tune = preset=?
+# Called on change of tune input, '?' is replaced by (mapped) input value (so 1..5 in this example)
+```
+
+Or you could use the variable capacitor for different thinks, like changing the volume:
+_ram=:vol=volume=?_
+_in.tune=src=t9,map=(110..475=50..100)(0..109=0)(476..500=100),onchange=:vol,start_
+
+Together with the [example above](#second-example-tuning) it is thus possible to use the frequency knob to change volume and the volume knob to change presets. What a crazy world!
+
+Of course it is also possible to change the direction of volume increase/decrease by changing the input map:
+_in.tune=map=(110..475=100..50)(0..109=100)(476..500=0)_
+
+
 
 
 

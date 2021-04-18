@@ -534,7 +534,7 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
     setValueMap(value);                               // see RetroRadioInput::setValueMap() for details
   } else if (param == "map+") {                       // extent the valueMap for the input
     setValueMap(value, true);                         // see RetroRadioInput::setValueMap() for details
-  } else if (param == "event") {                      // set the change event
+  } else if ((param == "event") || (param == "onchange")) {                      // set the change event
     setEvent(value.c_str());                          // on mapped input, if not hit, nearest valid value will be used
 //  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
 //    _calibrate = ivalue;
