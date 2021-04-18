@@ -402,7 +402,8 @@ std::vector<RetroRadioInput *> RetroRadioInput::_inputList;
 //    application layer is responsible for validity.                                               *
 //**************************************************************************************************
 RetroRadioInput::RetroRadioInput(const char* id): _show(0), _lastShowTime(0), _reader(NULL), _lastInputType(NONE), _mode(0),
-                          _event(NULL), _id(NULL), _debounceTime(0), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0) {
+                          _onChangeEvent(NULL), _on0Event(NULL), _onNot0Event(NULL),
+                          _id(NULL), _debounceTime(0), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0) {
   _maximum = _lastRead = _lastUndebounceRead = INT16_MIN;                 // _maximum holds the highest value ever read, _lastRead the 
                                                     // last read value (after mapping. Is below 0 if no valid read so far)
   setId(id);
@@ -455,26 +456,39 @@ void RetroRadioInput::setId(const char *id) {
 }
 
 //**************************************************************************************************
-// Class: RetroRadioInput.getEvent()                                                               *
+// Class: RetroRadioInput.getEvent(String type)                                                    *
 //**************************************************************************************************
-//  - Returns the name of the RetroRadioInput change event                                         *
+//  - Returns a pointer to the name of the requested RetroRadioInput change event                  *
+//  - type can be "change" (for "onchange"), "0", "not0"                                           *
+//  - returns NULL if type is not valid.                                                           *
 //**************************************************************************************************
-const char* RetroRadioInput::getEvent() {
-  return _event;
+char** RetroRadioInput::getEvent(String type) {
+  if (type == "change")
+    return &_onChangeEvent;
+  else if (type =="0")
+    return &_on0Event;
+  else if (type == "not0")
+    return &_onNot0Event;
+  return NULL;
 }
 
 //**************************************************************************************************
-// Class: RetroRadioInput.setEvent(const char* name)                                               *
+// Class: RetroRadioInput.setEvent(String type, const char* name)                                  *
 //**************************************************************************************************
-//  - Sets the change event of the RetroRadioInput object.                                         *
+//  - Sets one of the (change) events of the RetroRadioInput object.                               *
+//  - type can be "change" (for "onchange"), "0", "not0"                                           *
 //**************************************************************************************************
-void RetroRadioInput::setEvent(const char* name) {
-  if (_event)
-    free(_event);
-  _event = NULL;
-  if (name)
-    if (strlen(name))
-      _event = strdup(name);
+void RetroRadioInput::setEvent(String type, const char* name) {
+char **event = NULL;
+  event = getEvent(type);
+  if (event) {
+    if (*event)
+      free(*event);
+    *event = NULL;
+    if (name)
+      if (strlen(name))
+        *event = strdup(name);
+  }
 }
 
 //**************************************************************************************************
@@ -535,7 +549,11 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
   } else if (param == "map+") {                       // extent the valueMap for the input
     setValueMap(value, true);                         // see RetroRadioInput::setValueMap() for details
   } else if ((param == "event") || (param == "onchange")) {                      // set the change event
-    setEvent(value.c_str());                          // on mapped input, if not hit, nearest valid value will be used
+    setEvent("change", value.c_str());                  // on mapped input, if not hit, nearest valid value will be used
+//  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
+//    _calibrate = ivalue;   
+  } else if (param.startsWith("on")) {                      // set the change event
+    setEvent(param.substring(2), value.c_str());                          // on mapped input, if not hit, nearest valid value will be used
 //  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
 //    _calibrate = ivalue;
   } else if (param == "debounce") {                     // how long must a value be read before considered valid?
@@ -565,7 +583,9 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
     setReader(value);
   } else if (param == "start") {
     _lastInputType = NONE;
+    //Serial.printf("Executing Start for in.%s\r\n", getId());
     read(true);
+    //Serial.printf("Start for in.%s Done!\r\n", getId());
   } else if (param == "stop") {
     _lastInputType = NONE;
   } else if (param == "info") {
@@ -600,21 +620,25 @@ void RetroRadioInput::showInfo(bool hint) {
           _valueMap[i], _valueMap[i + 1], _valueMap[i + 2], _valueMap[i+ 3]);
     } else
       doprint(" * Value map is NOT set!");
-    const char *cmnds = getEvent();
-    if (cmnds) {
-      doprint(" * Change-event: \"%s\"", getEvent());
-      if (nvssearch(cmnds)) {
-        String commands = nvsgetstr(cmnds);
-        //chomp_nvs(commands);
-        doprint("    defined in NVS as: \"%s\"", commands.c_str());   
-      } else if (ramsearch(cmnds)) {
-        String commands = ramgetstr(cmnds);
-        chomp_nvs(commands);
-        doprint("    defined in RAM as: \"%s\"", commands.c_str());   
-      } else 
-        doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
-    } else
-      doprint(" * No change-event defined.");
+    if (!hasChangeEvent()) {
+      doprint(" * no on-event(s) defined.");
+    } else for (int i = 0;i < 3;i++) {
+      const char* type = (i == 0)?"change":(i == 1?"0":"not0");
+      char **cmnds = getEvent(type);
+      if (*cmnds) {
+        doprint(" * on%s-event: \"%s\"", type, *cmnds);
+        if (ramsearch(*cmnds)) {
+          String commands = ramgetstr(*cmnds);
+          chomp_nvs(commands);
+          doprint("    defined in RAM as: \"%s\"", commands.c_str());   
+        } else if (nvssearch(*cmnds)) {
+          String commands = nvsgetstr(*cmnds);
+          //chomp_nvs(commands);
+          doprint("    defined in NVS as: \"%s\"", commands.c_str());   
+        }  else 
+          doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+      }
+    }
     doprint(" * Delta: %d", _delta);  
     doprint(" * Show: %d (seconds)", _show / 1000);
     doprint(" * Debounce: %d (ms)", _debounceTime);
@@ -802,11 +826,13 @@ class RetroRadioInputReaderAnalog: public RetroRadioInputReader {
     uint32_t _lastReadTime;
 };
 
+#ifdef OLD
 class RetroRadioInputReaderCapa: public RetroRadioInputReader {
   public:
     RetroRadioInputReaderCapa(int pin) {
       _pin = pin;
       touch_pad_config((touch_pad_t)pin, 0);
+
       _last = 0xffff;
     };
     int16_t read() {
@@ -825,7 +851,7 @@ class RetroRadioInputReaderCapa: public RetroRadioInputReader {
     int _pin;
     uint16_t _last;
 };
-
+#endif
 
 class RetroRadioInputReaderTouch: public RetroRadioInputReader {
   public:
@@ -833,6 +859,14 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
       _pin = pin;
       _auto = false;
       touch_pad_config((touch_pad_t)pin, 0);
+      int i = 0;
+      uint16_t x = 0;
+      
+      while ((i++ < 100) && (x == 0)) {   // Workaround: touch_pad_read_filtered() needs some time to settle... (will return 0 else)
+        touch_pad_read_filtered((touch_pad_t)_pin, &x);
+        delay(1);
+      }
+      //Serial.printf("TouchRead Nr. %d, T%d=%d\r\n", i, pin, x);
       mode(mod);
     };
     void mode(int mod) {
@@ -884,9 +918,9 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
         return x;
     };
     String info() {
-       doprint("TouchMin: %d, TouchMax: %d", _minTouch, _maxTouch);  //ToDo kann weg
-       return String("Touch Input: T") + _pin +
-              ", Auto: " + _auto + (_auto?" (auto calibration to 1023 if not touched)":" (pin value is used direct w/o calibration)");
+    //   doprint("TouchMin: %d, TouchMax: %d", _minTouch, _maxTouch);  //ToDo kann weg
+       return String("Touch Input: T") + _pin + ", Digital use: " + _digital + 
+              ", Auto: " + _auto + (_auto?" (auto calibration to 1023 if not touched)":" (pin value is used direct w/o calibration)") ;
     }
   private:
     int _pin;
@@ -972,8 +1006,10 @@ void RetroRadioInput::setReader(String value) {
                 _mode = 0b11100;
               reader = new RetroRadioInputReaderAnalog(idx, _mode);
               break;
+/*
     case 'c': reader = new RetroRadioInputReaderCapa(idx);
               break;
+*/
     case 't': reader = new RetroRadioInputReaderTouch(idx, _mode);
               break;
     case '.': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
@@ -1040,15 +1076,19 @@ int16_t RetroRadioInput::physRead() {
 RetroRadioInput::~RetroRadioInput() { 
   if (_id)
     free(_id);
-  if (_event)
-    free(_event);
+  if (_onChangeEvent)
+    free(_onChangeEvent);
+  if (_on0Event)
+    free(_on0Event);
+  if (_onNot0Event)
+    free(_onNot0Event);
   if (_reader)
     delete _reader;
 };
 
 int RetroRadioInput::read(bool doStart) {
   bool forced = (_lastInputType == NONE);
-  bool show = (_show > 0) && (millis() - _lastShowTime > _show);
+  bool show = (_show > 0) && ((millis() - _lastShowTime > _show) || forced);
   String showStr;
   int16_t x = physRead();
   int16_t nearest;
@@ -1134,6 +1174,7 @@ int RetroRadioInput::read(bool doStart) {
     } else
       x = _lastRead;
   }
+  int lastRead = 0;
   if (show)
     doprint(showStr.c_str());
   if (!doStart) {
@@ -1152,31 +1193,45 @@ int RetroRadioInput::read(bool doStart) {
       if ((millis() - _lastReadTime < _debounceTime) || (_delta > abs(_lastRead - x)))
         x = _lastRead;
       else {
+        lastRead = _lastRead;
         _lastRead = x;
         forced = true;
       }
     } 
   }
   if (forced) {
-    const char *cmnds = getEvent();
+    if (_show > 0)
+      doprint("Input \"in.%s\": change to %d from %d, checking for events!", getId(), x, lastRead);
+    char *cmnds = _onChangeEvent;
     if (cmnds) {
-//      char specificEvent[20];
-//      sprintf(specificEvent, "%s%d", cmnds, x);
       if (_show > 0) {
-        doprint("Input \"in.%s\": change to %d (event \"%s\")", getId(), x, getEvent());
+        doprint("Input \"in.%s\": change to %d (event \"%s\")", getId(), x, cmnds);
       }
       
-      String commands = nvssearch(cmnds)?nvsgetstr(cmnds):ramgetstr(cmnds);//nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
+      String commands = ramsearch(cmnds)?ramgetstr(cmnds):nvsgetstr(cmnds);//nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
       chomp_nvs(commands, String(x).c_str());
       analyzeCmds ( commands );
-      /*
-      if (commands.length() > 0) {
-        if (commands.c_str()[0] == '@')
-          commands = nvsgetstr(commands.c_str() + 1);
-        if (commands.length() > 0)
-          executeCmdsWithSubstitute(commands, String(x));
+    }
+    if (x == 0) {                   // went to 0
+      cmnds = _on0Event;
+      if (cmnds) {
+        if (_show > 0) {
+          doprint("Input \"in.%s\": became Zero (event \"%s\")", getId(), cmnds);
+        }      
+        String commands = ramsearch(cmnds)?ramgetstr(cmnds):nvsgetstr(cmnds);//nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
+        chomp_nvs(commands, String(x).c_str());
+        analyzeCmds ( commands );
       }
-      */
+    } else if (lastRead == 0) {     // comes from 0
+      cmnds = _onNot0Event;
+      if (cmnds) {
+        if (_show > 0) {
+          doprint("Input \"in.%s\": became NonZero (event \"%s\")", getId(), cmnds);
+        }      
+        String commands = ramsearch(cmnds)?ramgetstr(cmnds):nvsgetstr(cmnds);//nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
+        chomp_nvs(commands, String(x).c_str());
+        analyzeCmds ( commands );
+      }
     }
   }
   return x;
@@ -1191,11 +1246,15 @@ void RetroRadioInput::executeCmdsWithSubstitute(String commands, String substitu
   analyzeCmds(commands);
 }
 
+bool RetroRadioInput::hasChangeEvent() {
+  return (NULL != _onChangeEvent) || (NULL != _on0Event) || (NULL != _onNot0Event);
+}
+
 void RetroRadioInput::checkAll() {
   for(int i = 0;i < _inputList.size();i++) {
     RetroRadioInput *p = _inputList[i];
     bool isRunning = p->_lastInputType != NONE;
-    if ((isRunning && (p->_event != NULL)) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
+    if ((isRunning && p->hasChangeEvent()) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
         p->read(isRunning);
         //if (!isRunning)
           //Serial.printf("Input \"in.%s\" is STOPped!\r\n", p->getId());
@@ -1451,10 +1510,23 @@ void ramsetstr ( const char* key, String val )
 bool ramsearch ( const char* key )
 {
   auto search = ramContent.find(String(key));
-  if (search == ramContent.end())
-    Serial.printf("RAM search failed for key=%s\r\n", key);
+  // if (search == ramContent.end()) Serial.printf("RAM search failed for key=%s\r\n", key);
   return (search != ramContent.end());
 }
+
+//**************************************************************************************************
+//                                      R A M D E L K E Y                                          *
+//**************************************************************************************************
+// Delete a keyname in RAM.                                                                        *
+//**************************************************************************************************
+void ramdelkey ( const char* key)
+{
+  auto search = ramContent.find(String(key));
+  Serial.printf("RamDelKey(%s)=%d\r\n", key, search != ramContent.end());
+  if (search != ramContent.end())
+    ramContent.erase(search);
+}
+
 
 //**************************************************************************************************
 //                                      D O R A M L I S T                                          *
@@ -1502,9 +1574,11 @@ void doNvslist(const char* p) {
 void doChannels(String value) {
   channelList.clear();
   currentChannel = 0;
-  readDataList(channelList, value);  
+  value.trim();
+  if (value.length() > 0)
+    readDataList(channelList, value);  
   numChannels = channelList.size();
-  dbgprint("CHANNELS (total %d): %s", value.c_str());
+  dbgprint("CHANNELS (total %d): %s",  numChannels, value.c_str());
 }
 
 void doChannel(String value, int ivalue) {
@@ -1562,17 +1636,23 @@ void doInlist(const char *p) {
 }
 
 
+void retroRadioInit() {
+  bool initDone = false;
+  if (!initDone) {
+    initDone = true;
+    touch_pad_init();
+    touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
+    touch_pad_filter_start(16);  
+    adc_power_on();
+  }
+}
 
 void loopRetroRadio() {
 static bool first = true;
 
     if (first) {
       first = false;
-      touch_pad_init();
-      touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
-      touch_pad_filter_start(16);  
-      adc_power_on();
-  
+      retroRadioInit();
       Serial.println("About to start ::start");
       analyzeCmds(nvsgetstr("::start"));
       

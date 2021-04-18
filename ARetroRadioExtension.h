@@ -3,6 +3,7 @@
 #if defined(RETRORADIO) 
 #include <map>
 
+extern void retroRadioInit();
 extern String getStringPart(String& value, char delim = ';');
 extern bool getPairInt16(String& value, int16_t& x1, int16_t& x2,bool duplicate = false, char delim = ',');
 extern void executeCmds(String commands);//, String value = "");
@@ -10,6 +11,7 @@ extern void doInput(String id, String value);
 extern void chomp_nvs(String & str, const char *substitute = NULL);
 extern String ramgetstr ( const char* key );
 extern void ramsetstr ( const char* key, String val );
+
 
 
 /*
@@ -38,8 +40,8 @@ class RetroRadioInput {
     ~RetroRadioInput();
     const char* getId();
     void setId(const char* id);
-    const char* getEvent();
-    void setEvent(const char* name);
+    char** getEvent(String type);
+    void setEvent(String type, const char* name);
     int read(bool doStart);
     void setParameters(String parameters);
     static RetroRadioInput* get(const char *id);
@@ -49,6 +51,7 @@ class RetroRadioInput {
     void showInfo(bool hint);
   protected:
     RetroRadioInput(const char* id);
+    bool hasChangeEvent();
     void executeCmdsWithSubstitute(String commands, String substitute);
 
 
@@ -65,7 +68,7 @@ class RetroRadioInput {
     LastInputType _lastInputType;
 //    bool _calibrate;
     char *_id;
-    char *_event;
+    char *_onChangeEvent, *_on0Event, *_onNot0Event;
     static std::vector<RetroRadioInput *> _inputList;
     RetroRadioInputReader *_reader;
 //    std::map<const char*, RetroRadioInput *, cmp_str> _listOfInputs;

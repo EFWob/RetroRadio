@@ -54,10 +54,12 @@ with a few things to notice:
 
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
-if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
-location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used.
-TODO:: may be it is better the other way round!?).
-- NVS pairs can be set using the preferences as usual
+if the text references to _key_ or _value_ associated to _key_, keep in mind that the actual storage 
+location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in RAM will be used. This allows
+to simply override a 'default setting' in NVS by storing the same key in RAM). 
+
+NVS keys can be defined in the preferences as usual.
+
 - There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
   _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
   _value_ starts with '@', then _value_ (without leading '@') is considered to be a key-name by itself and is exchanged with the 
@@ -70,9 +72,10 @@ TODO:: may be it is better the other way round!?).
   * _ram = tst3 = @tst1_ will create entry _tst3_ in RAM with the _value_ == _'@tst1'_ 
   * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
     still stay at _'42'_.
-- you can list the RAM/NVS command with the commands _nvslist=Argument_ or _ramlist=Argument_. _Argument_ is optional, if set only keys that 
-  contain _Argument_ as substring are listed. Try _ramlist=tst_ for example.
-- TODO:: there is no command for deleting RAM or NVS-entries.
+- you can list the RAM/NVS command with the commands _nvs?=Argument_ or _ram?=Argument_. _Argument_ is optional, if set only keys that 
+  contain _Argument_ as substring are listed. Try _ram?=tst_ for example.
+- RAM or NVS entries can be deleted using the command _nvs- = key_ or _ram- = key_ which will delete _key_ and the associated value from RAM/NVS.
+
 
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
@@ -713,6 +716,73 @@ Of course it is also possible to change the direction of volume increase/decreas
 _in.tune=map=(110..475=100..50)(0..109=100)(476..500=0)_
 
 
+### Classic touch reading
+
+If you want to use touch inputs as usual (detecting if touched or not) you can no longer use the *touch_*-settings of the preference. Any such setting from
+the preferences will be ignored. (Reason is that for the *touch_* settings the touchRead() function of the ESP32 Arduino core is used which corrupts the 
+readings of the ESP32 IDF API in my experience).
+
+You can use the input mechanism provided here to mimic that behaviour. In the following example touchpin T8 is used.
+First is, to define a touch input for T8:
+_in.touch=src=t8,show=1_
+
+Will show some output on Serial as such:
+
+```
+15:29:21.781 -> D: Input "in.touch" (is stopped) physRead=  856
+15:29:22.807 -> D: Input "in.touch" (is stopped) physRead=  852
+15:29:23.800 -> D: Input "in.touch" (is stopped) physRead=  245
+15:29:24.794 -> D: Input "in.touch" (is stopped) physRead=  187
+15:29:25.787 -> D: Input "in.touch" (is stopped) physRead=  845
+15:29:26.814 -> D: Input "in.touch" (is stopped) physRead=  859
+15:29:27.806 -> D: Input "in.touch" (is stopped) physRead=  846
+15:29:28.799 -> D: Input "in.touch" (is stopped) physRead=  175
+15:29:29.825 -> D: Input "in.touch" (is stopped) physRead=  162
+15:29:30.818 -> D: Input "in.touch" (is stopped) physRead=  858
+15:29:31.845 -> D: Input "in.touch" (is stopped) physRead=  859
+15:29:32.838 -> D: Input "in.touch" (is stopped) physRead=  858
+```
+
+The higher readings (above 800 in this example) are while not touched (open), the lower readings (below 300) when touched. To convert the readings into 
+digital information you could apply a map to the input:
+_in.touch=map=(400..1023=1)(=0)_ 
+
+With this map the input will read 1 if untouched and 0 if touched:
+```
+15:34:11.560 -> D: Input "in.touch" (is stopped) physRead=  857 ( mapped to:    1)
+15:34:12.587 -> D: Input "in.touch" (is stopped) physRead=  621 ( mapped to:    1)
+15:34:13.579 -> D: Input "in.touch" (is stopped) physRead=  182 ( mapped to:    0)
+15:34:14.572 -> D: Input "in.touch" (is stopped) physRead=  274 ( mapped to:    0)
+15:34:15.565 -> D: Input "in.touch" (is stopped) physRead=  806 ( mapped to:    1)
+15:34:16.591 -> D: Input "in.touch" (is stopped) physRead=  205 ( mapped to:    0)
+15:34:17.584 -> D: Input "in.touch" (is stopped) physRead=  145 ( mapped to:    0)
+15:34:18.577 -> D: Input "in.touch" (is stopped) physRead=  816 ( mapped to:    1)
+15:34:19.570 -> D: Input "in.touch" (is stopped) physRead=  856 ( mapped to:    1)
+```
+
+There is also a simplified way using the _mode_-property of the touch input. If bit b0 is set, the input is automatically converted to a binary reading. 
+In our example, first delete the input-map by assigning an 'empty' string as map:
+_in.touch=map=_
+
+And then set bit b0 in the _mode_-property:
+_in.touch=mode=1_
+
+And the result will be something like this:
+```
+15:38:00.198 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:01.191 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:02.184 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:03.177 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:04.203 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:05.197 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:06.222 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:07.215 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:08.242 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:09.235 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:10.229 -> D: Input "in.touch" (is stopped) physRead=    1
+```
+
+Using the _mode_-bit b0 should be the preferred option if a touch-input shall be used as binary input (touched/not touched).
 
 
 

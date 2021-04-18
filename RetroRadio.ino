@@ -1351,6 +1351,21 @@ void nvschkey ( const char* oldk, const char* newk )
 
 
 //**************************************************************************************************
+//                                      N V S D E L K E Y                                          *
+//**************************************************************************************************
+// Deleta a keyname in nvs.                                                                        *
+//**************************************************************************************************
+void nvsdelkey ( const char* k)
+{
+
+  if ( nvssearch ( k ) )                                   // Key in nvs?
+  {
+    nvs_erase_key ( nvshandle, k ) ;                        // Remove key
+  }
+}
+
+
+//**************************************************************************************************
 //                                      C L A I M S P I                                            *
 //**************************************************************************************************
 // Claim the SPI bus.  Uses FreeRTOS semaphores.                                                   *
@@ -2919,12 +2934,10 @@ String readhostfrompref()
 //**************************************************************************************************
 void readprogbuttons()
 {
-#if !defined(RETRORADIO)  
   char        mykey[20] ;                                   // For numerated key
   int8_t      pinnr ;                                       // GPIO pinnumber to fill
   int         i ;                                           // Loop control
   String      val ;                                         // Contents of preference entry
-
   for ( i = 0 ; ( pinnr = progpin[i].gpio ) >= 0 ; i++ )    // Scan for all programmable pins
   {
     sprintf ( mykey, "gpio_%02d", pinnr ) ;                 // Form key in preferences
@@ -2935,10 +2948,22 @@ void readprogbuttons()
       {
         if ( !progpin[i].reserved )                         // Do not use reserved pins
         {
+#if defined(RETRORADIO)
+          char s[200];
+          retroRadioInit();
+          sprintf(s, "ram=_gpio_%02dev_=%s", i, val.c_str());
+//          Serial.printf("GpioEventRedirect: %s\r\n", s);
+          analyzeCmd(s);
+          sprintf(s, "in._gpio_%02d_=src=d%d,mode=2,on0=_gpio_%02dev_,start", i, i, i);
+//          Serial.printf("TouchEventInput: %s\r\n", s);
+          analyzeCmd(s);
+
+#else
           progpin[i].avail = true ;                         // This one is active now
           progpin[i].command = val ;                        // Set command
           dbgprint ( "gpio_%02d will execute %s",           // Show result
                      pinnr, val.c_str() ) ;
+#endif
         }
       }
     }
@@ -2954,6 +2979,16 @@ void readprogbuttons()
       {
         if ( !touchpin[i].reserved )                        // Do not use reserved pins
         {
+#if defined(RETRORADIO)
+          char s[200];
+          retroRadioInit();
+          sprintf(s, "ram=_touch_%02dev_=%s", i, val.c_str());
+//          Serial.printf("TouchEventRedirect: %s\r\n", s);
+          analyzeCmd(s);
+          sprintf(s, "in._touch_%02d_=src=t%d,mode=1,on0=_touch_%02dev_,start", i, i, i);
+//          Serial.printf("TouchEventInput: %s\r\n", s);
+          analyzeCmd(s);
+#else
           touchpin[i].avail = true ;                        // This one is active now
           touchpin[i].command = val ;                       // Set command
           //pinMode ( touchpin[i].gpio,  INPUT ) ;          // Free floating input
@@ -2961,6 +2996,7 @@ void readprogbuttons()
                      i, val.c_str() ) ;
           dbgprint ( "Level is now %d",
                      touchRead ( pinnr ) ) ;                // Sample the pin
+#endif      
         }
         else
         {
@@ -2970,7 +3006,6 @@ void readprogbuttons()
       }
     }
   }
-#endif
 }
 
 
@@ -5624,21 +5659,22 @@ void chomp_nvs ( String &str , const char* substitute)
     }
   }
   chomp ( str ) ;                                     // Normal chomp first
-  if (str.c_str()[0] == '@' )                         // Reference to NVS-Key?
+  if (str.c_str()[0] == '@' )                         // Reference to RAM or NVS-Key?
   {
-    if ( nvssearch (str.c_str() + 1 ) ) 
+    if ( ramsearch (str.c_str() + 1 ) ) 
+    { 
+      //Serial.printf("NVS Search success for key: %s\r\n", str.c_str() + 1);
+      str = ramgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    } 
+
+    else if ( nvssearch (str.c_str() + 1 ) ) 
     { 
       //Serial.printf("NVS Search success for key: %s, result =", str.c_str() + 1);
       str = nvsgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
       //Serial.println(str);
     }
-    else if ( ramsearch (str.c_str() + 1 ) ) 
-    { 
-      //Serial.printf("NVS Search success for key: %s\r\n", str.c_str() + 1);
-      str = ramgetstr ( str.c_str() + 1) ;
-      chomp ( str ) ;
-    } 
     else
       str = "";   
   }
@@ -5829,9 +5865,12 @@ const char* analyzeCmd ( const char* par, const char* val )
     value.toLowerCase();
     Serial.printf("lowercaseValue = \"%s\"\r\n", value.c_str());Serial.flush();
     Serial.printf("Execute command from nvs[\"%s\"]=%s\r\n", value.c_str(), nvsgetstr(value.c_str()).c_str());
-*/
+
     chomp(value);
     analyzeCmds(nvssearch(value.c_str())?nvsgetstr(value.c_str()):ramgetstr(value.c_str()));  
+*/
+    chomp_nvs(value);
+    analyzeCmds(ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()));  
   } else if ((argument == "ramlist") || (argument == "nvslist")) {
     const char* p = NULL;
     value.toLowerCase();
@@ -6205,15 +6244,28 @@ const char* analyzeCmd ( const char* par, const char* val )
      doLed(idx, value);
 */
   } else if ( argument.startsWith("nvs" ) || argument.startsWith ("ram" )) {
+    bool isNvs = (argument.c_str()[0] == 'n');
     if (argument.c_str()[3] == '.') {
-      bool isNvs = (argument.c_str()[0] == 'n');
       argument = argument.substring(4);
       chomp(argument);
       if ( isNvs )
           nvssetstr(argument.c_str(), value);  
       else
           ramsetstr(argument.c_str(), value);  
-    } else {
+    } else if ((argument.length() == 4) && (argument.c_str()[3] == '-')) {
+        if ( isNvs )
+          nvsdelkey(value.c_str());  
+        else
+          ramdelkey(value.c_str());  
+    } else if ((argument.length() == 4) && (argument.c_str()[3] == '?')) {
+        value.toLowerCase();
+        chomp(value);
+        const char *p = (value == "0"?"":value.c_str());
+        if ( isNvs )
+          doNvslist(p);  
+        else
+          doRamlist(p);  
+    } else if (argument.length() == 3) {
       int idx = value.indexOf('=');
       if (idx > 0) {
         argument = value.substring(0, idx);
@@ -6227,20 +6279,6 @@ const char* analyzeCmd ( const char* par, const char* val )
           ramsetstr(argument.c_str(), value);  
       }
     }  
-/*    
-  } else if (argument == "randmode") {
-      doRandMode(value);
-  } else if (argument == "nop") {
-      ; // relax: nothing to do!!!!
-  } else if (argument == "lock") {
-      chomp(value);
-      value.toLowerCase();
-      doLockHmi(value, ivalue); 
-  } else if (argument == "lockvol") {
-      chomp(value);
-      value.toLowerCase();
-      doLockVol(value, ivalue); 
-*/  
   } else if (argument.startsWith("in.")) {
     doInput(argument.substring(3), value);
   } else if (argument.startsWith("if")) {
@@ -6248,13 +6286,6 @@ const char* analyzeCmd ( const char* par, const char* val )
   } else if (argument.startsWith("calc")) {
     doCalc(value, argument.c_str()[4] == 'v');
   }
-/*  
-  else if (argument == "input") {
-    doInput(value);
-  } else if (argument == "read") {
-    doRead(value);                                //TBD: Debug only
-  }
-*/
 #endif
 #if defined(TRACKLIST)
   else if (argument == "tracklist") {
