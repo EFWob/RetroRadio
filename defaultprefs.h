@@ -6,66 +6,66 @@ R"=====(
 $channels_am = 1,2,10,11,12,13,14,15,16
 $channels_fm = 0,1,2,3,4,5,6,7,10
 #
-$equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12; ram.$$eq_idx = 0
-$equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14; ram.$$eq_idx = 1
-$equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15; ram.$$eq_idx = 2
-$equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13; ram.$$eq_idx = 3
-$equalizernum = 3
+$equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
+$equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
+$equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
+$equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
+$equalizermax = 3
 #
-$tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..450=8) (470..590=9)
+$tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..445=8) (460..590=9)
 #
-$user1 = channels=@$channels_fm;channel=1;volume=70;ram.$$eq_idx=0;execute=:eq_set
-$user2 = channels=@$channels_am;in.vol=start;in.tune=start;ram.$$eq_idx=1;execute=:eq_set
+$user1 = channels=@$channels_fm;ram.channel=1;execute=:tunech;volume=70;ram.$eq_idx=0;in.vol=on0=
+$user2 = channels=@$channels_am;ram.channel=0;in.vol=start;in.tune=start;ram.$eq_idx=1;in.vol=on0=:chan_any
 #
-$volmap = (0..15=0)(16..4095=45..100)
+$volmap = (100..4095=50..100)(=0)
 #
-+switch0 = eq=0;usetunings=0;channels=0,1,2,3,4,5,6,7,10;nvs=@0t0.1=channel=up
-+switch1 = eq=1;usetunings=1;channels=1,2,10,11,12,13,14,15,16,17,18,19,20;nvs=@0t0.1=preset=any
-+switch2 = usetunings=2;channels=21,22,23,24,25,26,27,28;nvs=@0t0.1=preset=any
+::start = execute=::sthmi;execute=::stsys;execute=$user1
+::steq = ram.$eq_idx = 1;in.equalizer=src=.$eq_idx,start,onchange=:eq_set
+::sthmi = execute=::stswitch;execute=::stvol;execute=::sttune;execute=::steq
+::stswitch = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,event=:switch
+::stsys = in.channels = src=~channels;in.channel = src=~channel
+::sttune = in.tune = src=t9,map=@$tunemap,start,event = :tune;in.chantune = src=.channel,onchange=:tunech,start
+::stvol = in.vol = src=a39,map=@$volmap,delta=2,start,event=:vol,on0=:chan_any
 #
-::start = execute=::sthmi;execute=$user1
-::sthmi = execute=::stswitch;execute=::stvol;execute=::sttune
-::stswitch = in.switch=mode=0,src=a36,map=(0..500=0)(0..4095=1),start,event=:switch,show=0
-::sttune = in.tune=src=t9,map=@$tunemap,start,event=:tune,show=0
-::stvol = in.vol=src=a39,map=@$volmap,delta=2,start,event=:vol,show=0;execute=::stvolobsrv
-::stvolobsrv = in.volobserver=src=.volume,event=:checkvol0,map=(1..100=1)(=0),start
+:chan_any = in.channels=ram=chs;ifv=(@chs > 1){in.channel=ram=ch;ram.x=@ch;whilev=(@x == @ch){calcv.x=(1><@chs)};ram.channel=@x }
 #
-:eq_down = ifv = (@$$eq_idx > 0)(@:eq_idx--)(ram.$$eq_idx = 0);execute = :eq_set
-:eq_downwrap = execute=:eq_idx--;ifv = (@$$eq_idx < 0)(ram.$$eq_idx = @$equalizernum);execute = :eq_set
-:eq_idx++ = calcv=(@$$eq_idx + 1)(ram = $$eq_idx = ?)
-:eq_idx-- = calcv=(@$$eq_idx - 1)(ram = $$eq_idx = ?)
-:eq_set = calcv = (@$$eq_idx) (@$equalizer?)
-:eq_up = ifv = (@$$eq_idx < @$equalizernum)(@:eq_idx++)(ram.$$eq_idx = @$equalizernum);execute = :eq_set
-:eq_upwrap = ifv = (@$$eq_idx < @$equalizernum)(@:eq_idx++)(ram=$$eq_idx = 0);execute = :eq_set
+:eq_down = if = (@$eq_idx > 0){@:eq_idx--}{ram.$eq_idx = 0}
+:eq_downwrap = execute = :eq_idx--;if = (@$eq_idx < 0){ram.$eq_idx = @$equalizermax}
+:eq_idx++ = calc.$eq_idx =(@$eq_idx + 1)
+:eq_idx-- = calc.$eq_idx =(@$eq_idx - 1)
+:eq_set = @$equalizer?
+:eq_up = if = (@$eq_idx < @$equalizermax){@:eq_idx++}{ram.$eq_idx = @$equalizermax}
+:eq_upwrap = if = (@$eq_idx < @$equalizermax){@:eq_idx++}{ram=$eq_idx = 0}
 #
-:switch = @:switch?
-:switch0 = execute=$user1
-:switch1 = execute=$user2
+:switch = @$user?
 #
-:tune = channel=?
+:tune = ram.channel=?
+:tunech = in.channels=ram=chs;if=(@chs > 0){in.channel=ram=ch;if=(@channel <= @chs){if=(@channel > 0){channel=@channel}}}
 #
 :vol = volume=?
 #
 eth_clk_mode = 3
 eth_phy_power = 12
 #
-ir_02FD = execute = $user2 # (>>|)
-ir_10EF = channel = 4 # (4)
-ir_18E7 = channel = 2 # (2)
-ir_22DD = execute = $user1 #(|<<)
+gpio_33 = channel = any
+#
+ir_02FD = @$user2 # (>>|)
+ir_10EF = ram.channel = 4 # (4)
+ir_18E7 = ram.channel = 2 # (2)
+ir_22DD = @$user1 #(|<<)
 ir_22DDR4 = upvolume = 2 # (|<<) longpressed
-ir_30CF = channel = 1 # (1)
-ir_38C7 = channel = 5 # (5)
-ir_42BD = channel = 7 # (7)
-ir_4AB5 = channel = 8 # (8)
-ir_52AD = channel = 9 # (9)
-ir_5AA5 = channel = 6 # (6)
-ir_629D = channel = any    #(CH)
-ir_629DR22 = channel = any #(CH) longpressed
+ir_30CF = ram.channel = 1 # (1)
+ir_38C7 = ram.channel = 5 # (5)
+ir_42BD = ram.channel = 7 # (7)
+ir_4AB5 = ram.channel = 8 # (8)
+ir_52AD = ram.channel = 9 # (9)
+ir_5AA5 = ram.channel = 6 # (6)
+ir_629D = @:chan_any    #(CH)
+ir_629DR22 = @:chan_any #(CH) longpressed
 ir_6897 = preset = 1      # (0)
-ir_7A85 = channel = 3 # (3)
-ir_906F = eq               #(EQ)
-ir_906FR10 = eq            #(EQ) (longpressed)
+ir_7A85 = ram.channel = 3 # (3)
+ir_906F = @:eq_upwrap      #(EQ)
+ir_906FR10 = @:eq_upwrap   #(EQ) (longpressed)
 ir_9867 = preset = 11      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
@@ -137,12 +137,10 @@ preset_45 = relay.publicdomainproject.org:80/jazz_swing.mp3 #  Swissradio Jazz &
 preset_46 = 212.77.178.166:80                        #  Radio Heimatmelodie
 preset_47 = stream.srg-ssr.ch/m/drsmw/mp3_128        #   SRF Musikwelle
 #
-ram.:checkvol0 = in.volobserver=ram=$$vol;ifv=(@$$vol == 0)(channel = any)
-#
-toneha = 5
-tonehf = 3
-tonela = 15
-tonelf = 12
+toneha = 7
+tonehf = 4
+tonela = 8
+tonelf = 14
 #
 volume_min = 50
 volume_zero = 1
