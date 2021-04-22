@@ -2951,19 +2951,19 @@ void readprogbuttons()
 #if defined(RETRORADIO)
           char s[200];
           retroRadioInit();
-          sprintf(s, "ram=_gpio_%02dev_=%s", i, val.c_str());
+//          sprintf(s, "ram=_gpio_%02dev_=%s", i, val.c_str());
 //          Serial.printf("GpioEventRedirect: %s\r\n", s);
-          analyzeCmd(s);
-          sprintf(s, "in._gpio_%02d_=src=d%d,mode=2,on0=_gpio_%02dev_,start", i, i, i);
+//          analyzeCmd(s);
+          sprintf(s, "in.gpio_%02d=src=d%d,mode=2,on0=gpio_%02d,start", pinnr, pinnr, pinnr);
 //          Serial.printf("TouchEventInput: %s\r\n", s);
           analyzeCmd(s);
 
 #else
           progpin[i].avail = true ;                         // This one is active now
           progpin[i].command = val ;                        // Set command
+#endif
           dbgprint ( "gpio_%02d will execute %s",           // Show result
                      pinnr, val.c_str() ) ;
-#endif
         }
       }
     }
@@ -2982,12 +2982,14 @@ void readprogbuttons()
 #if defined(RETRORADIO)
           char s[200];
           retroRadioInit();
-          sprintf(s, "ram=_touch_%02dev_=%s", i, val.c_str());
+//          sprintf(s, "ram=_touch_%02dev_=%s", i, val.c_str());
 //          Serial.printf("TouchEventRedirect: %s\r\n", s);
-          analyzeCmd(s);
-          sprintf(s, "in._touch_%02d_=src=t%d,mode=1,on0=_touch_%02dev_,start", i, i, i);
+//          analyzeCmd(s);
+          sprintf(s, "in._touch_%02d_=src=t%d,mode=1,on0=touch_%02d,start", i, i, i);
 //          Serial.printf("TouchEventInput: %s\r\n", s);
           analyzeCmd(s);
+          dbgprint ( "touch_%02d will execute %s",          // Show result
+                     i, val.c_str() ) ;
 #else
           touchpin[i].avail = true ;                        // This one is active now
           touchpin[i].command = val ;                       // Set command
@@ -3329,7 +3331,11 @@ void scanserial()
             nxtserial->printf ( "%s\xFF\xFF\xFF", cmd + 2 ) ;
           }
         }
+#if defined(RETRORADIO)
+        reply = analyzeCmds ( cmd ) ;             // Analyze command(s) and handle them
+#else
         reply = analyzeCmd ( cmd ) ;             // Analyze command and handle it
+#endif
         dbgprint ( reply ) ;                     // Result for debugging
         serialcmd = "" ;                         // Prepare for new command
       }
@@ -5653,10 +5659,30 @@ void chomp_nvs ( String &str , const char* substitute)
   //Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
   if (substitute) {
     int idx = str.indexOf('?');
+    if (idx > 0) {
+      idx = 0;
+      int nesting = 0;
+      int subLen = strlen(substitute);
+      while (idx < str.length()) {
+        if (str.c_str()[idx] == '{')
+          nesting++;
+        else if (str.c_str()[idx] == '}') {
+          if (nesting > 0)
+            nesting--;
+        } else if (str.c_str()[idx] == '?')
+          if (0 == nesting) {
+            str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
+            idx = idx + subLen - 1;
+          }
+        idx++;
+      }
+    }
+    /*
     while(idx >= 0) {
       str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
       idx = str.indexOf('?');
     }
+    */
   }
   chomp ( str ) ;                                     // Normal chomp first
   if (str.c_str()[0] == '@' )                         // Reference to RAM or NVS-Key?
@@ -5703,12 +5729,12 @@ const char* analyzeCmds ( String commands )
       char * next = NULL;
       int nesting = 0;
       while (*p && !next) {
-        if (*p == '(')
+        if ((*p == '(') || (*p == '{'))
           nesting++;
         else if (nesting == 0) {
           if (*p == ';' ) 
             next = p;
-        } else if (*p == ')')
+        } else if ((*p == ')') || (*p == '}'))
           nesting--;
         p++;
       }
@@ -5869,8 +5895,14 @@ const char* analyzeCmd ( const char* par, const char* val )
     chomp(value);
     analyzeCmds(nvssearch(value.c_str())?nvsgetstr(value.c_str()):ramgetstr(value.c_str()));  
 */
+    static int execRec = 0;
+    if (execRec)
+      Serial.printf("Running Execute recursion=%d\r\n", execRec);
+    Serial.flush();
+    execRec++;
     chomp_nvs(value);
     analyzeCmds(ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()));  
+    execRec--;
   } else if ((argument == "ramlist") || (argument == "nvslist")) {
     const char* p = NULL;
     value.toLowerCase();
@@ -6282,10 +6314,11 @@ const char* analyzeCmd ( const char* par, const char* val )
   } else if (argument.startsWith("in.")) {
     doInput(argument.substring(3), value);
   } else if (argument.startsWith("if")) {
-    doIf(value, argument.c_str()[2] == 'v');
+    doCalcIfWhile(argument, "if", value);//doIf(value, argument.c_str()[2] == 'v');
   } else if (argument.startsWith("calc")) {
-    doCalc(value, argument.c_str()[4] == 'v');
-  }
+    doCalcIfWhile(argument, "calc", value);//doCalc(value, argument.c_str()[4] == 'v');
+  } else if (argument.startsWith("while"))
+    doCalcIfWhile(argument, "while", value);
 #endif
 #if defined(TRACKLIST)
   else if (argument == "tracklist") {

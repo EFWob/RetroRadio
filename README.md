@@ -39,17 +39,30 @@ and use your standard preference settings as before you should notice no differe
 There are also some enhancements which are not necessarily associated with the extended input capabilities. Those are found
 in the section Generic enhancements below.
 
+## Generic considerations for migration
+
+If you have the ESP32 radio installed and preferences set up, so it is up and running, the RetroRadio software should run out of the box
+with a few things to notice:
+
+- This version needs more NVS-entries. If you are using already much space in NVS (namely if you have a lot of presets defined) you might
+  need to increase the size of the NVS-partition. 
+- You can use the command _test_ to check if there are still entries in NVS available. If the number of free entries is close to zero, or
+  you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
+  out of NVS-space.
+
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
-if the text references to _key_ or _value_ associated to _key_, keep in midn that the actual storage 
-location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in NVS will be used.
-TODO:: may be it is better the other way round!?).
-- NVS pairs can be set using the preferences as usual
+if the text references to _key_ or _value_ associated to _key_, keep in mind that the actual storage 
+location can either be in NVS as usual or in RAM. (If a specific _key_ exists in both NVS and RAM, the one in RAM will be used. This allows
+to simply override a 'default setting' in NVS by storing the same key in RAM). 
+
+NVS keys can be defined in the preferences as usual.
+
 - There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
   _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
   _value_ starts with '@', then _value_ (without leading '@') is considered to be a key-name by itself and is exchanged with the 
   content of the resulting search for the dereferenced key.
-- There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent for the _nvs_-command above. 
+- There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent to the _nvs_-command above. 
 - In both cases, if _key_ exists the value associated to set key will be replaced. Otherwise the _key_-_value_-pair will be created and stored.
 - Example:
   * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst_ and _value_ == _'42'_
@@ -57,20 +70,21 @@ TODO:: may be it is better the other way round!?).
   * _ram = tst3 = @tst1_ will create entry _tst3_ in RAM with the _value_ == _'@tst1'_ 
   * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
     still stay at _'42'_.
-- you can list the RAM/NVS command with the commands _nvslist=Argument_ or _ramlist=Argument_. _Argument_ is optional, if set only keys that 
-  contain _Argument_ as substring are listed. Try _ramlist=tst_ for example.
-- TODO:: there is no command for deleting RAM or NVS-entries.
+- you can list the RAM/NVS command with the commands _nvs?=Argument_ or _ram?=Argument_. _Argument_ is optional, if set only keys that 
+  contain _Argument_ as substring are listed. Try _ram?=tst_ for example.
+- RAM or NVS entries can be deleted using the command _nvs- = key_ or _ram- = key_ which will delete _key_ and the associated value from RAM/NVS.
+
 
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
 command. Commands in a sequence must be seperated by ';'. 
-Consider a "limp home" button on the remote, which brings you to your favorite station (_preset_0_) played
-at an convenient volume (_volume = 75_). So you can define in the preferences _ir_XXXX = volume = 75; preset = 0_
+Commands in a sequence are executed from left to right.
+Consider a "limp home" button on the IR-remote, which brings you to your favorite station (_preset_0_) played
+at a convenient volume level (_volume = 75_). So you can define in the preferences _ir_XXXX = volume = 75; preset = 0_
 to achieve that.
 Command values can also be referenced to other preference settings. So if you have a setting _limp_home = volume = 75; preset = 0_
-in the preset, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
+in the NVS-preferences, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
 are not permitted). If the given key does not exist, an empty string is used as replacement.
-Commands in a sequence are executed from left to right.
 
 ## The execute-command
 The execute-command takes the form _execute = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
@@ -78,7 +92,7 @@ retrieved and executed as commands-list (whith each command being seperated by s
 
 ## Startup event
 If the key-value-pair _::start = value_ is defined, the associated _value_ is retrieved and executed as commands-list.
-The 'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
+The _::start_-'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
 running, preferences are read, VS module is initialized. I. e. ready to play).
 
 If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
@@ -157,7 +171,7 @@ The other Ethernet settings that can be configured are:
 1. "eth_clk_mode" to override the `#define` for ETH_CLK_MODE
 
 The problem here is, that *`eth_phy_type`* and *`eth_clk_mode`* are enums. They are defined in the sdk include file ***esp_eth.h***. In the preferences they
-are expected as int-type. For the current core 1.0.4 implementation the mapping is defined as follow:
+are expected as int-type. For the current core 1.0.6 implementation the mapping is defined as follow:
 
 ```
 typedef enum {
@@ -185,7 +199,7 @@ The channel concept allows a simple re-mapping of the preferences. There are two
 commands can be defined either by preference settings or through the input channels at runtime, i. e. Serial input).
 
 - _channels = comma-delimited-integer-list_ will (re-)define the channel list. In the list numbers (decimal) are expected which are treated as 
-   reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total witch Channel1 mapped to 
+   reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total with Channel1 mapped to 
    _preset_1_ to Channel9 mapped to _preset_16_
 - That assignment does not change the current preset. To use that channel-list (i. e. to switch channel), the command _channel = Argument_ must be
     used.
@@ -193,10 +207,10 @@ commands can be defined either by preference settings or through the input chann
   - A number between '1' and 'max' whith 'max' being the number of channels as defined by the command _channels_ above. In our example '9'. This
     will change the preset accordingly (but only if different from current channel).
   - The word 'any': chose a random preset from the channellist. (It is guaranteed that the chosen preset will be different from current preset.)
-  - The word 'up': if the current channel is not the last channel, tune to next preset in channel-list. (if the current preset is not in the channel
-    list, i. e. if tuned to by other means, make Channel1 the current channel).
-  - The word 'down': if the current channel is not the Channel1, tune to previous preset in channel-list. (if the current preset is not in the channel
-    list, i. e. if tuned to by other means, make ChannelMax the current channel).
+  - The word 'up': if the current preset is not the last channel in channel-list, tune to next preset in channel-list. (if the current preset is not 
+    in the channel list, i. e. if tuned to by other means, tune to Channel1).
+  - The word 'down': if the current preset is not the first channel in the channe-list, tune to previous preset in channel-list. (if the current preset 
+  	is not in the channel-list, i. e. if tuned to by other means, tune to ChannelMax).
 
 
 
@@ -328,7 +342,7 @@ done by pressing (PREV) or (NEXT)).
 ## First input example: Volume 
 We will assume the following setting for the example:
 - A variable resistor is attached to an analog pin (lets say 39) in such a way, that it applies a voltage between 0 (if turned to low) and VCC (if 
-turned to max).
+  turned to max).
 - Accordingly, we want to  change the Volume between 0 and 100.
 - However, since we know that with our device a volume setting between 1..49 is effectively not audible we would prefer the following mapping
    * Volume = 0 if resistor is turned to low (or close to low), say if the readout of the analog pin is between 0 and 100
@@ -336,18 +350,18 @@ turned to max).
 
 That can be achieved with the following to settings in the preferences:
 ```
-$:volchange=volume=?
-in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=$:volchange,start
+:volchange=volume=?
+in.vol = src=a39,map=(101..4095=50..100)(0..100=0),event=:volchange,start
 ```
 
 Or, if you just want to try at runtime, you can also set this from the (Serial) commandline (but then settings will be lost at next power-up)
 by entering the following lines:
 ```
-ram.$:volchange = volume = ?
-in.vol = src=a39,mode=28,map=(101..4095=50..100)(0..100=0),event=$:volchange,delta=2,start
+ram.:volchange = volume = ?
+in.vol = src=a39,mode=28,map=(101..4095=50..100)(0..100=0),onchange=:volchange,delta=2,start
 ```
 
-The first line defines a _key_-_value_-Pair with _key_ set to _'$>volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
+The first line defines a _key_-_value_-Pair with _key_ set to _':volchange'_ and the corresponding _value_ set to _'volume = ?'_. 
 If set in preferences as in first snippet that would be stored to NVS, into RAM in second snippet.
 That assignment does not do anything for now, it is only used in the second line.
 
@@ -357,9 +371,9 @@ The second line contains a new command _'in'_.
 - In our example we have defined an input with the name 'vol'
 - The _in_ command allows to set or change the "properties" of an input.
   * If more than one property is defined, they are separated by ','. If more than one property is set in this list, they are evaluated from left to right.
-  * most properties take an argument, that argument is assigned as usual with _propery = argument_
-  * The argument of a property is dereferenced to NVS/RAM if it starts with '@'
-  * If _argument_ is not provided, it is assumed to be empty String ''.
+  * most properties take an argument, that argument is assigned as usual with _property = argument_
+  * The argument of a property is dereferenced to RAM/NVS if it starts with '@'
+  * If _argument_ is not provided, it is assumed to be the empty String ''.
   * Some properties (_start_ or _stop_ for instance) do not require an _argument_ (in that case, _argument_ will be ignored if set)
 - The property _'src'_ specifies the link to an input
   * Here _'a39'_ is set. This means "use pin39 as analog input" There is no checking, if that is a valid (analog) pin. In practice, this assignment will result in an 
@@ -386,21 +400,22 @@ The second line contains a new command _'in'_.
     > If there is only one entry in the _y_-part, all of the input range
       from _'x1..x2'_ will be mapped to that single _y_-Value (see second entry in the example with _'(0..100=0)'_. If there is only one entry in the _x_-part, that 
       value will be mapped to _y_ (a setting of _y2_ will be ignored in that case).
-  * A single map entry can be read from NVS/RAM if it is derefenced by '@'. 
-    > So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in NVS/RAM and would use 
+  * A single map entry can be read from RAM/NVS if it is derefenced by '@'. 
+    > So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in RAM/NVS and would use 
       this values at the time the 'in' command is executed. The resulting map-Entry will keep these values, even if later _x1_ or _x2_ are changed.
-- The property _event_ defines a key to NVS/RAM that is searched for if the input (after mapping) has changed since last check. If a change is detected,
-  the NVS/RAM will be searched for _key_ and (if key is found) the corresponding value will be executed as command-sequence. (note that exactly the key name
-  must be given here, do not dereference by adding '@')
+- The property _onchange_ defines a key to RAM/NVS that is searched for if the input (after mapping) has changed since last check. If a change is detected,
+  the RAM/NVS will be searched for _key_ and (if key is found) the corresponding value will be executed as command-sequence. (note that exactly the key name
+  is expected here. If dereferenced using _@indirect_key_, _indirect_key_ is expected to have (as value) another key which is then used to obtain the resulting
+  commands sequence).
   * you need to explicitely start cyclic polling of the input, see below.
-  * within the _value_ associated to the event key, any occurance of the '?' will be replaced by the current reading of the 
+  * within the _value_ associated to the _onchange_ key, any occurance of the '?' will be replaced by the current reading of the (mapped) input.
 - The property _delta_ defines the magnitude of change that is required on the (mapped) input for an change event to be triggered.
   * this allows, especially for analog input, to eleminate noise on the line that would lead to alternate readings and hence events on every other readout. Must be 
     one (any change in the input would lead to an event) or above. Will be forced to 1 if set by user to 0 or below.
-- The property _start_ starts the cylic polling of the input. Only if polling is startet, the event will be generated on change.
-  * _start_ results in a direct readout of the input. If an _event_ is defined, when _start_ is set (it is in our example), that event will be called direct (to do 
-    an initial setting of volume at startup depending of the position of the variable resistor in our case). If that is not desired, _start_ must be called before 
-    _event_ is set.
+- The property _start_ starts the cylic polling of the input. Only if polling is started, the _onchange_-event will be generated.
+  * _start_ results in a direct readout of the input. If _onchange_ is defined, when _start_ is set (it is in our example), that event will be called direct 
+  	(to do an initial setting of volume at startup depending of the position of the variable resistor in our case). If that is not desired, _start_ must 
+	be called before _onchange_ is set.
 - The property _stop_ (not used in the example) is the opposite of _start_: it stops the cyclic polling (or does just nothing if cyclic polling has not yet started).
 
 There are a few more properties. However, this explanation should be enough to understand what is needed to translate the changes on a variable resistor to 
@@ -424,7 +439,7 @@ If you enter the command _in.vol=info_ you should read:
 20:28:38.956 -> D:  * Value map contains 2 entries:
 20:28:38.956 -> D:       1: (101..4095 = 50..100)
 20:28:38.956 -> D:       2: (0..100 = 0..0)
-20:28:38.956 -> D:  * Change-event: "$:volchange"
+20:28:38.956 -> D:  * Change-event: ":volchange"
 20:28:38.956 -> D:     defined in RAM as: "volume = ?"
 20:28:38.956 -> D:  * Delta: 2
 20:28:38.956 -> D:  * Show: 0 (seconds)
@@ -449,24 +464,24 @@ That should result in somewhat like this:
 20:38:32.136 -> D: Input "in.vol" physRead= 2885 (mapped to:   85)
 20:38:33.128 -> D: Input "in.vol" physRead= 2893 (mapped to:   85)
 20:38:34.121 -> D: Input "in.vol" physRead= 2907 (mapped to:   84)
-20:38:34.452 -> D: Input "in.vol": change to 86 (event "$:volchange")
+20:38:34.452 -> D: Input "in.vol": change to 86 (event ":volchange")
 20:38:34.631 -> D: Command: volume with parameter 86
-20:38:34.631 -> D: Input "in.vol": change to 88 (event "$:volchange")
+20:38:34.631 -> D: Input "in.vol": change to 88 (event ":volchange")
 20:38:34.631 -> D: Command: volume with parameter 88
-20:38:34.864 -> D: Input "in.vol": change to 90 (event "$:volchange")
+20:38:34.864 -> D: Input "in.vol": change to 90 (event ":volchange")
 20:38:34.864 -> D: Command: volume with parameter 90
-20:38:35.094 -> D: Input "in.vol": change to 92 (event "$:volchange")
+20:38:35.094 -> D: Input "in.vol": change to 92 (event ":volchange")
 20:38:35.094 -> D: Command: volume with parameter 92
-20:38:35.094 -> D: Input "in.vol": change to 94 (event "$:volchange")
+20:38:35.094 -> D: Input "in.vol": change to 94 (event ":volchange")
 20:38:35.094 -> D: Command: volume with parameter 94
 20:38:35.329 -> D: Input "in.vol" physRead= 3654 (mapped to:   94)
-20:38:35.556 -> D: Input "in.vol": change to 96 (event "$:volchange")
+20:38:35.556 -> D: Input "in.vol": change to 96 (event ":volchange")
 20:38:35.556 -> D: Command: volume with parameter 96
 20:38:36.140 -> D: Input "in.vol" physRead= 3930 (mapped to:   97)
-20:38:36.370 -> D: Input "in.vol": change to 98 (event "$:volchange")
+20:38:36.370 -> D: Input "in.vol": change to 98 (event ":volchange")
 20:38:36.370 -> D: Command: volume with parameter 98
 20:38:37.133 -> D: Input "in.vol" physRead= 3929 (mapped to:   97)
-20:38:37.894 -> D: Input "in.vol": change to 96 (event "$:volchange")
+20:38:37.894 -> D: Input "in.vol": change to 96 (event ":volchange")
 20:38:38.124 -> D: Command: volume with parameter 96
 20:38:38.124 -> D: Input "in.vol" physRead= 3751 (mapped to:   95)
 20:38:38.353 -> D: Input "in.vol": change to 94 (event "$:volchange")
@@ -529,7 +544,7 @@ While we are at it, play with _b0_ of mode. As effect, the physical readout shou
 _in.vol=mode=29_ to see (hear) the difference. Switch back to 'normal' using the command _in.vol=mode=28_.
 
 You can change every property of an input at any time. Whenever a property is changed, the others are not affected: a change to _mode_ as just done will not affect 
-the _map_ (or any other entry). You could even switch to a different input-pin, if this makes any sense from application perspective.
+the _map_ (or any other property). You could even switch to a different input-pin, if this makes any sense from application perspective.
 
 Try: _in.vol=map=(100..2000=50..100)(2100..4000=100..50)(2000..2100=100)(0..4095=0)_
 
@@ -545,8 +560,8 @@ analog pin to touch pin and use a different mapping), we can use the input with 
 First, stop the volume input using the command _in.vol=stop_
 
 Then, create a tune-event: _ram.$:tune=preset=?_ and use this for the input: _in.vol=event=$:tune_
-Next, simplify the mapping to: _in.vol=map=(0..4095=0..2)_ to just tune between presets 0 and 2. Set _delta=
-Then, set delta to 1 and re-start the cyclic polling of the (and the debug show) input with the new mapping and event: _in.vol=start, show=1_
+Next, simplify the mapping to: _in.vol=map=(0..4095=0..2)_ to just tune between presets 0 and 2. 
+Then, set delta to 1 and re-start the cyclic polling of the (and the debug show) input with the new mapping and event: _in.vol=start, delta=1, show=1_
 Verify the settings with _in.vol=info_, output on Serial should be this:
 
 ```
@@ -573,3 +588,212 @@ To solve this problems, Gaps are permitted in the value map. If the current phys
 first start, if the physical read is within a gap, the next matching value in the mapping entries closest to the physical readout is assumed.
 
 _in.vol=map=(0..1165=0)(1566..2530=1)(2931..4095=2)_ should do the trick.
+
+## Using touch input (also to read a variable capacitor)
+### General precondition for reading variable capacitor values
+The touch inputs of ESP32 can be used to read variable capacitors. The typical AM radios use variable capacitors in the range of around 300 pF. These can be
+read through the touch pins. If using the native Espressif-IDF APIs for touch sensors the readings are stable and precise enough to give a reading to distinguish
+for at least 10 positions (hence "tunable" stations) of the tuning knob.
+
+One terminal of the capacitor must be connected to the pin direct, the other to ground (when recycling an old radio make sure any other connection to the 
+capacitor is cut off, especially be sure that the coil of the oscillator circuit is no longer connected in parallel to the capacitor).
+
+As a rule of thumb, the wire between capacitor and input pin should be as short as possible and as freely running as possible to improve the readings.
+Especially avoid twisting with other wires if possible.
+
+### Calibrating the input
+The touch pin could return any reading between 0 and 1023 in theory. In practice, if a variable capacitor is connected, the reading would be somewhere in 
+between. The reading will also change depending on the wiring (length and path) between capacitor and ESP32. So you probably will have different readings 
+using the same capacitor on the breadboard and in the final product.
+
+For undisturbed reading during calibration it is recommended to stop any other output to Serial by entering _DEBUG = 0_ on the Serial command input.
+
+For our example we assume the capacitor to be connected to T9. To read the capacitor we can use the _'in'_ command and link the source to the touch pin T9
+with the follwing line from the serial input:
+
+_in.tune=src=t9,show=1_
+
+That should give an output on Serial like this when tuning from highest to lowest capacity (or lowest to highest frequency on the associated radio scale):
+```
+21:12:30.398 -> D: Input "in.tune" (is stopped) physRead=  104
+21:12:31.392 -> D: Input "in.tune" (is stopped) physRead=  105
+21:12:32.385 -> D: Input "in.tune" (is stopped) physRead=  107
+21:12:33.379 -> D: Input "in.tune" (is stopped) physRead=  117
+21:12:34.406 -> D: Input "in.tune" (is stopped) physRead=  152
+21:12:35.399 -> D: Input "in.tune" (is stopped) physRead=  190
+21:12:36.392 -> D: Input "in.tune" (is stopped) physRead=  276
+21:12:37.386 -> D: Input "in.tune" (is stopped) physRead=  394
+21:12:38.379 -> D: Input "in.tune" (is stopped) physRead=  477
+21:12:39.408 -> D: Input "in.tune" (is stopped) physRead=  480
+```
+
+The numbers are abritrary of course, your mileage may vary. In this example the reading range is between 104 and 480. You should observe a rather stable 
+reading if the position of the tuning knob is not changed (jitter by one only, no matter what the tuning position is). You should also observe that the 
+change is nonlinear. The higher the reading the less you have to turn for a change in the input readout.
+
+For instance on my scale I have the the frequencies 530, 600, 800, 1200 and 1600 written on the AM scale. The corresponding readings are 113, 140, 215, 365
+and 460 in my example. A possible tuning map (with some fishing range and gaps as discussed above) for 5 'channels' mapped to that positions could be defined
+(in our example into RAM, for the final product it should be defined in NVS preferences) as:
+_ram=$tuningmap=(0..120=1)(130..160=2)(180..250=3)(330..390=4)(420..600=5)_
+
+This mapping must then be linked to the input:
+_in.tune=map=$tuningmap_
+
+The reading on Serial monitor should change to something like this (depending on mapping and the position of the capacitor):
+```
+22:31:28.766 -> D: Input "in.tune" (is stopped) physRead=  480 ( mapped to:    5)
+22:31:29.759 -> D: Input "in.tune" (is stopped) physRead=  444 ( mapped to:    5)
+22:31:30.786 -> D: Input "in.tune" (is stopped) physRead=  426 ( mapped to:    5)
+22:31:31.812 -> D: Input "in.tune" (is stopped) physRead=  417 (nearest is:    5)
+22:31:32.806 -> D: Input "in.tune" (is stopped) physRead=  411 (nearest is:    5)
+22:31:33.800 -> D: Input "in.tune" (is stopped) physRead=  401 (nearest is:    4)
+22:31:34.826 -> D: Input "in.tune" (is stopped) physRead=  394 (nearest is:    4)
+22:31:35.820 -> D: Input "in.tune" (is stopped) physRead=  389 ( mapped to:    4)
+22:31:36.813 -> D: Input "in.tune" (is stopped) physRead=  378 ( mapped to:    4)
+22:31:37.807 -> D: Input "in.tune" (is stopped) physRead=  344 ( mapped to:    4)
+22:31:38.800 -> D: Input "in.tune" (is stopped) physRead=  291 (nearest is:    4)
+22:31:39.827 -> D: Input "in.tune" (is stopped) physRead=  223 ( mapped to:    3)
+22:31:40.821 -> D: Input "in.tune" (is stopped) physRead=  167 (nearest is:    2)
+22:31:41.815 -> D: Input "in.tune" (is stopped) physRead=  133 ( mapped to:    2)
+22:31:42.841 -> D: Input "in.tune" (is stopped) physRead=  106 ( mapped to:    1)
+22:31:43.835 -> D: Input "in.tune" (is stopped) physRead=  105 ( mapped to:    1)
+```
+If everything is as expected, the calibration output could be stopped by issuing the command:
+_in.tune=show=0_
+
+Now the mapped reading can be used to switch presets. All what is needed to use this input to change presets is to start the cyclic polling of the preset
+and assign a 'change event'. Lets start with the change event. That could be labelled '$switchpreset'. For this example it will be stored in RAM again:
+_ram=$switchpreset=preset=?_
+
+This event must be linked to the tune input by the command:
+_in.tune=onchange=$switchpreset_
+
+Check the settings by entering the command:
+_in.tune=info_
+
+The resulting printout on Serial should be:
+```
+2:38:39.762 -> D: Info for Input "in.tune":
+22:38:39.762 -> D:  * Src: Touch Input: T9, Auto: 0 (pin value is used direct w/o calibration)
+22:38:39.795 -> D:  * Input is not started (no cyclic polling)
+22:38:39.795 -> D:  * Value map contains 5 entries:
+22:38:39.795 -> D:       1: (0..120 = 1..1)
+22:38:39.795 -> D:       2: (130..160 = 2..2)
+22:38:39.795 -> D:       3: (180..250 = 3..3)
+22:38:39.795 -> D:       4: (330..390 = 4..4)
+22:38:39.795 -> D:       5: (420..600 = 5..5)
+22:38:39.795 -> D:  * Change-event: "$switchpreset"
+22:38:39.795 -> D:     defined in RAM as: "preset=?"
+22:38:39.795 -> D:  * Delta: 1
+22:38:39.828 -> D:  * Show: 0 (seconds)
+22:38:39.828 -> D:  * Debounce: 0 (ms)
+```
+
+To actually make the radio change the preset by changing the tuning knob you need to start cyclic polling of the input:
+
+_in.tune=start_
+
+So if you are satisfied with those settings, the final entries in the NVS preferences could be given as follows to take effect at every start of the radio:
+```
+$tunemap =      (0..120 = 1)(130..160 = 2)(180..250 = 3)(330..390 = 4)(420..600 = 5)
+# Arbritary key to store the map for later use
+
+in.tune = src=t9,map=@$tunemap, onchange=:tune, start
+# Use touch T9 as input, using the predefined $tunemap, execure ':tune' on change of input and start cyclic polling of the input
+
+:tune = preset=?
+# Called on change of tune input, '?' is replaced by (mapped) input value (so 1..5 in this example)
+```
+
+Or you could use the variable capacitor for different thinks, like changing the volume:
+_ram=:vol=volume=?_
+_in.tune=src=t9,map=(110..475=50..100)(0..109=0)(476..500=100),onchange=:vol,start_
+
+Together with the [example above](#second-example-tuning) it is thus possible to use the frequency knob to change volume and the volume knob to change presets. What a crazy world!
+
+Of course it is also possible to change the direction of volume increase/decrease by changing the input map:
+_in.tune=map=(110..475=100..50)(0..109=100)(476..500=0)_
+
+
+### Classic touch reading
+
+If you want to use touch inputs as usual (detecting if touched or not) you can no longer use the *touch_*-settings of the preference. Any such setting from
+the preferences will be ignored. (Reason is that for the *touch_* settings the touchRead() function of the ESP32 Arduino core is used which corrupts the 
+readings of the ESP32 IDF API in my experience).
+
+You can use the input mechanism provided here to mimic that behaviour. In the following example touchpin T8 is used.
+First is, to define a touch input for T8:
+_in.touch=src=t8,show=1_
+
+Will show some output on Serial as such:
+
+```
+15:29:21.781 -> D: Input "in.touch" (is stopped) physRead=  856
+15:29:22.807 -> D: Input "in.touch" (is stopped) physRead=  852
+15:29:23.800 -> D: Input "in.touch" (is stopped) physRead=  245
+15:29:24.794 -> D: Input "in.touch" (is stopped) physRead=  187
+15:29:25.787 -> D: Input "in.touch" (is stopped) physRead=  845
+15:29:26.814 -> D: Input "in.touch" (is stopped) physRead=  859
+15:29:27.806 -> D: Input "in.touch" (is stopped) physRead=  846
+15:29:28.799 -> D: Input "in.touch" (is stopped) physRead=  175
+15:29:29.825 -> D: Input "in.touch" (is stopped) physRead=  162
+15:29:30.818 -> D: Input "in.touch" (is stopped) physRead=  858
+15:29:31.845 -> D: Input "in.touch" (is stopped) physRead=  859
+15:29:32.838 -> D: Input "in.touch" (is stopped) physRead=  858
+```
+
+The higher readings (above 800 in this example) are while not touched (open), the lower readings (below 300) when touched. To convert the readings into 
+digital information you could apply a map to the input:
+_in.touch=map=(400..1023=1)(=0)_ 
+
+With this map the input will read 1 if untouched and 0 if touched:
+```
+15:34:11.560 -> D: Input "in.touch" (is stopped) physRead=  857 ( mapped to:    1)
+15:34:12.587 -> D: Input "in.touch" (is stopped) physRead=  621 ( mapped to:    1)
+15:34:13.579 -> D: Input "in.touch" (is stopped) physRead=  182 ( mapped to:    0)
+15:34:14.572 -> D: Input "in.touch" (is stopped) physRead=  274 ( mapped to:    0)
+15:34:15.565 -> D: Input "in.touch" (is stopped) physRead=  806 ( mapped to:    1)
+15:34:16.591 -> D: Input "in.touch" (is stopped) physRead=  205 ( mapped to:    0)
+15:34:17.584 -> D: Input "in.touch" (is stopped) physRead=  145 ( mapped to:    0)
+15:34:18.577 -> D: Input "in.touch" (is stopped) physRead=  816 ( mapped to:    1)
+15:34:19.570 -> D: Input "in.touch" (is stopped) physRead=  856 ( mapped to:    1)
+```
+
+There is also a simplified way using the _mode_-property of the touch input. If bit b0 is set, the input is automatically converted to a binary reading. 
+In our example, first delete the input-map by assigning an 'empty' string as map:
+_in.touch=map=_
+
+And then set bit b0 in the _mode_-property:
+_in.touch=mode=1_
+
+And the result will be something like this:
+```
+15:38:00.198 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:01.191 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:02.184 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:03.177 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:04.203 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:05.197 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:06.222 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:07.215 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:08.242 -> D: Input "in.touch" (is stopped) physRead=    0
+15:38:09.235 -> D: Input "in.touch" (is stopped) physRead=    1
+15:38:10.229 -> D: Input "in.touch" (is stopped) physRead=    1
+```
+
+Using the _mode_-bit b0 should be the preferred option if a touch-input shall be used as binary input (touched/not touched).
+
+For reacting on input changes, using the _onchange_ event is problematic, as it triggers both if the input is changing from 1 to 0 (touch detected) and
+if the input changes from 0 to 1 (touch released). There are to more properties that can be used (on any input):
+- _on0=key_ will search in RAM/NVS if input changes from not Zero to Zero. If that happens and the key is found in either RAM or NVS, the value associated 
+  to the key will be interpreted as commands sequence and executed.
+- _onnot0=key_ will be triggered on change of the input from Zero to not Zero.
+- _on0_ and _onnot0_ can be used on any input, also on analog reads. 
+- _onchange_ will always trigger before either of _on0_ or _onnot0_ triggers (if appropriate).
+- to be clear: _onnot0_ will only trigger if the last read was 0. So if an analog input changes from 0 to 1, _onchange_ and _onnot0_ will trigger. If later
+  the input changes to 2, _onchange_ will trigger again, but not _onnot0_ 
+  
+The _touch_XX_ settings in preferences will be translated to the following setting (during startup) automatically:
+
+_in.touch_XX = src=tXX, mode=1, on0=touch_XX, start_
+

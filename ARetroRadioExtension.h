@@ -12,6 +12,7 @@ extern void chomp_nvs(String & str, const char *substitute = NULL);
 extern String ramgetstr ( const char* key );
 extern void ramsetstr ( const char* key, String val );
 
+extern void doCalcIfWhile(String argument, const char* type, String value);
 
 
 /*

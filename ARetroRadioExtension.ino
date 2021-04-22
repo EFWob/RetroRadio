@@ -149,7 +149,14 @@ int parseGroup(String & inValue, String& left, String& right, char** delimiters 
   bool found;
   chomp(inValue);
   int nesting = 0;
-  if (inValue.c_str()[0] == '(') {
+  bool commandGroup = (inValue.c_str()[0] == '{');
+  char groupStart = '(';
+  char groupEnd = ')';
+  if ((inValue.c_str()[0] == '(') || commandGroup) {
+    if (commandGroup) {
+      groupStart = '{';
+      groupEnd = '}';
+    }
     inValue = inValue.substring(1);
     chomp(inValue);
     nesting = 1;
@@ -158,9 +165,9 @@ int parseGroup(String & inValue, String& left, String& right, char** delimiters 
   const char *p = inValue.c_str();
   idx = -1;
   while (*p && (idx == -1)) {
-    if (*p == '(')
+    if (*p == groupStart)
       nesting++;
-    else if (*p == ')') {
+    else if (*p == groupEnd) {
       if (nesting <= 1)
         idx = p - inValue.c_str();
       else
@@ -263,8 +270,8 @@ int parseGroup(String & inValue, String& left, String& right, char** delimiters 
 }
 #endif
 
-int doCalculation(String& value, bool show) {
-char *operators[] = {"==", "!=", "<=", "<" , ">=", ">", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", NULL};
+int doCalculation(String& value, bool show, const char* ramKey = NULL) {
+char *operators[] = {"==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">", NULL};
 String opLeft, opRight;
 int idx = parseGroup(value, opLeft, opRight, operators, true);
 int op1, op2, ret = 0;
@@ -287,14 +294,15 @@ int op1, op2, ret = 0;
     case 1:
       ret = op1 != op2;
       break;      
-    case 3:
+    case 5:
       ret = op1 < op2;
       break;      
+
     case 2:
       ret = op1 <= op2;
       break;      
-    case 5:
-      ret = op1 > op2;
+    case 3:
+      ret = random(op1, op2);
       break;      
     case 4:
       ret = op1 >= op2;
@@ -329,10 +337,18 @@ int op1, op2, ret = 0;
     case 15:
       ret = op1 - op2;
       break;      
+    case 16:
+      ret = op1 > op2;
+      break;      
       
   }
   if (show)
     doprint("Caclulation result=%d", ret);
+  if (ramKey)
+    if (strlen(ramKey)) {
+      ramsetstr(ramKey, String(ret));
+      if (show) doprint("Calculation result set to ram.%s=%d", ramKey, ret);
+    }
   return ret;
 }
 
@@ -377,6 +393,98 @@ void doCalc(String value, bool show) {
   analyzeCmds(calcCommand);
 }
 
+void doIf(String condition, String value, bool show, String ramKey) {
+  if (show) doprint("Start if(%s)=\"%s\"\r\n", condition.c_str(), value.c_str());
+  int result = doCalculation(condition, show, ramKey.c_str());
+
+  String ifCommand, elseCommand;
+  String dummy;
+  parseGroup(value, ifCommand, dummy);
+  parseGroup(value, elseCommand, dummy);
+  dummy = String(result);
+  if (show) {
+    doprint("  IfCommand = \"%s\"", ifCommand.c_str());
+    doprint("ElseCommand = \"%s\"", elseCommand.c_str());
+    doprint("Condition is %s (%d)", (result != 0)?"TRUE":"false", result);Serial.flush();
+  }
+  if (result != 0) {
+    chomp_nvs(ifCommand, dummy.c_str());
+    if (show) doprint("Running \"if(true)\" with (expanded) command \"%s\"", ifCommand.c_str());
+    analyzeCmds(ifCommand);
+  } else {
+    chomp_nvs(elseCommand, dummy.c_str());
+    if (show) doprint("Running \"else(false)\" with (expanded) command \"%s\"", elseCommand.c_str());
+    analyzeCmds(elseCommand);
+  }
+}
+
+void doCalc(String expression, String value, bool show, String ramKey) {
+  if (show) doprint("Start calc(%s)=\"%s\"\r\n", expression.c_str(), value.c_str());
+  int result = doCalculation(expression, show, ramKey.c_str());
+
+  String calcCommand;
+  String dummy;
+
+  parseGroup(value, calcCommand, dummy);
+  dummy = String(result);
+  if (show) {
+    doprint("CalcCommand = \"%s\"", calcCommand.c_str());
+  }
+  chomp_nvs(calcCommand, dummy.c_str());
+  if (show) doprint("Running \"calc\" with (expanded) command \"%s\"", calcCommand.c_str());
+  analyzeCmds(calcCommand);
+}
+
+void doWhile(String conditionOriginal, String valueOriginal, bool show, String ramKey) {
+bool done = false;  
+  if (show) doprint("Start while(%s)=\"%s\"\r\n", conditionOriginal.c_str(), valueOriginal.c_str());
+  do {
+    String value = valueOriginal;
+    String condition = conditionOriginal;
+    int result = doCalculation(condition, show, ramKey.c_str());
+    done = (0 == result);
+    if (!done) {
+      String whileCommand, dummy;
+      parseGroup(value, whileCommand, dummy);
+      if (show)
+        doprint("while(%d)=\"%s\"", result, whileCommand.c_str());
+      dummy = String(result);
+      chomp_nvs(whileCommand, dummy.c_str());
+      if (show) doprint("Running \"while\" with (expanded) command \"%s\"", whileCommand.c_str());
+      analyzeCmds(whileCommand);
+    }
+  } while (!done);
+}
+
+void doCalcIfWhile(String command, const char *type, String value) {
+String ramKey, cond, dummy;
+const char *s = command.c_str() + strlen(type);
+bool show = *s == 'v';  
+  if (show) 
+    s++;
+  if (*s == '.') {
+    ramKey = String(s + 1);
+    ramKey.trim();  
+  }    
+  if (value.c_str()[0] != '(') {
+    if (show)
+      doprint("No condition/expression found for %s=()", type);
+    return;
+  }
+  parseGroup(value, cond, dummy);
+  switch(*type) {
+    case 'w':
+      doWhile(cond, value, show, ramKey);
+      break;
+    case 'c':
+      doCalc(cond, value, show, ramKey);
+      break;
+    case 'i':
+      doIf(cond, value, show, ramKey);
+      break;
+      
+  }
+}
 
 //**************************************************************************************************
 // Class: RetroRadioInput                                                                          *
@@ -778,6 +886,35 @@ class RetroRadioInputReaderDigital: public RetroRadioInputReader {
     bool _inverted;
 };
 
+class RetroRadioInputReaderRam: public RetroRadioInputReader {
+  public:
+    RetroRadioInputReaderRam(const char *key): _key(NULL) {
+     if (key)
+      if (strlen(key))
+        _key = strdup(key);
+    };
+    ~RetroRadioInputReaderRam() {
+      if (_key)
+        free((void *)_key);
+    }
+    int16_t read() {
+      int16_t res = 0;
+      String resultString;
+      if (_key)
+        resultString = ramgetstr(_key);
+      res = atoi(resultString.c_str());
+      return res;
+    };
+    void mode(int mod) {
+    }
+    String info() {
+       return String("RAM Input, key: ") + (_key?_key:"<null>");
+    }
+
+  private:
+    const char *_key;
+};
+
 
 class RetroRadioInputReaderAnalog: public RetroRadioInputReader {
   public:
@@ -1012,7 +1149,9 @@ void RetroRadioInput::setReader(String value) {
 */
     case 't': reader = new RetroRadioInputReaderTouch(idx, _mode);
               break;
-    case '.': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
+    case '.': reader = new RetroRadioInputReaderRam(value.c_str() + 1);
+              break;
+    case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
               break;
   }
   if (reader) {
@@ -1209,7 +1348,9 @@ int RetroRadioInput::read(bool doStart) {
       }
       
       String commands = ramsearch(cmnds)?ramgetstr(cmnds):nvsgetstr(cmnds);//nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
+      Serial.printf("OnChangeCommand before chomp: %s\r\n", commands.c_str());
       chomp_nvs(commands, String(x).c_str());
+      Serial.printf("OnChangeCommand after chomp: %s\r\n", commands.c_str());
       analyzeCmds ( commands );
     }
     if (x == 0) {                   // went to 0
