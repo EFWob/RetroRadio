@@ -9,6 +9,27 @@
 	- if you want ETHERNET, add _setupRR ( SETUP_NET );_ after the line _WiFi.disconnect()_ before the code to setup WiFi. Check
 	  the flag _NetworkFound_ and only execute the command block starting with _WiFi.mode ( WIFI_STA ) ;_ up to the line _NetworkFound = connectwifi() ;_
 	  only if this flag is false after calling _setupRR ( SETUP_NET );_
+```
+  WiFi.disconnect() ;                                    // After restart router could still
+#if defined(RETRORADIO)
+  setupRR ( SETUP_NET );
+  if (!NetworkFound) 
+#endif
+
+    { 
+    WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
+    delay ( 500 ) ;                                        // ??
+    WiFi.persistent ( false ) ;                            // Do not save SSID and password
+    listNetworks() ;                                       // Find WiFi networks
+    tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
+                               NAME ) ;
+    p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
+    tftlog ( p ) ;                                         // On TFT too
+    NetworkFound = connectwifi() ;                         // Connect to WiFi network
+    }
+
+  dbgprint ( "Start server for commands" ) ;
+```
 	- _setupRR ( SETUP_DONE );_ near the end of the _setup()_-function, but before "Playtask" and "Spftask" are created (_xTaskCreatePinnedToCore ( 
 	   playtask ,...)_
 - in _loop()_, add _loopRR()_ at any location.
