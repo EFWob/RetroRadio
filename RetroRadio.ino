@@ -1,8 +1,3 @@
-#define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
-                    // Set to 1 to compile with Ethernet support
-                    // Set to 2 to compile with Ethernet depending on board setting
-                    //      (works for Olimex POE and most likely Olimex POE ISO)
-#define RETRORADIO
 
 //***************************************************************************************************
 //*  ESP32_Radio -- Webradio receiver for ESP32, VS1053 MP3 module and optional display.            *
@@ -204,34 +199,21 @@
 #include <base64.h>
 
 
-#if !defined(ETHERNET) || !defined(RETRORADIO)
-#define ETHERNET 0
-#endif
-
-#if (ETHERNET == 2) && (defined(ARDUINO_ESP32_POE) || defined(ARDUINO_ESP32_POE_ISO))
-#define ETHERNET 1
-#else 
-#define ETHERNET 0
-#endif
-
-
-#if (ETHERNET == 1)
-#include <ETH.h>
-#define ETHERNET_CONNECT_TIMEOUT      5 // How long to wait for ethernet (at least)?
-#endif
 
 // Number of entries in the queue
 #define QSIZ 400
+#if !defined(RETRORADIO)
 // Debug buffer size
 #define DEBUG_BUFFER_SIZE 150
 #define NVSBUFSIZE 150
+#endif
 // Access point name if connection to WiFi network fails.  Also the hostname for WiFi and OTA.
 // Note that the password of an AP must be at least as long as 8 characters.
 // Also used for other naming.
 #define NAME "NetzRadio"
-#if defined(RETRORADIO)
+
 #include "ARetroRadioExtension.h"
-#endif
+
 
 // Max number of presets in preferences
 #define MAXPRESETS 200
@@ -298,28 +280,6 @@ uint32_t    ssconv ( const uint8_t* bytes ) ;
 //**************************************************************************************************
 //
 
-
-enum IR_protocol { IR_NONE = 0, IR_NEC, IR_RC5 } ;      // Known IR-Protocols
-
-enum RC5State 
-{
-      RC5STATE_START1, 
-      RC5STATE_MID1, 
-      RC5STATE_MID0, 
-      RC5STATE_START0, 
-      RC5STATE_ERROR, 
-      RC5STATE_BEGIN, 
-      RC5STATE_END
-} ;
-
-struct IR_data 
-{
-   uint16_t command ;                                 // Command received
-   uint16_t exitcommand ;                             // Last command, key released, release event due
-   uint32_t exittimeout ;                             // Start for exittimeout
-   uint16_t repeat_counter ;                          // Repeat counter
-   IR_protocol protocol ;                             // Protocol of command (set to IR_NONE to report to ISR as consumed)
-} ;
 
 enum fs_type { FS_USB, FS_SD } ;                      // USB- or SD interface
 
@@ -506,7 +466,6 @@ int               chunkcount = 0 ;                       // Counter for chunked 
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
 bool              http_response_flag = false ;           // Response required
-volatile IR_data  ir = { 0, 0, 0, 0, IR_NONE } ;         // IR data received
 //uint32_t          ir_value = 0 ;                         // IR code
 //volatile uint32_t ir_repeatcode = 0;                     // Code to report, if repeat shot has been detected
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
@@ -1891,7 +1850,7 @@ void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
 // Input is complete after 65 level changes.                                                       *
 // Only the last 32 level changes are significant and will be handed over to common data.          *
 //**************************************************************************************************
-void decoder_IRNEC ( uint32_t intval, uint32_t t0 ) 
+void IRAM_ATTR decoder_IRNEC ( uint32_t intval, uint32_t t0 ) 
 {
 
   sv uint32_t      ir_locvalue = 0 ;                 // IR code
@@ -2948,9 +2907,9 @@ void readprogbuttons()
       {
         if ( !progpin[i].reserved )                         // Do not use reserved pins
         {
-#if defined(RETRORADIO)
+#if defined(RETRORADIONOO)
           char s[200];
-          retroRadioInit();
+//          retroRadioInit();
 //          sprintf(s, "ram=_gpio_%02dev_=%s", i, val.c_str());
 //          Serial.printf("GpioEventRedirect: %s\r\n", s);
 //          analyzeCmd(s);
@@ -2979,9 +2938,9 @@ void readprogbuttons()
       {
         if ( !touchpin[i].reserved )                        // Do not use reserved pins
         {
-#if defined(RETRORADIO)
+#if defined(RETRORADIONOO)
           char s[200];
-          retroRadioInit();
+//          retroRadioInit();
 //          sprintf(s, "ram=_touch_%02dev_=%s", i, val.c_str());
 //          Serial.printf("TouchEventRedirect: %s\r\n", s);
 //          analyzeCmd(s);
@@ -3066,8 +3025,8 @@ void readIOprefs()
   };
   struct iosetting klist[] = {                            // List of I/O related keys
     { "pin_ir",        &ini_block.ir_pin,           -1 },
-    { "pin_ir_nec",    &ini_block.ir_pin_nec,       -1 },
-    { "pin_ir_rc5",    &ini_block.ir_pin_rc5,       -1 },
+//    { "pin_ir_nec",    &ini_block.ir_pin_nec,       -1 },
+//    { "pin_ir_rc5",    &ini_block.ir_pin_rc5,       -1 },
     { "pin_enc_clk",   &ini_block.enc_clk_pin,      -1 },
     { "pin_enc_dt",    &ini_block.enc_dt_pin,       -1 },
     { "pin_enc_sw",    &ini_block.enc_sw_pin,       -1 },
@@ -3411,7 +3370,6 @@ void scanserial2()
 //**************************************************************************************************
 void  scandigital()
 {
-#if !defined(RETRORADIO)
   static uint32_t oldmillis = 5000 ;                        // To compare with current time
   int             i ;                                       // Loop control
   int8_t          pinnr ;                                   // Pin number to check
@@ -3478,7 +3436,6 @@ void  scandigital()
       }
     }
   }
-#endif
 }
 
 //**************************************************************************************************
@@ -3570,6 +3527,9 @@ void scanIR()
 //  uint16_t    repeat_count ;                                // Will be increased by every repeated
                                                             // call to scanIR() until the key is released.
                                                             // Zero on first detection
+
+  if ( ini_block.ir_pin < 0)
+    return;
 
   if ( ir.exitcommand != 0 )                                // Key release detected?
   {
@@ -3940,6 +3900,8 @@ void setup()
 #if defined ( NEXTION )
   dbgprint ( dtyp, "NEXTION" ) ;
 #endif
+
+  
   maintask = xTaskGetCurrentTaskHandle() ;               // My taskhandle
   SPIsem = xSemaphoreCreateMutex(); ;                    // Semaphore for SPI bus
   pi = esp_partition_find ( ESP_PARTITION_TYPE_DATA,     // Get partition iterator for
@@ -3968,10 +3930,6 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
-#if defined(RETRORADIO)
-  ini_block.vol_min = 0;
-  ini_block.vol_max = 100;
-#endif
 
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
@@ -3990,6 +3948,14 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
+
+#if defined(RETRORADIO)
+  ini_block.vol_min = 0;
+  ini_block.vol_max = 100;
+
+  setupRR ( SETUP_START );
+#endif
+
   readprogbuttons() ;                                    // Program the free input pins
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
@@ -4001,30 +3967,13 @@ void setup()
                               ini_block.vs_shutdownx_pin ) ;
   if ( ini_block.ir_pin >= 0 )
   {
-    dbgprint ( "Enable pin %d for IR (NEC and RC5)",
+    dbgprint ( "Enable pin %d for IR (NEC and RC5) !!!!OLD!!!!",
                ini_block.ir_pin ) ;
     pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
     attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
                       isr_IR, CHANGE ) ;
   }
-  if ( ini_block.ir_pin_nec >= 0 )
-  {
-    ini_block.ir_pin = ini_block.ir_pin_nec ;            // ISR reads the pin. So decision which pin to read does not arise in ISR.
-    dbgprint ( "Enable pin %d for IR (NEC)",
-               ini_block.ir_pin ) ;
-    pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
-    attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
-                      isr_IRNEC, CHANGE ) ;
-  }
-  if ( ini_block.ir_pin_rc5 >= 0 )
-  {
-    ini_block.ir_pin = ini_block.ir_pin_rc5 ;            // ISR reads the pin. So decision which pin to read does not arise in ISR.
-    dbgprint ( "Enable pin %d for IR (RC5)",
-               ini_block.ir_pin ) ;
-    pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
-    attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
-                      isr_IRRC5, CHANGE ) ;
-  }
+
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
@@ -4061,26 +4010,23 @@ void setup()
   WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
   WiFi.disconnect() ;                                    // After restart router could still
-#if (ETHERNET==1)
-  adc_power_on();                                        // Workaround to allow GPIO36/39 as IR-Input
-  NetworkFound = connecteth();                           // Try ethernet
-  if (NetworkFound) {                                    // Ethernet success??
-    WiFi.mode(WIFI_OFF);
-  }
-#else
-  delay ( 500 ) ;                                        // keep old connection
+
+#if defined(RETRORADIO)
+  setupRR ( SETUP_NET );
+  if (!NetworkFound) 
 #endif
-  if (!NetworkFound) {  
-    //WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
-    //delay ( 500 ) ;                                        // ??
-    //WiFi.persistent ( false ) ;                            // Do not save SSID and password
+
+    { 
+    WiFi.mode ( WIFI_STA ) ;                               // This ESP is a station
+    delay ( 500 ) ;                                        // ??
+    WiFi.persistent ( false ) ;                            // Do not save SSID and password
     listNetworks() ;                                       // Find WiFi networks
     tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                NAME ) ;
     p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
     tftlog ( p ) ;                                         // On TFT too
     NetworkFound = connectwifi() ;                         // Connect to WiFi network
-  }
+    }
 
   dbgprint ( "Start server for commands" ) ;
   cmdserver.begin() ;                                    // Start http server
@@ -4158,6 +4104,11 @@ void setup()
                    dsp_getwidth(),
                    dsp_getheight() - 8, BLACK ) ;
   }
+
+#if defined(RETRORADIO)
+  setupRR ( SETUP_DONE );
+#endif
+
   outchunk.datatyp = QDATA ;                              // This chunk dedicated to QDATA
   adc1_config_width ( ADC_WIDTH_12Bit ) ;
   adc1_config_channel_atten ( ADC1_CHANNEL_0, ADC_ATTEN_0db ) ;
@@ -4166,7 +4117,7 @@ void setup()
   xTaskCreatePinnedToCore (
     playtask,                                             // Task to play data in dataqueue.
     "Playtask",                                           // name of task.
-    1600,                                                 // Stack size of task
+    2 * 1600,                                                 // Stack size of task
     NULL,                                                 // parameter of the task
     2,                                                    // priority of the task
     &xplaytask,                                           // Task handle to keep track of created task
@@ -4174,7 +4125,7 @@ void setup()
   xTaskCreate (
     spftask,                                              // Task to handle special functions.
     "Spftask",                                            // name of task.
-    2048,                                                 // Stack size of task
+    2 * 2048,                                                 // Stack size of task
     NULL,                                                 // parameter of the task
     1,                                                    // priority of the task
     &xspftask ) ;                                         // Task handle to keep track of created task
@@ -4610,8 +4561,8 @@ void handleSaveReq()
     return ;
   }
   savetime = millis() ;                                   // Set time of last save
-  //nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
-  //nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
+  nvssetstr ( "preset", String ( currentpreset )  ) ;     // Save current preset
+  nvssetstr ( "volume", String ( ini_block.reqvol ) );    // Save current volue
   nvssetstr ( "toneha", String ( ini_block.rtone[0] ) ) ; // Save current toneha
   nvssetstr ( "tonehf", String ( ini_block.rtone[1] ) ) ; // Save current tonehf
   nvssetstr ( "tonela", String ( ini_block.rtone[2] ) ) ; // Save current tonela
@@ -5115,11 +5066,10 @@ void loop()
   handleIpPub() ;                                   // See if time to publish IP
   handleVolPub() ;                                  // See if time to publish volume
 #if defined RETRORADIO
-  loopRetroRadio();
-#else
+  loopRR();
+#endif
   chk_enc() ;                                       // Check rotary encoder functions
   check_CH376() ;                                   // Check Flashdrive insert/remove
-#endif
 }
 
 
@@ -5685,25 +5635,41 @@ void chomp_nvs ( String &str , const char* substitute)
     */
   }
   chomp ( str ) ;                                     // Normal chomp first
-  if (str.c_str()[0] == '@' )                         // Reference to RAM or NVS-Key?
-  {
+  char first = str.c_str()[0];
+  if (first == '@' )                         // Reference to RAM or NVS-Key?
+    {
     if ( ramsearch (str.c_str() + 1 ) ) 
-    { 
+      { 
       //Serial.printf("NVS Search success for key: %s\r\n", str.c_str() + 1);
       str = ramgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
-    } 
+      } 
 
     else if ( nvssearch (str.c_str() + 1 ) ) 
-    { 
+      { 
       //Serial.printf("NVS Search success for key: %s, result =", str.c_str() + 1);
       str = nvsgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
       //Serial.println(str);
+      }
+      else
+        str = "";   
+    } 
+  else if (first == '~' )                         // Reference to System Variable?
+    {
+      str = String(readSysVariable(str.c_str() + 1));
     }
-    else
-      str = "";   
-  }
+   else if (first == '.' )                         // Reference to RAM?
+    {
+      str = ramgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    }
+   else if (first == '%' )                         // Reference to NVS?
+    {
+      str = nvsgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    }
+
 }
 #endif
 
@@ -5764,9 +5730,26 @@ const char* analyzeCmd ( const char* str )
 {
   char*        value ;                           // Points to value after equalsign in command
   const char*  res ;                             // Result of analyzeCmd
-
+#if defined(RETRORADIO)
+  int nesting = 0;
+  value = (char *)str;
+  //dbgprint("looking for parameter for command %s\r\n", str);
+  while (*value) {
+    if (*value == '(')
+      nesting++;
+    else if (*value == ')') {
+      if (nesting)
+        nesting--;
+    } else if (*value == '=')
+      if (0 == nesting)
+        break;
+    value++;
+  }
+  if (*value)
+#else
   value = strstr ( str, "=" ) ;                  // See if command contains a "="
   if ( value )
+#endif  
   {
     *value = '\0' ;                              // Separate command from value
     res = analyzeCmd ( str, value + 1 ) ;        // Analyze command and handle it
@@ -5843,10 +5826,16 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   argument.toLowerCase() ;                            // Force to lower case
   value = String ( val ) ;                            // Get the specified value
+/*
 #if defined(RETRORADIO)
   chomp_nvs ( value ) ;                               // Remove comment and extra spaces
 #else
   chomp ( value );
+#endif  
+*/
+#if defined(RETRORADIO)
+  if (analyzeCmdRR(reply, argument, value))
+    return reply;
 #endif  
   ivalue = value.toInt() ;                            // Also as an integer
   ivalue = abs ( ivalue ) ;                           // Make positive
@@ -6314,6 +6303,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   } else if (argument.startsWith("in.")) {
     doInput(argument.substring(3), value);
   } else if (argument.startsWith("if")) {
+    //Serial.println("About to enter CalcIfWhile");
     doCalcIfWhile(argument, "if", value);//doIf(value, argument.c_str()[2] == 'v');
   } else if (argument.startsWith("calc")) {
     doCalcIfWhile(argument, "calc", value);//doCalc(value, argument.c_str()[4] == 'v');

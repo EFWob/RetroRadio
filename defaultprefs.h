@@ -14,40 +14,46 @@ $equalizermax = 3
 #
 $tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..445=8) (460..590=9)
 #
-$user1 = channels=@$channels_fm;ram.channel=1;execute=:tunech;volume=70;ram.$eq_idx=0;in.vol=on0=
-$user2 = channels=@$channels_am;ram.channel=0;in.vol=start;in.tune=start;ram.$eq_idx=1;in.vol=on0=:chan_any
+$user1 = channels=@$channels_fm;ram.channel=1;ram.vol=70;ram.$eq_idx=0;in.vol=on0=
+$user2 = channels=@$channels_am;ram.channel=0;in.vol=start;in.tune=start;ram.$eq_idx=1;in.vol=on0=:volchan_any
 #
 $volmap = (100..4095=50..100)(=0)
 #
-::start = execute=::sthmi;execute=::stsys;execute=$user1
-::steq = ram.$eq_idx = 1;in.equalizer=src=.$eq_idx,start,onchange=:eq_set
-::sthmi = execute=::stswitch;execute=::stvol;execute=::sttune;execute=::steq
-::stswitch = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,event=:switch
-::stsys = in.channels = src=~channels;in.channel = src=~channel
-::sttune = in.tune = src=t9,map=@$tunemap,start,event = :tune;in.chantune = src=.channel,onchange=:tunech,start
-::stvol = in.vol = src=a39,map=@$volmap,delta=2,start,event=:vol,on0=:chan_any
+::loop0 = if(@channel > 0) = {if(@hmilock & 1) = {ram-=channel}{in.channels=ram=chs};if(@channel > 0) = {if(@channel > @chs) = {ram-=channel}}};if(@channel > 0) = {execute=:chan_tune};ram-=channel
+::loop1 = if(@vol >= 0) = {if(@hmilock & 2) = {}{volume=@vol}};ram.vol=-1
+::setup0 = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,event=:switch
+::setup1 = in.vol = src=a39,map=@$volmap,delta=2,start,event=:vol
+::setup2 = in.tune = src=t9,map=@$tunemap,start,event = :tune;#in.chantune =
+::setup3 = ram.$eq_idx = 1;in.equalizer=src=.$eq_idx,start,onchange=:eq_set
+::setup4 = in.channels = src=~channels;in.channel = src=~channel
+::setup5 = execute=$user1
+::setup6 = execute=:chan_tune
 #
-:chan_any = in.channels=ram=chs;ifv=(@chs > 1){in.channel=ram=ch;ram.x=@ch;whilev=(@x == @ch){calcv.x=(1><@chs)};ram.channel=@x }
+:chan_any = ifv(~channels > 1)={ram.x=~channel;whilev(@x == ~channel)={calcv.x(1><~channels)};ram.channel=@x }
+:chan_any_old = in.channels=ram=chs;ifv(@chs > 1)={in.channel=ram=ch;ram.x=@ch;whilev(@x == @ch)={calcv.x(1><@chs)};ram.channel=@x }
+:chan_any_v = if(@hmilock & 2) = {}{execute=:chan_any}
+:chan_tune = if(@channel) = {channel=?};ram- = channel;
 #
-:eq_down = if = (@$eq_idx > 0){@:eq_idx--}{ram.$eq_idx = 0}
-:eq_downwrap = execute = :eq_idx--;if = (@$eq_idx < 0){ram.$eq_idx = @$equalizermax}
-:eq_idx++ = calc.$eq_idx =(@$eq_idx + 1)
-:eq_idx-- = calc.$eq_idx =(@$eq_idx - 1)
+:eq_down = if(@$eq_idx > 0)={@:eq_idx--}{ram.$eq_idx = 0}
+:eq_downwrap = execute = :eq_idx--;if(@$eq_idx < 0) = {ram.$eq_idx = @$equalizermax}
+:eq_idx++ = calc.$eq_idx(@$eq_idx + 1)
+:eq_idx-- = calc.$eq_idx(@$eq_idx - 1)
 :eq_set = @$equalizer?
-:eq_up = if = (@$eq_idx < @$equalizermax){@:eq_idx++}{ram.$eq_idx = @$equalizermax}
-:eq_upwrap = if = (@$eq_idx < @$equalizermax){@:eq_idx++}{ram=$eq_idx = 0}
+:eq_up = if(@$eq_idx < @$equalizermax) = {@:eq_idx++}{ram.$eq_idx = @$equalizermax}
+:eq_upwrap = if(@$eq_idx < @$equalizermax)= {@:eq_idx++}{ram=$eq_idx = 0}
 #
+:setpreset = if(@hmilock & 1) = {}{preset = @pres}
 :switch = @$user?
 #
-:tune = ram.channel=?
-:tunech = in.channels=ram=chs;if=(@chs > 0){in.channel=ram=ch;if=(@channel <= @chs){if=(@channel > 0){channel=@channel}}}
+:tune = ram.channel = ?
 #
-:vol = volume=?
+:vol = ram.vol=?
+:volchan_any = ifv(@hmilock & 2)={}{execute=:chan_any}
 #
 eth_clk_mode = 3
 eth_phy_power = 12
 #
-gpio_33 = channel = any
+gpio_33 = @:chan_any
 #
 ir_02FD = @$user2 # (>>|)
 ir_10EF = ram.channel = 4 # (4)
@@ -62,11 +68,11 @@ ir_52AD = ram.channel = 9 # (9)
 ir_5AA5 = ram.channel = 6 # (6)
 ir_629D = @:chan_any    #(CH)
 ir_629DR22 = @:chan_any #(CH) longpressed
-ir_6897 = preset = 1      # (0)
+ir_6897 = ram.pres = 1;execute=:setpreset      # (0)
 ir_7A85 = ram.channel = 3 # (3)
 ir_906F = @:eq_upwrap      #(EQ)
 ir_906FR10 = @:eq_upwrap   #(EQ) (longpressed)
-ir_9867 = preset = 11      #(100+)
+ir_9867 = ram.pres = 11;execute=:setpreset      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
 ir_A857r = upvolume = 1     #(+) repeat
@@ -89,6 +95,7 @@ pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
 pin_vs_dcs = 16       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
+preset = 10
 preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
 preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
 preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
@@ -137,11 +144,12 @@ preset_45 = relay.publicdomainproject.org:80/jazz_swing.mp3 #  Swissradio Jazz &
 preset_46 = 212.77.178.166:80                        #  Radio Heimatmelodie
 preset_47 = stream.srg-ssr.ch/m/drsmw/mp3_128        #   SRF Musikwelle
 #
-toneha = 7
-tonehf = 4
-tonela = 8
-tonelf = 14
+toneha = 5
+tonehf = 3
+tonela = 15
+tonelf = 12
 #
+volume = 70
 volume_min = 50
 volume_zero = 1
 #

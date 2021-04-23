@@ -1,9 +1,74 @@
 #ifndef RETRORADIOEXTENSION_H__
 #define RETRORADIOEXTENSION_H__
+#define RETRORADIO
+#define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
+                    // Set to 1 to compile with Ethernet support
+                    // Set to 2 to compile with Ethernet depending on board setting
+                    //      (works for Olimex POE and most likely Olimex POE ISO)
+#define SETUP_START 0
+#define SETUP_NET 1
+#define SETUP_DONE 2
+
+#define DEBUG_BUFFER_SIZE 500
+#define NVSBUFSIZE 500
+
+//extern void retroRadioInit();
+extern void setupRR(uint8_t setupLevel);
+extern void loopRR();
+extern bool analyzeCmdRR(char* reply, String& param, String& value);
+extern void analyzeCmdDoneRR (char* reply, String& argument, String& value );
+//to be removed later
+int readSysVariable(const char *n);
+//end to be removed later
+
 #if defined(RETRORADIO) 
 #include <map>
 
-extern void retroRadioInit();
+#if !defined(ETHERNET)
+#define ETHERNET 0
+#endif
+
+#if (ETHERNET == 2) && (defined(ARDUINO_ESP32_POE) || defined(ARDUINO_ESP32_POE_ISO))
+#define ETHERNET 1
+#else 
+#define ETHERNET 0
+#endif
+
+
+#if (ETHERNET == 1)
+#include <ETH.h>
+#define ETHERNET_CONNECT_TIMEOUT      5 // How long to wait for ethernet (at least)?
+#endif
+
+
+
+enum IR_protocol { IR_NONE = 0, IR_NEC, IR_RC5 } ;      // Known IR-Protocols
+
+enum RC5State 
+{
+      RC5STATE_START1, 
+      RC5STATE_MID1, 
+      RC5STATE_MID0, 
+      RC5STATE_START0, 
+      RC5STATE_ERROR, 
+      RC5STATE_BEGIN, 
+      RC5STATE_END
+} ;
+
+struct IR_data 
+{
+   uint16_t command ;                                 // Command received
+   uint16_t exitcommand ;                             // Last command, key released, release event due
+   uint32_t exittimeout ;                             // Start for exittimeout
+   uint16_t repeat_counter ;                          // Repeat counter
+   IR_protocol protocol ;                             // Protocol of command (set to IR_NONE to report to ISR as consumed)
+} ;
+
+
+extern volatile IR_data  ir;                          // IR data received
+
+
+
 extern String getStringPart(String& value, char delim = ';');
 extern bool getPairInt16(String& value, int16_t& x1, int16_t& x2,bool duplicate = false, char delim = ',');
 extern void executeCmds(String commands);//, String value = "");
