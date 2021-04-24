@@ -5461,6 +5461,9 @@ void chomp_nvs ( String &str , const char* substitute)
 //**************************************************************************************************
 const char* analyzeCmd ( const char* str )
 {
+#if defined(RETRORADIO)
+  return analyzeCmdsRR ( String( str ) ) ;
+#endif  
   char*        value ;                           // Points to value after equalsign in command
   const char*  res ;                             // Result of analyzeCmd
 #if defined(RETRORADIO)
@@ -5597,57 +5600,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "Command: %s (without parameter)",
                argument.c_str() ) ;
   }
-#if defined(RETRORADIODDDDDDDD)
-  if (argument == "execute") {    
-/*    Serial.println("Running Execute!");Serial.flush();
-   dbgprint ( "Command: %s with parameter %s",
-               argument.c_str(), tmpstr.c_str() ) ;
-    Serial.println("Next Showing tmpstr!?");Serial.flush();
-    Serial.printf("tmpstr.length()=%d\r\n", tmpstr.length());Serial.flush();
-    Serial.printf("Tmpstr = \"%s\"\r\n", tmpstr.c_str());Serial.flush();
-    Serial.println("Next Showing Value!?");Serial.flush();
-    Serial.printf("Value.length()=%d\r\n", value.length());Serial.flush();
-    Serial.printf("Value = \"%s\"\r\n", value.c_str());Serial.flush();
-    chomp(value);
-    Serial.printf("ChompedValue = \"%s\"\r\n", value.c_str());Serial.flush();
-    value.toLowerCase();
-    Serial.printf("lowercaseValue = \"%s\"\r\n", value.c_str());Serial.flush();
-    Serial.printf("Execute command from nvs[\"%s\"]=%s\r\n", value.c_str(), nvsgetstr(value.c_str()).c_str());
 
-    chomp(value);
-    analyzeCmds(nvssearch(value.c_str())?nvsgetstr(value.c_str()):ramgetstr(value.c_str()));  
-*/
-    static int execRec = 0;
-    if (execRec)
-      Serial.printf("Running Execute recursion=%d\r\n", execRec);
-    Serial.flush();
-    execRec++;
-    chomp_nvs(value);
-    analyzeCmdsRR ( ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) );  
-    execRec--;
-  } else if ((argument == "ramlist") || (argument == "nvslist")) {
-    const char* p = NULL;
-    value.toLowerCase();
-    chomp(value);
-    if (value  != "0")
-      p = value.c_str();
-    if (argument.c_str()[0] == 'r')
-      doRamlist(p);
-    else
-      doNvslist(p);
-  }else if (argument == "inlist")  {
-    const char* p = NULL;
-    value.toLowerCase();
-    chomp(value);
-    if (value != "0")
-      p = value.c_str();
-    Serial.printf("inlist found with value'%s', length=%d, resulting p=%ld\r\n", value.c_str(), value.length(), p);
-    doInlist(p);
-  } 
-  
-  else 
-#endif    // RETRORADIO  
-  
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting

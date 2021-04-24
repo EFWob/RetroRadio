@@ -2700,9 +2700,21 @@ bool analyzeCmdRR(char* reply, String& param, String& value) {
   {
     doChannel (value, atoi ( value.c_str() ) );
   }
-  if ( ret )
+  if ( ret ) 
+  {
+    if ( value.length() )
+    {
+      dbgprint ( "Command: %s with parameter %s",
+               param.c_str(), value.c_str() ) ;
+    }
+    else
+    {
+      dbgprint ( "Command: %s (without parameter)",
+               param.c_str() ) ;
+    }    
     if ( strlen ( reply ) == 0 ) 
       strcpy ( reply, "OK from RetroRadio" ) ;
+  }
   return ret;
 }
 
@@ -2746,11 +2758,37 @@ const char* analyzeCmdsRR ( String commands )
         *next = 0 ;
         next++ ;
       }
-      analyzeCmd ( s ) ;
+      //analyzeCmd ( s ) ;
+      nesting = 0;
+      char *value = (char *)s;
+      //dbgprint("looking for parameter for command %s\r\n", str);
+      while (*value) 
+        {
+        if (*value == '(')
+          nesting++;
+        else if (*value == ')') {
+          if (nesting)
+            nesting--;
+          } else if (*value == '=')
+            if (0 == nesting)
+              break;
+        value++;
+        }
+      if (*value)
+        {
+          *value = '\0' ;                              // Separate command from value
+          snprintf ( reply, sizeof ( reply ), analyzeCmd ( s, value + 1 )) ;        // Analyze command and handle it
+          *value = '=' ;                               // Restore equal sign
+        }
+      else
+        {
+          snprintf ( reply, sizeof ( reply ), analyzeCmd ( s, "0" )) ;              // No value, assume zero
+        }
       commands_executed++ ;
       s = next ;
     }
-    snprintf ( reply, sizeof ( reply ), "Executed %d command(s) from sequence %s", commands_executed, cmds ) ;
+    if (commands_executed > 1)
+      snprintf ( reply, sizeof ( reply ), "Executed %d command(s) from sequence %s", commands_executed, cmds ) ;
     free ( cmds ) ;
   }
   return reply ;
