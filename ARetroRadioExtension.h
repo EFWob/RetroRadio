@@ -17,6 +17,7 @@ extern void setupRR(uint8_t setupLevel);
 extern void loopRR();
 extern bool analyzeCmdRR(char* reply, String& param, String& value);
 extern void analyzeCmdDoneRR (char* reply, String& argument, String& value );
+extern const char* analyzeCmdsRR ( String commands );
 //to be removed later
 int readSysVariable(const char *n);
 //end to be removed later

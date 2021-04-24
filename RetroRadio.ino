@@ -252,7 +252,6 @@ void        handlebyte_ch ( uint8_t b ) ;
 void        handleFSf ( const String& pagename ) ;
 void        handleCmd()  ;
 char*       dbgprint( const char* format, ... ) ;
-const char* analyzeCmds ( String s ) ;
 const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void        chomp ( String &str ) ;
@@ -450,9 +449,6 @@ bool              resetreq = false ;                     // Request to reset the
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
                                                          // Or Ethernet connected. To distinguish use next flag
-#if (ETHERNET == 1)
-bool              EthernetFound = false ;                // True if Ethernet connected
-#endif
 bool              mqtt_on = false ;                      // MQTT in use
 String            networks ;                             // Found networks in the surrounding
 uint16_t          mqttcount = 0 ;                        // Counter MAXMQTTCONNECTS
@@ -466,8 +462,7 @@ int               chunkcount = 0 ;                       // Counter for chunked 
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
 bool              http_response_flag = false ;           // Response required
-//uint32_t          ir_value = 0 ;                         // IR code
-//volatile uint32_t ir_repeatcode = 0;                     // Code to report, if repeat shot has been detected
+uint16_t          ir_value = 0 ;                         // IR code
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
 uint32_t          ir_1 = 1650 ;                          // Average duration of an IR long pulse
 struct tm         timeinfo ;                             // Will be filled by NTP server
@@ -2430,115 +2425,7 @@ uint32_t ssconv ( const uint8_t* bytes )
 }
 
 
-#if (ETHERNET==1)
 
-
-//**************************************************************************************************
-//                                       C O N N E C T E T H                                       *
-//**************************************************************************************************
-// Connecting to ETHERNET.                                                                         *
-// This function waits for a defined period (should be at least 5 seconds in my experience) for    *
-// ethernet ip                                                                                     *
-// Returns true if we got IP from ethernet within time.                                            *
-// Problem with ethernet-stack: once started, it can not be stopped again (i. e. if not plugged in)*
-// As a result of running still in background, WiFi will become to slow. Therefore (if not connect *
-// possible within set timeout), a flag is set in NVS and a reset is forced. This flag will be     *
-// evaluated and if set no connect attempt is made but should be left to WiFi.                     *
-//**************************************************************************************************
-bool connecteth() {
-uint32_t myStartTime = millis();
-uint32_t ethTimeout = ETHERNET_CONNECT_TIMEOUT * 1000;
-  if (nvssearch("eth_timeout"))                                   // Ethernet timeout in preferences?
-  {
-    String val = String(nvsgetstr ("eth_timeout"));               // De-reference to another NVS-Entry?
-#if defined(RETRORADIO)
-    chomp_nvs(val);                                               // remove anything unnecessary
-#else
-    chomp(val);
-#endif
-    if (val == "0")                                               // Explicitely set to Zero?
-    {
-      dbgprint ( "Ethernet disabled in preferences "              // Tell it
-                 "(""eth_timeout = 0"" found)" );
-      return false;                                               // And do not not attempt
-    }
-    ethTimeout = val.toInt();                                     // convert to integer
-    if (ethTimeout < ETHERNET_CONNECT_TIMEOUT)
-      ethTimeout = ETHERNET_CONNECT_TIMEOUT; 
-    else if (ethTimeout > 2 * ETHERNET_CONNECT_TIMEOUT)
-    {
-      dbgprint ("eth_timeout set to %d (seconds) in preferences. This will cause a long delay if ethernet fails/is not connected!", ethTimeout);
-    }
-    ethTimeout *= 1000;
-  }
-  WiFi.disconnect(true);                                          // Make sure old connections are stopped
-  myStartTime = millis();
-  WiFi.onEvent(ethevent);                                         // Event handler to catch connect status
-  if (ETH.begin(ini_block.eth_phy_addr, ini_block.eth_phy_power, ini_block.eth_phy_mdc, 
-                ini_block.eth_phy_mdio, 
-                (eth_phy_type_t)ini_block.eth_phy_type, 
-                (eth_clock_mode_t)ini_block.eth_clk_mode))
-    while (!EthernetFound && (millis() - myStartTime < ethTimeout))
-      delay(5);                                                     // wait for ethernet to succeed (or timeout)
-  WiFi.removeEvent(ethevent);                                     // event handler not needed anymore
-  if (!EthernetFound) {                                           // connection failed?
-      dbgprint("Ethernet did not work! Will try WiFi next!");   
-      esp_eth_deinit();                                           // leaving Ethernet stack on would lead to 
-                                                                  // distortions on WiFi
-  }
-  return EthernetFound;
-}
-
-
-//**************************************************************************************************
-//                                         E T H E V E N T                                         *
-//**************************************************************************************************
-// Callback for Ethernet related system events. Main purpose is to set EthernetFound and           *
-// NetworkFound flags.                                                                             *
-//**************************************************************************************************
-
-void ethevent(WiFiEvent_t event)
-{
-  char *pfs;
-  switch (event) {
-    case SYSTEM_EVENT_ETH_START:
-      dbgprint("ETH Started");
-      //set eth hostname here
-      ETH.setHostname(NAME);
-      break;
-    case SYSTEM_EVENT_ETH_CONNECTED:
-      dbgprint("ETH Connected");
-      break;
-    case SYSTEM_EVENT_ETH_GOT_IP:
-      ipaddress = ETH.localIP().toString() ;             // Form IP address
-      pfs = dbgprint ( "Connected to Ethernet");
-      tftlog ( pfs ) ;
-      pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
-      tftlog ( pfs ) ;
-      EthernetFound = true;
-      break;
-    case SYSTEM_EVENT_ETH_DISCONNECTED:
-      pfs = dbgprint("ETH Disconnected");
-      tftlog ( pfs );
-      if (EthernetFound) {
-        EthernetFound = false;
-        NetworkFound = false;
-      }
-      break;
-    case SYSTEM_EVENT_ETH_STOP:
-      pfs = dbgprint("ETH Stopped");
-      tftlog ( pfs );
-      if (EthernetFound) {
-        EthernetFound = false;
-        NetworkFound = false;
-      }
-      break;
-    default:
-      break;
-  }
-}
-
-#endif
 
 //**************************************************************************************************
 //                                       C O N N E C T W I F I                                     *
@@ -3291,7 +3178,7 @@ void scanserial()
           }
         }
 #if defined(RETRORADIO)
-        reply = analyzeCmds ( cmd ) ;             // Analyze command(s) and handle them
+        reply = analyzeCmd ( cmd ) ;             // Analyze command(s) and handle them
 #else
         reply = analyzeCmd ( cmd ) ;             // Analyze command and handle it
 #endif
@@ -3438,80 +3325,6 @@ void  scandigital()
   }
 }
 
-//**************************************************************************************************
-//                             E X E C U T E _ I R _ C O M M A N D                                 *
-//**************************************************************************************************
-// Searches NVS-Keys for specific IR command(s) and executes command(s) if found                   *
-// The keycode is taken from ir-data struct.                                                       *  
-//    if type == "", ir_XXXX commands will be searched for (key pressed)                           *
-//    if type == "r", in order ir_XXXXRY, ir_XXXXrY and ir_XXXXr commands will be searched for (in *
-//    that order) and the commands stored for first found key will be executed (key hold)          *
-//    if type == "x", irXXXXx commands will be searched for (key released)                         *
-//    for any other type content, type is assumed to already contain the nvs-searchkey             *
-//  Returns true if any commands have been found (and executed)                                    * 
-//  If verbose is set to "true", will also report if no entry has been found in NVS                *
-//**************************************************************************************************
-
-bool execute_ir_command ( String type, bool verbose=true ) 
-{
-  char *protocol_names[] = {"", " (NEC)", " (RC5)"} ;           // Known IR protocol names
-  bool ret = false;
-  char mykey[20];
-  bool done = false;                                            // If more than one possible key results, set to 
-                                                                // true if one of those keys already "fired"
-  strcpy(mykey, type.c_str());                                  // Default: type contains the key already
-  if ( type == "" )                                             // If not
-    sprintf ( mykey, "ir_%04X", ir.command );                   // Generate key for "key pressed"
-  else if ( type == "x" )                                       // Or
-    sprintf ( mykey, "ir_%04Xx", ir.exitcommand );              // Generate key for "key released"
-  else if ( type == "r" ) {                                     // Or 
-    done = true;                                                // Generate and already execute sequence of "repeat" events
-    sprintf ( mykey, "ir_%04XR%d",                              // First check, if there is a cyclic command sequence defined
-          ir.command, ir.repeat_counter );
-    ret = execute_ir_command ( String(mykey) );                 // did we have a cyclic sequence?
-    if (ret)                                                    // if so
-    {
-      ir.repeat_counter = 0;                                    // Reset repeat counter
-    }
-    else                                                        // no cyclic sequence found
-    {
-      sprintf ( mykey, "ir_%04Xr%d",                            // Do we have a "longpress" with precise current repeat counter?
-              ir.command, ir.repeat_counter );
-      ret = execute_ir_command ( String(mykey), false );        // try and execute
-      if (!ret)                                                 // Longpress event key for this precise repeat counter found?
-      {                                                         // If not  
-        sprintf ( mykey, "ir_%04Xr", ir.command );              // Search for "unspecific" longpress event ir_XXXXr
-        ret = execute_ir_command ( String(mykey), false );
-      }
-    }
-  }
-  if (! done )                                                  // Did we already (tried) some key(s) (can be from longpress only)
-  {                                                             // If not, mykey now contains the NVS key to check
-    ret = nvssearch ( mykey ) ;                     
-    if (! ret )                                                 // Key not found?
-    {
-      if ( verbose )                                            // Show info if key not found?
-        dbgprint ( "IR event %s%s received but not found in preferences.",
-          mykey, protocol_names[ir.protocol] ) ;
-    }
-    else 
-    {
-      String val = nvsgetstr ( mykey ) ;                    // Get the contents
-      const char* reply;
-#if defined(RETRORADIO)
-      chomp_nvs ( val );
-#else
-      chomp ( val );
-#endif
-
-      dbgprint ( "IR code for %s%sreceived. Will execute %s",
-               mykey, protocol_names[ir.protocol], val.c_str() ) ;
-      reply = analyzeCmds ( val ) ;                         // Analyze command and handle it
-      dbgprint ( reply ) ;                                  // Result for debugging
-    }
-  }
-  return ret;
-}
 
 //**************************************************************************************************
 //                                     S C A N I R                                                 *
@@ -3520,65 +3333,30 @@ bool execute_ir_command ( String type, bool verbose=true )
 //**************************************************************************************************
 void scanIR()
 {
-//  char        mykey[20] ;                                   // For numerated key
-//  String      val ;                                         // Contents of preference entry
-//  const char* reply ;                                       // Result of analyzeCmd
-//  uint16_t    code ;                                        // The code of the Remote key
-//  uint16_t    repeat_count ;                                // Will be increased by every repeated
-                                                            // call to scanIR() until the key is released.
-                                                            // Zero on first detection
+  char        mykey[20] ;                                   // For numerated key
+  String      val ;                                         // Contents of preference entry
+  const char* reply ;                                       // Result of analyzeCmd
 
-  if ( ini_block.ir_pin < 0)
-    return;
-
-  if ( ir.exitcommand != 0 )                                // Key release detected?
+  if ( ir_value )                                           // Any input?
   {
-    execute_ir_command ( "x" ) ;
-    ir.exitcommand = 0;
-    ir.exittimeout = 0;
-  }
-  if ( ir.protocol != IR_NONE )                             // Any input?
-  {
-//    char *protocol_names[] = {"", "NEC", "RC5"} ;           // Known IR protocol names
-//    code = ir.command ;                                     // Key code is stored in lower word of ir_value
-//    repeat_count = ir_value >> 16 ;                         // Repeat counter in upper word of if_value
-    if ( 0 < ir.repeat_counter )                            // Is it a "longpress"?
-    {                                                       // In case of a "longpress", we will first search
-                                                            // for ir_XXXXrY, where XXXX is the HEX code of the
-                                                            // key as usual and Y is the repeat counter in decimal,
-                                                            // just as is, no leading '0'. Example: ir_40BFr20 means
-                                                            // this is the 20th repeat of key with code $0BF. That
-                                                            // translates (roughly) to a press time of (at least) 20 * 100ms
-                                                            // If such a preference is not found, we will search for 
-                                                            // ir_XXXXr, which fires for any repeat count.
-                                                            // That means, ir_XXXXrY takes precedence, if defined for a
-                                                            // specific repeat count, ir_XXXXr will NOT fire.
-                                                            // (BTW: ir_XXXXr0 will never fire. ir_XXXX cannot be masked)
-                                                            // If the 'R' is in uppercase, the event will fire and also 
-                                                            // reset the repeat count. This is all handled in function                                                            
-      execute_ir_command ( "r" );                           // execute_ir_command ( "r" );
-    }
-    else                                                    // On first press, do just search for ir_XXXX
+    sprintf ( mykey, "ir_%04X", ir_value ) ;                // Form key in preferences
+    if ( nvssearch ( mykey ) )
     {
-      execute_ir_command ( "" ) ;
+      val = nvsgetstr ( mykey ) ;                           // Get the contents
+      dbgprint ( "IR code %04X received. Will execute %s",
+                 ir_value, val.c_str() ) ;
+      reply = analyzeCmd ( val.c_str() ) ;                  // Analyze command and handle it
+      dbgprint ( reply ) ;                                  // Result for debugging
     }
-    ir.protocol = IR_NONE ;                                 // Indicate IR code has been handled to ISR
-    ir.exittimeout = millis() ;                             // Set timeout for generating "key released event"  
-  }
-  else                                                      // No new key press/longpress detected
-  {
-    if (( ir.command != 0 ) && (ir.exittimeout != 0 ) )     // was there a valid keypress before
-      if ( millis() - ir.exittimeout > 500 )                // That is too long ago (so no further repeat can be expected)
-      {
-        ir.exitcommand = ir.command ;                       // Set exitcode
-        ir.command = 0 ;                                    // Clear code info  
-        ir.repeat_counter = 0 ;                             // Clear repeat counter (just to be sure)
-        ir.exittimeout = 0 ;                                // Clear exitcode timeout (jsut to be sure)
-        execute_ir_command ( "x" );                         // Search NVS for "key release" ir_XXXXx
-        ir.exitcommand = 0 ;                                // Clear exitcode after it has been used.
-      }
+    else
+    {
+      dbgprint ( "IR code %04X received, but not found in preferences!  Timing %d/%d",
+                 ir_value, ir_0, ir_1 ) ;
+    }
+    ir_value = 0 ;                                          // Reset IR code received
   }
 }
+
 
 
 //**************************************************************************************************
@@ -5664,7 +5442,7 @@ void chomp_nvs ( String &str , const char* substitute)
       str = ramgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
     }
-   else if (first == '%' )                         // Reference to NVS?
+   else if (first == '&' )                         // Reference to NVS?
     {
       str = nvsgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
@@ -5673,51 +5451,6 @@ void chomp_nvs ( String &str , const char* substitute)
 }
 #endif
 
-
-//**************************************************************************************************
-//                                   A N A L Y Z E C M D S                                         *
-//**************************************************************************************************
-// Handling of the various commands from remote webclient, Serial or MQTT.                         *
-// Here a sequence of commands is allowed, commands are expected to be seperated by ';'            *   
-//**************************************************************************************************
-const char* analyzeCmds ( String commands )
-{
-  static char reply[512] ;                       // Reply to client, will be returned
-  uint16_t commands_executed = 0 ;               // How many commands have been executed  
-
-  char * cmds = strdup ( commands.c_str() ) ;
-  if ( cmds ) 
-  {
-    char *s = cmds ;
-    while ( s ) 
-    { 
-      char *p = s;
-      char * next = NULL;
-      int nesting = 0;
-      while (*p && !next) {
-        if ((*p == '(') || (*p == '{'))
-          nesting++;
-        else if (nesting == 0) {
-          if (*p == ';' ) 
-            next = p;
-        } else if ((*p == ')') || (*p == '}'))
-          nesting--;
-        p++;
-      }
-      if ( next ) 
-      {
-        *next = 0 ;
-        next++ ;
-      }
-      analyzeCmd ( s ) ;
-      commands_executed++ ;
-      s = next ;
-    }
-    free ( cmds ) ;
-  }
-  snprintf ( reply, sizeof ( reply ), "Executed %d command(s) from sequence %s", commands_executed, commands.c_str() ) ;
-  return reply ;
-}
 
 
 //**************************************************************************************************
@@ -5864,7 +5597,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "Command: %s (without parameter)",
                argument.c_str() ) ;
   }
-#if defined(RETRORADIO)
+#if defined(RETRORADIODDDDDDDD)
   if (argument == "execute") {    
 /*    Serial.println("Running Execute!");Serial.flush();
    dbgprint ( "Command: %s with parameter %s",
@@ -5890,7 +5623,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     Serial.flush();
     execRec++;
     chomp_nvs(value);
-    analyzeCmds(ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()));  
+    analyzeCmdsRR ( ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) );  
     execRec--;
   } else if ((argument == "ramlist") || (argument == "nvslist")) {
     const char* p = NULL;
@@ -6239,13 +5972,14 @@ const char* analyzeCmd ( const char* par, const char* val )
 //  } else if ( argument == "eq" ) {
 //    setEqualizer (value, ivalue);
 //    strcpy(reply, "OK");
+/*
   } else if ( argument == "channels" ) {
     doChannels (value);
     strcpy(reply, "OK");
   } else if ( argument == "channel" ) {
     doChannel (value, ivalue);
     strcpy(reply, "OK");
-/*
+
   } else if ( argument.startsWith ( "rr_") ) {
     strcpy(reply, retroradioSetup(argument, value, ivalue).c_str());
   } else if ( argument == "calibrate" ) {
@@ -6263,7 +5997,9 @@ const char* analyzeCmd ( const char* par, const char* val )
      if ((idx < 0) || (idx > 10))
       idx = 0;
      doLed(idx, value);
-*/
+
+OLD END OF COMMENTED OUT
+
   } else if ( argument.startsWith("nvs" ) || argument.startsWith ("ram" )) {
     bool isNvs = (argument.c_str()[0] == 'n');
     if (argument.c_str()[3] == '.') {
@@ -6300,6 +6036,7 @@ const char* analyzeCmd ( const char* par, const char* val )
           ramsetstr(argument.c_str(), value);  
       }
     }  
+*/  
   } else if (argument.startsWith("in.")) {
     doInput(argument.substring(3), value);
   } else if (argument.startsWith("if")) {
