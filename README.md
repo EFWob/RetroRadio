@@ -86,18 +86,24 @@ Command values can also be referenced to other preference settings. So if you ha
 in the NVS-preferences, you can reference that by using "@": _ir_XXXX = @limp_home_ (spaces between "@" and the key name, here _limp_home_,
 are not permitted). If the given key does not exist, an empty string is used as replacement.
 
-## The execute-command
-The execute-command takes the form _execute = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
+## The call-command
+The execute-command takes the form _call = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
 retrieved and executed as commands-list (whith each command being seperated by semicolon).
 
-## Startup event
-If the key-value-pair _::start = value_ is defined, the associated _value_ is retrieved and executed as commands-list.
-The _::start_-'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
+## Setup event
+If the key-value-pair _::setup = key-name_ is defined, the value associated _key-name_ is retrieved from NVS and executed as commands-list.
+The _::setup_-'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ (So network is up and
 running, preferences are read, VS module is initialized. I. e. ready to play).
 
-If you set _::start = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
-to level 70.
+If you set _::setup = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
+to level 70. (If one line is not enough, you can also use _::setup0_ to _::setup9_ for executing additional commands.
 
+## Loop event
+If the key-value-pair _::loop = key-name_ is defined, the associated contents of _key-name_ are retrieved from NVS and executed as command-list.
+This is called frequently (directly from main _loop()_ of the program). Activities here must be short to avoid delays in playing the stream.
+For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be used in addition.
+
+More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
 
 
 
@@ -809,6 +815,9 @@ observer whats happening and dont be surprised if some scripting constructs are 
 "compiler errors" generated nor is there any form of "exception handling". Best case it will just not work.  (or not as expected).
 The examples in this README or the defaultprefs.h do work, though. 
 
+The advantage is, that you can try scripting using the Serial interface. So you can test your ideas on the fly, and if you came up with a working solution
+you can integrate that solution to preferences.
+
 - Sequences are allowed. Several commands can be separated using the semicolon ';' Commands will be executed from left to right. Last command does not need 
   to be terminated.
 - So on serial, you can still just enter one command without any change for the known commands. Or you can enter a sequence on serial that will be executed 
@@ -836,8 +845,9 @@ Executing commands during runtime:
 If-Command:
 - is implemented as follows: 
 ```
-	if[.result](condition)= {if-command-sequence}[{else-command-sequence}]
+	if[.result-key](condition)= {if-command-sequence}[{else-command-sequence}]
 ```
+- parts in square brackets (_.result_key_ and _{else-command-sequence}_ are optional.
 - condition is an unary or binary expression. Can be empty and is evaluated as false (=0) then. A unary (rvalue only) is true, if the rvalue is not zero.
 - an rvalue can be a _number_, a reference to NVS-key (_&key_), a reference to RAM-key (_.key_), a reference to either RAM (if defined there) or NVS (if
   not defined in RAM) using _@key_ or a system variable (_~variable_). Undefined rvalues are assumed to be 0.
@@ -848,10 +858,10 @@ If-Command:
 - work exactly as in C, with the exception of "><". With _op1 >< op2_ a random number is generated within the range of _op1_ (included) up to 
   _op2_ (_op2_ is also included). So _if(1 >< 3)_ will generate numbers between 1 and 3 (hence never 0 or always true for if) whereas so _if(0><3)_ will generate
   numbers between 0 and 3 (and will therefore be true in 3 out of 4 cases only).
-- the result of the expression is stored into RAM using key   _"result"_ if the key (preceeded by '.') is placed after _if_ but before the condition. Result
-  can be any string that is suitable as key into RAM and is purely optional. So _if.xyz(0><3)={}_ will store a number between 0 and 3 to RAM-key "xyz" (and do
-  nothing else as the _if-command-sequence_ is empty). (with the command _.?=xyz_ you can list the contents of RAM for all keys that contain "xyz" in the 
-  key name. Or you can chain _if.xyz(0><4)={};.?=xyz;_ The result of the calculation is already stored into RAM and available within the _if-_ or _else-_
+- the result of the expression is stored into RAM using key   _"result-key"_ if the key (preceeded by '.') is placed after _if_ but before the condition. 
+  Result-key can be any string that is suitable as key into RAM and is purely optional. So _if.xyz(0><3)={}_ will store a number between 0 and 3 to RAM-key 
+  "xyz" (and do nothing else as the _if-command-sequence_ is empty). (with the command _.?=xyz_ you can list the contents of RAM for all keys that 
+  contain "xyz" in the key name. Or you can chain _if.xyz(0><4)={};.?=xyz;_ The result of the calculation is already stored into RAM and available within the _if-_ or _else-_
   command sequence (whichever fires).
 - The result of the calculation will also be used to substitute all occurances of the question mark "?" within the _if_/_else_ command sequence before 
   execution. This is a strict textual replacement, "?" will be replaced by the resulting number without any leading/trailing spaces or "0"-characters.
@@ -863,5 +873,208 @@ If-Command:
   88 if the condition was calculated to be 0.
 - For debugging, you can add the letter 'v' (verbose) to the command word (so _ifv_ or _ifnotv_) that will output some (hopefully usefull) information on the
   serial monitor (also if _DEBUG=0_)
-  
+
+A note on substituting question marks: the scope of the question mark is respected. So for instance if if-commands are nested, question marks in each 
+command-sequence will be substituted correctly. For instance: _ifv.x(7) = {ifv(.x == 7) = { .x = ? }};.?=x_ will set x to 1. As the verbose command option
+has been used, Serial output gives some details on what happened:
+```
+18:54:34.379 -> ParseResult: if(7)={ifv(.x == 7) = { .x = ? }}; Ramkey=x
+18:54:34.379 -> Start if(7)="{ifv(.x == 7) = { .x = ? }}"
+18:54:34.379 -> Calculate: ("7" [-1] "")
+18:54:34.379 -> Caclulation result=7
+18:54:34.379 -> Calculation result set to ram.x=7
+18:54:34.413 ->   IfCommand = "ifv(.x == 7) = { .x = ? }"
+18:54:34.413 -> ElseCommand = ""
+18:54:34.413 -> Condition is TRUE (7)
+18:54:34.413 -> Running "if(true)" with (substituted) command "ifv(.x == 7) = { .x = ? }"
+18:54:34.413 -> ParseResult: if(.x == 7)={ .x = ? }; Ramkey=
+18:54:34.413 -> Start if(.x == 7)="{ .x = ? }"
+18:54:34.413 -> Calculate: ("7" [0] "7")
+18:54:34.413 -> Caclulation result=1
+18:54:34.413 ->   IfCommand = ".x = ?"
+18:54:34.413 -> ElseCommand = ""
+18:54:34.413 -> Condition is TRUE (1)
+18:54:34.446 -> Running "if(true)" with (substituted) command ".x = 1"
+18:54:34.446 -> RAM content (3 entries)
+18:54:34.446 ->   1: 'x' = '1'
+```
+In a nutshell: condition of the left _if()_ was evaluated first to be "7", that "7" has been stored to RAM using key _x_. So expression is true, and the
+_if-command-sequence_ gets executed: _ifv( x == ?) = { x = ? }_ Before execution, only the "?" in the condition expression is evaluated but not the second.
+And that is as it should be, as the second is part of another _if()_-command. This has the condition (after substitution) as: _( 7 == 7 )_ which is "1",
+and this is then used to substitute the "?" in the associated _if-command-sequence_ to yield _.x = 1_ which finally sets _x_ to 1. (_.?=x_ is a command 
+to list all RAM-entrys which have "x" as part of their _key-name_, which is only _'x'_ in our case.
+
+
+
+While-Command:
+- is implemented as follows: 
+```
+	while[.result-key](condition)= {while-command-sequence}
+```
+- condition is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _while_ and
+  before condition.
+- inverted version (_whilenot()_) and verbose version (_whilev()_ or _whilenotv()_) can be used.  
+- _while-command-sequence_ is executed as long as the condition is true (so must in fact change the conditions such that it will evaluate to "0" and hence
+  terminate the the loop. So _while(1)={}_ is a bad idea, the loop will idle forever, and other tasks (like playing music or listening on Serial) will not 
+  work. Only way to terminate is a HW- or power-on reset.
+- in general, use this command with special caution.   
+
+Calc-Command:
+- is implemented as follows: 
+```
+	calc[.result-key](expression) [= {calc-command-sequence}]
+```
+- this is not exactly a command that influences the control flow (_calc-command-sequence_ will always be executed, if given), just the syntax is identical
+  to if. (you can consider this as if with identical _if_ and _else_ sequence.
+- expression is evaluated same way as for _if_-condition. The result can be stored to RAM using the given _result-key_ or used in the (optional) 
+  _calc-command-sequence_. Both _result_key_ and _calc-command-sequence_ are optional, however if none is given, the command takes no effect.
+  is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _while_ and
+  before condition.
+- _calcv()_ for verbose version can be used.
+
+
+Call-Command:
+- is implemented as follows: 
+```
+	call[( parameter )] = key-name
+```
+- _key-name_ is used to search for in first RAM and if not found there in NVS. If a match is found, the content of the RAM/NVS entry are expected to
+  be a command-sequence and executed.
+- when this sequence is finished (all commands of the sequence have been executed or a return command was found), the sequence the _call()_ command is in
+  is continued after the _call()_ command.
+- if optional parameter is given, everything between '(' and ')' is used as a string to replace any "?" using the known mechanism in the command-sequence
+  given by _key-name_. If parameter is given, leading and trailing spaces are removed: _call (   param ) =_ would substitute any "?" by "param".
+- again danger zone here: do not create loops. This innocent looking sequence will crash the radio: _.x = call = y; .y = call = x; call = x_
+	- with the first command, a RAM entry is created with name "x" that holds "call y"
+	- second command creates RAM entry "y" with "call x"
+	- the third command starts the call cycle "x->y->x->y..." that will trigger the stack watchdog eventually.
+	
+Return-Command:
+- is implemented as follows: 
+```
+	return[.return-key] [= value ]
+```
+- this command will cancel the execution of the current sequence. If that sequence was _called_ from another sequence, execution will commence there  (or
+  just stop if there was no caller, like from serial).
+- if _return-key_ is given, _value_ will be stored to that RAM-key. (The caller "must know" the RAM-key to evaluate it)
+
+
   ## Storing and retrieving values
+- values can be stored to NVS (known as preferences) and now also to RAM
+- in both cases, values are identified by a _key-name_, which can hold a value (assigned to by "=" in preferences in case of NVS).
+	- example from preferences: _pin_ir = 0_ defines the value of _pin_ir_ to be 5.
+- there is some mixup between commands and preferences. For instance you will find _volume = 75_ in preferences. This line is (at startup) interpreted
+  as command to set the volume to 75, but it might also change during runtime to store the current value of volume setting.
+- the value associated to a key can be any arbritrary string constant. 
+
+We will start with RAM, as this is more safe. Accidentially deleting a vital NVS entry while playing around might cause trouble. The basic commands
+to manipulate RAM and NVS entries are similar.
+RAM entries can be used to store and retrieve information that can be used for commands. They are only available through the current power cycle of 
+course.
+
+Using command ram to list RAM entries:
+- you can list the contents of RAM using the command 
+```
+	ram?[ = key-name-part ]
+```
+- this lists the current entries in RAM. If _key-name-part_ is given, only entries that have _key-name-part_ as substring in their key are listed.
+- listing is shown on Serial (even if _DEBUG=0_).
+- if nothing has been set by your scripting so far, _ram?_ should list nothing
+
+Using command ram to add/update a RAM entry:
+```
+	ram.key-name = value
+```
+- this sets the value of _key-name_ in RAM to _value_. If _key-name_ does not exist, it is created by that command.
+
+
+Using command ram to delete a RAM-entry
+- you can delete an entry in RAM using the command 
+```
+	ram- = key-name
+```
+- this deletes the entry associated to _key-name_ from RAM. There will be no complaints if _key-name_ does not exist in RAM.
+- full _key-name_ must be specified, no pattern matching, so only one entry can be deleted by this command.
+- from Serial, try:
+```
+	DEBUG = 0
+	ram? = test
+	ram.test = 77
+	ram? = test
+	ram.test = 0
+	ram? = test	
+	ram- = test
+	ram? = test
+```
+
+The dot "." can be used as shortcut for the _ram_-command:
+- _.? = key-name-part_ is the same as _ram? = key-name-part_
+- _.key-name = value_ is equivalent to _ram.key-name = value_
+- _.- = key-name_ is equivalent to _ram- = key-name_
+
+The dot is also used to dereference RAM keys to use them in commands, for instance as argument. Example:
+```
+	DEBUG = 1
+	.test = 77
+	volume = .test
+```
+This sequence will store 77 to RAM entry named "test" and this value is then passed as argument to the _volume_ command. As a result, radio will play
+at volume level 77.
+
+Handling/using of NVS entries is similar. Whenever possible, RAM entries should be preferred to store information. Use NVS entries only if your 
+usecase requires the data to be persistent over power cycles.
+
+Using the nvs command:
+- you can list the contents of NVS using the command _nvs?[ = key-name-part ]_ (shortcut: _&? = key-name-part_)
+- you can add/update an NVS entry using the command _nvs.key-name = value_ (shortcut: _&key-name = value_)
+- you can remove an NVS entry using the command _nvs-=key-name_ (shortcut: _&- = key-name_). It should be clear that deleting NVS entries has the 
+  possibility to push you into danger zone again, if for instance pin entries are deleted).
+
+The ampersand "&" can also be used to dereference NVS-entries to be used as argument to commands. For demonstration purposes, try:
+```
+	DEBUG = 1
+	volume = 80
+	&test = 52
+	volume = &test
+```
+
+You can also dereference a key by using "@". Try:
+```
+	volume = @test
+```
+The logic for dereferencing _@key-name_ is as follows: if _key-name_ exists in RAM, this value is used. If not, the value from NVS is used.
+If _key-name_ also does not exist in NVS, empty string (evaluated to "0" if number is expected) is used. So volume should be set to 77 if you 
+followed the steps so far, as there still should be a RAM-entry _test_ with value "77".
+
+If you do not want the argument to be evaluated, but just store a string constant, you have to surround this string constant by round brackets.
+The brackets will be removed before the command is executed. In our example, try: 
+```
+	DEBUG = 1
+	volume = ( @test )
+```
+That should result in an output on Serial like: _Command: volume with parameter @test_ which means: the brackets have been removed and parameter
+passed to command volume is "@test". As volume expects a number (as string of digits) that will fail. If converted to a number using _atoi("@test")_
+the result would be "0". So say good-bye to whatever you just heared.
+
+This is also important to understand if you want to assign for instance a command-sequence to a RAM (or NVS) key. Consider the following idea:
+you want to go "home", where "home" means: _preset=1_ and _volume = 70_ To be available for later _calls_, you want to store that command sequence
+into RAM using the key _:home_. Entering _.:home=preset=1;volume=70_ will not do what is wanted. Output on Serial would be something like this:
+```
+23:58:59.026 -> D: Command: .:home with parameter preset=1
+23:58:59.026 -> D: Command: volume with parameter 70
+23:58:59.026 -> D: Executed 2 command(s) from sequence .:home=preset=1
+```
+If you run the command _.?=home_ you will see that the value for RAM-key _:home_ is just _preset = 1_.
+The reason is that in fact the line _:home=preset=1;volume=70_ is interpreted as two commands:
+```
+	.:home = preset = 1
+	volume = 70
+```
+
+To achieve what was wanted, you have to use round brackets in this case:
+```
+	.:home = (preset = 1; volume = 70)
+```
+
+You can verify by listening the content of the key using _.?=:home_ Or you can just use that entry by _call = :home_
+

@@ -28,7 +28,7 @@
 #endif
   dbgprint ( "Start server for commands" ) ;
 ```
-- in _setup()_, add _setupRR ( SETUP_DONE );_ near the end of the _setup()_-function, but before "Playtask" and "Spftask" are created (_xTaskCreatePinnedToCore ( 
+- in _setup()_, add _setupRR ( SETUP_DONE );_ near the end of the _setup()_-function, best before "Playtask" and "Spftask" are created (_xTaskCreatePinnedToCore ( 
 	   playtask ,...)_
 - in _loop()_, add _loopRR()_ at any location.
 - in _const char* analyzeCmd ( const char* str ) ;_, add _return analyzeCmdsRR ( str ) ;_ as very first statement to the function body.
@@ -44,4 +44,4 @@ Increase the _#defines_ for _DEBUG_BUFFER_SIZE_ and _NVSBUFSIZE_. They are defin
 #endif
 ```
 ## Nice to have steps
-
+- some functions are no longer needed, could be deleted. List/description to follow.

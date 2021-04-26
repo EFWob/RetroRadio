@@ -479,7 +479,7 @@ void doIf(String value, bool show, bool& returnFlag) {
   String ifCommand, elseCommand;
   String dummy;
   int isTrue;
-  if (show) doprint("Start if=\"%s\"\r\n", value.c_str());
+  if (show) doprint("Start if=\"%s\"", value.c_str());
   isTrue = doCalculation(value, show);
   parseGroup(value, ifCommand, dummy);
   parseGroup(value, elseCommand, dummy);
@@ -504,7 +504,7 @@ void doCalc(String value, bool show, bool& returnFlag) {
   String calcCommand;
   String dummy;
   int result;
-  if (show) doprint("Start calc=\"%s\"\r\n", value.c_str());
+  if (show) doprint("Start calc=\"%s\"", value.c_str());
   result = doCalculation(value, show);
   parseGroup(value, calcCommand, dummy);
   dummy = String(result);
@@ -522,7 +522,7 @@ void doCalc(String value, bool show, bool& returnFlag) {
 }
 
 void doIf(String condition, String value, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
-  if (show) doprint("Start if(%s)=\"%s\"\r\n", condition.c_str(), value.c_str());
+  if (show) doprint("Start if(%s)=\"%s\"", condition.c_str(), value.c_str());
   int result = doCalculation(condition, show, ramKey.c_str());
 
   String ifCommand, elseCommand;
@@ -573,7 +573,7 @@ void doCalc(String expression, String value, bool show, String ramKey, bool& ret
 
 void doWhile(String conditionOriginal, String valueOriginal, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   bool done = false;
-  if (show) doprint("Start while(%s)=\"%s\"\r\n", conditionOriginal.c_str(), valueOriginal.c_str());
+  if (show) doprint("Start while(%s)=\"%s\"", conditionOriginal.c_str(), valueOriginal.c_str());
   do {
     String value = valueOriginal;
     String condition = conditionOriginal;
@@ -2174,7 +2174,7 @@ void doNvs(const char* param, String value) {
   {
     nvsdelkey ( value.c_str() );
   }
-  else if ( s1 = strchr ( s, '.' ) )
+  else if ( s1 = strpbrk ( s, ".&" ) )
   {
     String str = String ( s1 + 1 ) ;
     chomp_nvs ( str ) ;
@@ -2972,6 +2972,7 @@ void loopRR() {
     {
       DEBUG = 0;
       analyzeCmdsRR(String(retroRadioLoops[i]));
+      yield();
     }
     DEBUG = deb;
   }
@@ -3068,7 +3069,6 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
       else
         doRam ( s , value );
     }
-    /*
     else  if ( firstChar == '&' )
     {
       char * s1 = strpbrk ( s + 1, "?-" );
@@ -3076,7 +3076,6 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
         doNvs ( s1, value );
       else
         doNvs ( s , value );    }
-    */
   }
   else if ( ret = ( param.startsWith ( "call" ) )) 
   {
@@ -3129,8 +3128,8 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     char *s1 = strchr ( param.c_str() , '.' ) ; 
     if ( s1 )
       doRam ( s1, value ) ;
-    else
-      doRam ( ".return", value );
+//    else
+//      doRam ( ".return", value );
   }
   if ( ret ) 
   {
