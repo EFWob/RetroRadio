@@ -810,36 +810,37 @@ Word of warning: there are internal limits (like NVS keylen or NVS content len o
 endless loops. So keep that in mind with your design. In theory you can deeply nest control structures (calling a subroutine in an else case of another if in
 a while loop). In practice that is error prone, difficult to read and maintain. Better solution is probably to define and use flags to flatten the nesting.
 
-Another word of warning: the "RadioScriptingLanguage" was not planned but is developed on the go. The language grammer might be not bullet prove, so 
-observer whats happening and dont be surprised if some scripting constructs are not behaving as expected (well, I sometimes am). There no
-"compiler errors" generated nor is there any form of "exception handling". Best case it will just not work.  (or not as expected).
+Another word of warning: the "RadioScriptingLanguage" was not planned but has happened (was developed on the go). The language grammer might be not be bullet
+prove, so observe whats happening and dont be surprised if some scripting constructs are not behaving as expected (well, I am surprised sometimes). 
+There are no "compiler errors" generated nor is there any form of "exception handling". Best case it will just not work, worse it will show an unexpected 
+behaviour or worst it might crash.
 The examples in this README or the defaultprefs.h do work, though. 
 
 The advantage is, that you can try scripting using the Serial interface. So you can test your ideas on the fly, and if you came up with a working solution
-you can integrate that solution to preferences.
+you can integrate that solution to preferences. There are some debug facilities (like verbose command execution) included in the scripting language.
 
 - Sequences are allowed. Several commands can be separated using the semicolon ';' Commands will be executed from left to right. Last command does not need 
-  to be terminated.
+  to be terminated by semicolon.
 - So on serial, you can still just enter one command without any change for the known commands. Or you can enter a sequence on serial that will be executed 
   directly, for instance: _preset=1;volume=70_ to set both preset and volume.
 
 Executing commands at startup:
-- At startup NVS is searched for key _::setup_. The content of that key are expected do be a command sequence and will be executed during setup. At this
-  point in time, is about to start player task. So there is no audio yet, and you can still alter the settings (for instance for preset or volume) to
-  override the "defaults" based on your whishes.
+- At startup NVS is searched for key _::setup_. The content of this key is expected do be a command sequence that will be executed. At this
+  point in time, the radio is about to start player task. So there is no audio yet, and you can still alter the settings 
+  (for instance for preset or volume) to override the "defaults" based on your usecase.
 - For convenience, (if one line is not enough), after _::setup_ has been searched (and executed if found), _::setup0_ to _::setup9_ are searched and executed
   in that order. Gaps dont matter. So it is perfectly legal, if _::setup7_ is the only entry, it will be executed even though _::setup_ (or any other of 
   _::setup0_ to _::setup6_) does not exist. 
 
 Executing commands during runtime:
 - At every _loop()_ of the software, NVS is searched for key _::loop_. The content of that key are expected do be a command sequence and will be executed.
-- For convenience, (if one line is not enough), after _::loop_ has been searched (and executed if found), _::loop0_ to _::loop9_ are sexecuted (if defined)
-  in that order. Gaps dont matter. So it is perfectly legal, if _::loop7_ is the only entry, it will be executed even though _::loop_ (or any other of 
-  _::loop0_ to _::loop6_) does not exist. 
+- For convenience, (if one line is not enough), after _::loop_ has been searched (and executed if found), _::loop0_ to _::loop9_ are seearched and executed 
+	(if defined) in that order. Gaps dont matter. So it is perfectly legal, if _::loop7_ is the only entry, it will be executed even though _::loop_ 
+	(or any other of _::loop0_ to _::loop6_) does not exist. 
 - To speed things up, _::loopx_ is not retrieved from NVS every time, but a RAM copy will be taken at startup. Therefore if you change any _::loop_-key
   that change will only take effect after next start of the radio.
 - DEBUG is set to 0 before executing any _::loop_ key to avoid flooding of Serial output. If you need it within a _::loop_-Sequence, you need to turn it
-  on again from the sequence.
+  on again from within the sequence.
   
   
 If-Command:
@@ -899,10 +900,10 @@ has been used, Serial output gives some details on what happened:
 18:54:34.446 ->   1: 'x' = '1'
 ```
 In a nutshell: condition of the left _if()_ was evaluated first to be "7", that "7" has been stored to RAM using key _x_. So expression is true, and the
-_if-command-sequence_ gets executed: _ifv( x == ?) = { x = ? }_ Before execution, only the "?" in the condition expression is evaluated but not the second.
+_if-command-sequence_ gets executed: _ifv( .x == ?) = { .x = ? }_ Before execution, only the "?" in the condition expression is substituted but not the second.
 And that is as it should be, as the second is part of another _if()_-command. This has the condition (after substitution) as: _( 7 == 7 )_ which is "1",
 and this is then used to substitute the "?" in the associated _if-command-sequence_ to yield _.x = 1_ which finally sets _x_ to 1. (_.?=x_ is a command 
-to list all RAM-entrys which have "x" as part of their _key-name_, which is only _'x'_ in our case.
+to list all RAM-entrys which have "x" as part of their _key-name_, which is only _'x'_ in our case).
 
 
 
