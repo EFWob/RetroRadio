@@ -797,3 +797,68 @@ The _touch_XX_ settings in preferences will be translated to the following setti
 
 _in.touch_XX = src=tXX, mode=1, on0=touch_XX, start_
 
+# Scripting Summary 
+## Control flow 
+
+Word of warning: there are internal limits (like NVS keylen or NVS content len or NVS size). There is no protection against buffer overruns or creating 
+endless loops. So keep that in mind with your design. In theory you can deeply nest control structures (calling a subroutine in an else case of another if in
+a while loop). In practice that is error prone, difficult to read and maintain. Better solution is probably to define and use flags to flatten the nesting.
+
+Another word of warning: the "RadioScriptingLanguage" was not planned but is developed on the go. The language grammer might be not bullet prove, so 
+observer whats happening and dont be surprised if some scripting constructs are not behaving as expected (well, I sometimes am). There no
+"compiler errors" generated nor is there any form of "exception handling". Best case it will just not work.  (or not as expected).
+The examples in this README or the defaultprefs.h do work, though. 
+
+- Sequences are allowed. Several commands can be separated using the semicolon ';' Commands will be executed from left to right. Last command does not need 
+  to be terminated.
+- So on serial, you can still just enter one command without any change for the known commands. Or you can enter a sequence on serial that will be executed 
+  directly, for instance: _preset=1;volume=70_ to set both preset and volume.
+
+Executing commands at startup:
+- At startup NVS is searched for key _::setup_. The content of that key are expected do be a command sequence and will be executed during setup. At this
+  point in time, is about to start player task. So there is no audio yet, and you can still alter the settings (for instance for preset or volume) to
+  override the "defaults" based on your whishes.
+- For convenience, (if one line is not enough), after _::setup_ has been searched (and executed if found), _::setup0_ to _::setup9_ are searched and executed
+  in that order. Gaps dont matter. So it is perfectly legal, if _::setup7_ is the only entry, it will be executed even though _::setup_ (or any other of 
+  _::setup0_ to _::setup6_) does not exist. 
+
+Executing commands during runtime:
+- At every _loop()_ of the software, NVS is searched for key _::loop_. The content of that key are expected do be a command sequence and will be executed.
+- For convenience, (if one line is not enough), after _::loop_ has been searched (and executed if found), _::loop0_ to _::loop9_ are sexecuted (if defined)
+  in that order. Gaps dont matter. So it is perfectly legal, if _::loop7_ is the only entry, it will be executed even though _::loop_ (or any other of 
+  _::loop0_ to _::loop6_) does not exist. 
+- To speed things up, _::loopx_ is not retrieved from NVS every time, but a RAM copy will be taken at startup. Therefore if you change any _::loop_-key
+  that change will only take effect after next start of the radio.
+- DEBUG is set to 0 before executing any _::loop_ key to avoid flooding of Serial output. If you need it within a _::loop_-Sequence, you need to turn it
+  on again from the sequence.
+  
+  
+If-Command:
+- is implemented as follows: _if[\[.result\]]\(condition\)= {if-command-sequence}[\[{else-command-sequence}\]].
+- condition is an unary or binary expression. Can be empty and is evaluated as false (=0) then. A unary (rvalue only) is true, if the rvalue is not zero.
+- an rvalue can be a _number_, a reference to NVS-key (_&key_), a reference to RAM-key (_.key_), a reference to either RAM (if defined there) or NVS (if
+  not defined in RAM) using _@key_ or a system variable (_~variable_). Undefined rvalues are assumed to be 0.
+- numbers are calculated on _int_16_ base, so range is limited to _-32768..32767_. There is no protection against over/underruns. Only decimal numbers 
+  can be used (no hex or binary).
+- two rvalues can be combined by a binary operator. The following operators are permitted: 
+	 - "==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">"
+- work exactly as in C, with the exception of "><". With _op1 >< op2_ a random number is generated within the range of _op1_ (included) up to 
+  _op2_ (_op2_ is also included). So _if(1 >< 3)_ will generate numbers between 1 and 3 (hence never 0 or always true for if) whereas so _if(0><3)_ will generate
+  numbers between 0 and 3 (and will therefore be true in 3 out of 4 cases only).
+- the result of the expression is stored into RAM using key   _"result"_ if the key (preceeded by '.') is placed after _if_ but before the condition. Result
+  can be any string that is suitable as key into RAM and is purely optional. So _if.xyz(0><3)={}_ will store a number between 0 and 3 to RAM-key "xyz" (and do
+  nothing else as the _if-command-sequence_ is empty). (with the command _.?=xyz_ you can list the contents of RAM for all keys that contain "xyz" in the 
+  key name. Or you can chain _if.xyz(0><4)={};.?=xyz;_ The result of the calculation is already stored into RAM and available within the _if-_ or _else-_
+  command sequence (whichever fires).
+- The result of the calculation will also be used to substitute all occurances of the question mark "?" within the _if_/_else_ command sequence before 
+  execution. This is a strict textual replacement, "?" will be replaced by the resulting number without any leading/trailing spaces or "0"-characters.
+  That allows for a "simulation of array data structures": _if(1><4)={ram.test??=????};.?=test_ will store _xxxx_ into RAM-key _testxx_ (with x being one
+  of the digits between '1' and '4').
+- Both _if-_ and _else-_ command sequence must be surrounded by curly braces, even if they contain only 1 (or 0) commands. _else_-Sequence is optional. 
+- For convenience, there is also the _ifnot_ command, that inverts the logical evaluation. So in cases where you do not need the _if_ but the _else_ part only
+  you can avoid writing empty _if_-sequence by using _ifnot_: _ifnot.xyz(0><4)={.xyz=88};.?=xyz_ will _xyz_ to 1..4 (due to calculation of condition) or
+  88 if the condition was calculated to be 0.
+- For debugging, you can add the letter 'v' (verbose) to the command word (so _ifv_ or _ifnotv_) that will output some (hopefully usefull) information on the
+  serial monitor (also if _DEBUG=0_)
+  
+  ## Storing and retrieving values

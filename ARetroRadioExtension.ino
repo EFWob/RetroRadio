@@ -69,6 +69,87 @@ void readDataList(std::vector<int16_t>& v, String value) {
 }
 
 
+void substitute ( String &str, const char* substitute ) {
+  if (substitute) {
+    int idx = str.indexOf('?');
+    if (idx > 0) {
+      idx = 0;
+      int nesting = 0;
+      int subLen = strlen(substitute);
+      while (idx < str.length()) {
+        if (str.c_str()[idx] == '{')
+          nesting++;
+        else if (str.c_str()[idx] == '}') {
+          if (nesting > 0)
+            nesting--;
+        } else if (str.c_str()[idx] == '?')
+          if (0 == nesting) {
+            str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
+            idx = idx + subLen - 1;
+          }
+        idx++;
+      }
+    }
+    /*
+    while(idx >= 0) {
+      str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
+      idx = str.indexOf('?');
+    }
+    */
+  }
+  
+}
+
+//**************************************************************************************************
+//                                    C H O M P _ N V S                                            *
+//**************************************************************************************************
+// Do some filtering on the inputstring:                                                           *
+//  - do 'normal' chomp first, return if resulting string does not start with @                    *
+//  - if resulting string starts with '@', nvs is looked if a key with the name following @ is     *
+//    found in nvs. If so, that string (chomped) is returned or empty if key is not found          *
+//**************************************************************************************************
+void chomp_nvs ( String &str )
+{
+  //Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
+  chomp ( str ) ;                                     // Normal chomp first
+  char first = str.c_str()[0];
+  if (first == '@' )                         // Reference to RAM or NVS-Key?
+    {
+    if ( ramsearch (str.c_str() + 1 ) ) 
+      { 
+      //Serial.printf("NVS Search success for key: %s\r\n", str.c_str() + 1);
+      str = ramgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+      } 
+
+    else if ( nvssearch (str.c_str() + 1 ) ) 
+      { 
+      //Serial.printf("NVS Search success for key: %s, result =", str.c_str() + 1);
+      str = nvsgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+      //Serial.println(str);
+      }
+      else
+        str = "";   
+    } 
+  else if (first == '~' )                         // Reference to System Variable?
+    {
+      str = String(readSysVariable(str.c_str() + 1));
+    }
+   else if (first == '.' )                         // Reference to RAM?
+    {
+      str = ramgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    }
+   else if (first == '&' )                         // Reference to NVS?
+    {
+      str = nvsgetstr ( str.c_str() + 1) ;
+      chomp ( str ) ;
+    }
+
+}
+
+
 
 //**************************************************************************************************
 //                                          D O P R I N T                                          *
@@ -394,7 +475,7 @@ int doCalculation(String& value, bool show, const char* ramKey = NULL) {
   return ret;
 }
 
-void doIf(String value, bool show) {
+void doIf(String value, bool show, bool& returnFlag) {
   String ifCommand, elseCommand;
   String dummy;
   int isTrue;
@@ -409,17 +490,17 @@ void doIf(String value, bool show) {
     doprint("Condition is %s (%d)", isTrue ? "TRUE" : "false", isTrue); Serial.flush();
   }
   if (isTrue) {
-    chomp_nvs(ifCommand, dummy.c_str());
-    if (show) doprint("Running \"if(true)\" with (expanded) command \"%s\"", ifCommand.c_str());
+    substitute(ifCommand, dummy.c_str());
+    if (show) doprint("Running \"if(true)\" with (substituted) command \"%s\"", ifCommand.c_str());
     analyzeCmdsRR(ifCommand);
   } else {
-    chomp_nvs(elseCommand, dummy.c_str());
-    if (show) doprint("Running \"else(false)\" with (expanded) command \"%s\"", elseCommand.c_str());
+    substitute(elseCommand, dummy.c_str());
+    if (show) doprint("Running \"else(false)\" with (substituted) command \"%s\"", elseCommand.c_str());
     analyzeCmdsRR(elseCommand);
   }
 }
 
-void doCalc(String value, bool show) {
+void doCalc(String value, bool show, bool& returnFlag) {
   String calcCommand;
   String dummy;
   int result;
@@ -427,15 +508,20 @@ void doCalc(String value, bool show) {
   result = doCalculation(value, show);
   parseGroup(value, calcCommand, dummy);
   dummy = String(result);
+  if (calcCommand == "0")
+    calcCommand = "";
   if (show) {
-    doprint("CalcCommand = \"%s\"", calcCommand.c_str());
+    doprint("CalcCommand is now = \"%s\"", calcCommand.c_str());
   }
-  chomp_nvs(calcCommand, dummy.c_str());
-  if (show) doprint("Running \"calc\" with (expanded) command \"%s\"", calcCommand.c_str());
-  analyzeCmdsRR(calcCommand);
+  if ( calcCommand.length() > 0 ) 
+  {
+    substitute(calcCommand, dummy.c_str());
+    if (show) doprint("Running \"calc\" with (substituteded) command \"%s\"", calcCommand.c_str());
+    analyzeCmdsRR(calcCommand);
+  }
 }
 
-void doIf(String condition, String value, bool show, String ramKey) {
+void doIf(String condition, String value, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   if (show) doprint("Start if(%s)=\"%s\"\r\n", condition.c_str(), value.c_str());
   int result = doCalculation(condition, show, ramKey.c_str());
 
@@ -449,19 +535,22 @@ void doIf(String condition, String value, bool show, String ramKey) {
     doprint("ElseCommand = \"%s\"", elseCommand.c_str());
     doprint("Condition is %s (%d)", (result != 0) ? "TRUE" : "false", result); Serial.flush();
   }
-  if (result != 0) {
-    chomp_nvs(ifCommand, dummy.c_str());
-    if (show) doprint("Running \"if(true)\" with (expanded) command \"%s\"", ifCommand.c_str());
-    analyzeCmdsRR ( ifCommand );
+  bool doIf = (result != 0);
+  if (invertedLogic)
+    doIf = !doIf;
+  if (doIf) {
+    substitute(ifCommand, dummy.c_str());
+    if (show) doprint("Running \"if(true)\" with (substituted) command \"%s\"", ifCommand.c_str());
+    analyzeCmdsRR ( ifCommand, returnFlag );
   } else {
-    chomp_nvs(elseCommand, dummy.c_str());
-    if (show) doprint("Running \"else(false)\" with (expanded) command \"%s\"", elseCommand.c_str());
-    analyzeCmdsRR ( elseCommand );
+    substitute(elseCommand, dummy.c_str());
+    if (show) doprint("Running \"else(false)\" with (substituted) command \"%s\"", elseCommand.c_str());
+    analyzeCmdsRR ( elseCommand, returnFlag );
   }
 }
 
-void doCalc(String expression, String value, bool show, String ramKey) {
-  if (show) doprint("Start calc(%s)=\"%s\"\r\n", expression.c_str(), value.c_str());
+void doCalc(String expression, String value, bool show, String ramKey, bool& returnFlag) {
+  if (show) doprint("Start calc(%s)=\"%s\"", expression.c_str(), value.c_str());
   int result = doCalculation(expression, show, ramKey.c_str());
 
   String calcCommand;
@@ -469,15 +558,20 @@ void doCalc(String expression, String value, bool show, String ramKey) {
 
   parseGroup(value, calcCommand, dummy);
   dummy = String(result);
+  if ( calcCommand == "0" )
+    calcCommand = "";
   if (show) {
     doprint("CalcCommand = \"%s\"", calcCommand.c_str());
   }
-  chomp_nvs(calcCommand, dummy.c_str());
-  if (show) doprint("Running \"calc\" with (expanded) command \"%s\"", calcCommand.c_str());
-  analyzeCmdsRR ( calcCommand );
+  if ( calcCommand.length() > 0 )
+  {
+    substitute(calcCommand, dummy.c_str());
+    if (show) doprint("Running \"calc\" with (substituted) command \"%s\"", calcCommand.c_str());
+    analyzeCmdsRR ( calcCommand, returnFlag );
+  }
 }
 
-void doWhile(String conditionOriginal, String valueOriginal, bool show, String ramKey) {
+void doWhile(String conditionOriginal, String valueOriginal, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   bool done = false;
   if (show) doprint("Start while(%s)=\"%s\"\r\n", conditionOriginal.c_str(), valueOriginal.c_str());
   do {
@@ -485,20 +579,22 @@ void doWhile(String conditionOriginal, String valueOriginal, bool show, String r
     String condition = conditionOriginal;
     int result = doCalculation(condition, show, ramKey.c_str());
     done = (0 == result);
+    if (invertedLogic)
+      done = !done;
     if (!done) {
       String whileCommand, dummy;
       parseGroup(value, whileCommand, dummy);
       if (show)
         doprint("while(%d)=\"%s\"", result, whileCommand.c_str());
       dummy = String(result);
-      chomp_nvs(whileCommand, dummy.c_str());
-      if (show) doprint("Running \"while\" with (expanded) command \"%s\"", whileCommand.c_str());
-      analyzeCmdsRR ( whileCommand );
+      substitute(whileCommand, dummy.c_str());
+      if (show) doprint("Running \"while\" with (substituted) command \"%s\"", whileCommand.c_str());
+      analyzeCmdsRR ( whileCommand, returnFlag );
     }
   } while (!done);
 }
 
-void doCalcIfWhile(String command, const char *type, String value) {
+void doCalcIfWhile(String command, const char *type, String value, bool& returnFlag, bool invertedLogic = false) {
   /*
     doprint("Start doCalcIfWhile");
     delay(1000);
@@ -506,7 +602,7 @@ void doCalcIfWhile(String command, const char *type, String value) {
     delay(1000);
   */
   String ramKey, cond, dummy;
-  const char *s = command.c_str() + strlen(type);
+  const char *s = command.c_str() + strlen(type) + (invertedLogic?3:0);
   bool show = *s == 'v';
   if (show)
     s++;
@@ -539,13 +635,13 @@ void doCalcIfWhile(String command, const char *type, String value) {
     doprint("ParseResult: %s(%s)=%s; Ramkey=%s", type, cond.c_str(), value.c_str(), ramKey.c_str());
   switch (*type) {
     case 'w':
-      doWhile(cond, value, show, ramKey);
+      doWhile(cond, value, show, ramKey, returnFlag, invertedLogic);
       break;
     case 'c':
-      doCalc(cond, value, show, ramKey);
+      doCalc(cond, value, show, ramKey, returnFlag);
       break;
     case 'i':
-      doIf(cond, value, show, ramKey);
+      doIf(cond, value, show, ramKey, returnFlag, invertedLogic);
       break;
 
   }
@@ -576,11 +672,14 @@ std::vector<RetroRadioInput *> RetroRadioInput::_inputList;
 //**************************************************************************************************
 RetroRadioInput::RetroRadioInput(const char* id): _show(0), _lastShowTime(0), _reader(NULL), _lastInputType(NONE), _mode(0),
   _onChangeEvent(NULL), _on0Event(NULL), _onNot0Event(NULL),
-  _id(NULL), _debounceTime(0), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0) {
+  _id(NULL), _debounceTime(0), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0), _clickEvents(0),
+  _clickState(0), _clickStateTime(0) {
   _maximum = _lastRead = _lastUndebounceRead = INT16_MIN;                 // _maximum holds the highest value ever read, _lastRead the
   // last read value (after mapping. Is below 0 if no valid read so far)
   setId(id);
   _inputList.push_back(this);
+  for (int i = 0;i < 6;i++)
+    _onClickEvent[i] = NULL;
   //setParameters("@/input");
 }
 
@@ -642,6 +741,18 @@ char** RetroRadioInput::getEvent(String type) {
     return &_on0Event;
   else if (type == "not0")
     return &_onNot0Event;
+  else if (type == "1click")
+    return &_onClickEvent[0];
+  else if (type == "2click")
+    return &_onClickEvent[1];
+  else if (type == "3click")
+    return &_onClickEvent[2];
+  else if (type == "long")
+    return &_onClickEvent[3];
+  else if (type == "1long")
+    return &_onClickEvent[4];
+  else if (type == "2long")
+    return &_onClickEvent[5];
   return NULL;
 }
 
@@ -653,14 +764,24 @@ char** RetroRadioInput::getEvent(String type) {
 //**************************************************************************************************
 void RetroRadioInput::setEvent(String type, const char* name) {
   char **event = NULL;
+  char c = type.c_str()[0];
+  bool clickEvent = false;
   event = getEvent(type);
+  if (event)
+    clickEvent = strchr( "123l", c) != NULL;  
   if (event) {
-    if (*event)
+    if (*event) {
       free(*event);
+      if (clickEvent)
+        _clickEvents--;
+    }
     *event = NULL;
     if (name)
-      if (strlen(name))
+      if (strlen(name)) {
         *event = strdup(name);
+        if (clickEvent)
+          _clickEvents++;
+      }
   }
 }
 
@@ -707,6 +828,189 @@ void RetroRadioInput::setParameters(String params) {
     }
   }
   recursion--;
+}
+
+
+void RetroRadioInput::doClickEvent(const char* type, int param)  {
+char *event = *getEvent(type);  
+  if (_show)
+    doprint ( "Click event for Input in.%s: %s (Parameter: %d)", getId(), type, param);
+  if ( event ) {
+      String commands = ramsearch(event) ? ramgetstr(event) : nvsgetstr(event);
+      Serial.printf("OnClickCommand before chomp: %s\r\n", commands.c_str());
+      substitute(commands, String(param).c_str());
+      if (_show)
+        doprint("in.%s on%s=%s", getId(), type, commands.c_str());
+      analyzeCmdsRR ( commands );
+    }
+}
+
+#define CLICK_IDLE          0       // Not pressed so far
+#define CLICK_DEBOUNCE      1       // Pressed after idle, wait to debounce
+#define CLICK_PRESS1        2       // Pressed after debounce, wait for release (or longPress)       
+#define CLICK_PRESS1DONE    3       // Released after short press, wait if any other press is seen after this release
+#define CLICK_PRESS1NEXTDEB 4       // Another click detected after click1. Wait if this can be debounced
+#define CLICK_PRESS2        5       // Pressed after 1click debounce, wait for release (or longPress)       
+#define CLICK_PRESS2DONE    6       // Released after 2click short press, wait if any other press is seen after this release
+#define CLICK_PRESS2NEXTDEB 7       // Another click detected after click2. Wait if this can be debounced
+#define CLICK_PRESS3        8       // Pressed after 2click debounce, wait for release (or longPress)       
+#define CLICK_LONG          9       // longpress detected
+#define CLICK_1LONG         10      // longpress after short click detected
+#define CLICK_2LONG         11      // longpress after double click detected
+#define TIME_LONG          300
+
+void RetroRadioInput::runClick(bool pressed) {
+
+  if (0 == _clickEvents)
+  {
+    _clickState = CLICK_IDLE;
+  }
+  else if (CLICK_IDLE == _clickState) 
+  {
+    if (pressed) 
+    {
+      _clickStateTime = millis();
+      _clickState = CLICK_DEBOUNCE;
+    }
+  }
+  else if (CLICK_DEBOUNCE == _clickState) 
+  {
+    if (!pressed)
+      _clickState == CLICK_IDLE;
+    else if (millis() - _clickStateTime > _debounceTime) 
+    {
+      _clickStateTime = millis();
+      _clickState = CLICK_PRESS1;
+    }
+  }
+  else if (CLICK_PRESS1 == _clickState)
+  {
+    if (!pressed) {
+      _clickState = CLICK_PRESS1DONE;
+      _clickStateTime = millis();
+    } 
+    else if (millis() - _clickStateTime > TIME_LONG)
+    {
+      _clickStateTime = millis() - TIME_LONG;
+      _clickState = CLICK_LONG;
+      _clickLongCtr = 1;
+    }
+  }
+  else if (CLICK_LONG == _clickState)
+  {
+    if (millis() - _clickStateTime >= TIME_LONG)
+    {
+      doClickEvent("long", _clickLongCtr++);
+      _clickStateTime = millis();
+    }
+    if (!pressed) {
+      doClickEvent("long");
+      _clickState = CLICK_IDLE;
+    } 
+  }
+  else if (CLICK_PRESS1DONE == _clickState)
+  {
+    if (!pressed ) 
+    {
+      if (millis() - _clickStateTime > TIME_LONG / 2)
+      {
+        doClickEvent("1click");
+        _clickState = CLICK_IDLE;
+      }
+    }
+    else
+    {
+      _clickStateTime = millis();
+      _clickState = CLICK_PRESS1NEXTDEB; 
+    }
+  }
+  else if (CLICK_PRESS1NEXTDEB == _clickState) 
+  {
+    if (!pressed)
+      _clickState == CLICK_IDLE;
+    else if (millis() - _clickStateTime > _debounceTime) 
+    {
+      _clickStateTime = millis();
+      _clickState = CLICK_PRESS2;
+    }
+  }
+  else if (CLICK_PRESS2 == _clickState)
+  {
+    if (!pressed) {
+      _clickState = CLICK_PRESS2DONE;
+      _clickStateTime = millis();
+    } 
+    else if (millis() - _clickStateTime > TIME_LONG)
+    {
+      _clickStateTime = millis() - TIME_LONG;
+      _clickState = CLICK_1LONG;
+      _clickLongCtr = 1;
+    }
+  }
+  else if (CLICK_1LONG == _clickState)
+  {
+    if (millis() - _clickStateTime >= TIME_LONG)
+    {
+      doClickEvent("1long", _clickLongCtr++);
+      _clickStateTime = millis();
+    }
+    if (!pressed) {
+      doClickEvent("1long");
+      _clickState = CLICK_IDLE;
+    } 
+  }
+  else if (CLICK_PRESS2DONE == _clickState)
+  {
+    if (!pressed) 
+    {
+      if (millis() - _clickStateTime > TIME_LONG / 2)
+      {
+        doClickEvent("2click");
+        _clickState = CLICK_IDLE;
+      }
+    }
+    else
+    {
+      _clickStateTime = millis();
+      _clickState = CLICK_PRESS2NEXTDEB; 
+    }
+  }
+  else if (CLICK_PRESS2NEXTDEB == _clickState) 
+  {
+    if (!pressed)
+      _clickState == CLICK_IDLE;
+    else if (millis() - _clickStateTime > _debounceTime) 
+    {
+      _clickStateTime = millis();
+      _clickState = CLICK_PRESS3;
+    }
+  }
+  else if (CLICK_PRESS3 == _clickState)
+  {
+    if (!pressed) 
+    {
+        doClickEvent("3click");
+        _clickState = CLICK_IDLE;
+    } 
+    else if (millis() - _clickStateTime > TIME_LONG)
+    {
+      _clickStateTime = millis() - TIME_LONG;
+      _clickState = CLICK_2LONG;
+      _clickLongCtr = 1;
+    }
+  }
+  else if (CLICK_2LONG == _clickState)
+  {
+    if (millis() - _clickStateTime >= TIME_LONG)
+    {
+      doClickEvent("2long", _clickLongCtr++);
+      _clickStateTime = millis();
+    }
+    if (!pressed) {
+      doClickEvent("2long");
+      _clickState = CLICK_IDLE;
+    } 
+  }
 }
 
 
@@ -765,6 +1069,7 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
     //Serial.printf("Start for in.%s Done!\r\n", getId());
   } else if (param == "stop") {
     _lastInputType = NONE;
+    runClick(false);
   } else if (param == "info") {
     showInfo(true);
   }
@@ -816,6 +1121,56 @@ void RetroRadioInput::showInfo(bool hint) {
           doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
       }
     }
+  doprint( " There are %d click-events defined.", _clickEvents );  
+  if (_clickEvents > 0) 
+  {
+    char type[10];
+    strcpy(type, "xclick");
+    for (int i = 0; i < 3; i++) {
+      type[0] = '1' + i;
+      char **cmnds = getEvent(type);
+      if (*cmnds) {
+        doprint(" * on%s-event: \"%s\"", type, *cmnds);
+        if (ramsearch(*cmnds)) {
+          String commands = ramgetstr(*cmnds);
+          doprint("    defined in RAM as: \"%s\"", commands.c_str());
+        } else if (nvssearch(*cmnds)) {
+          String commands = nvsgetstr(*cmnds);
+          doprint("    defined in NVS as: \"%s\"", commands.c_str());
+        }  else
+          doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+      }
+    }
+    strcpy(type, "long");
+    char **cmnds = getEvent(type);
+    if (*cmnds) {
+      doprint(" * on%s-event: \"%s\"", type, *cmnds);
+      if (ramsearch(*cmnds)) {
+        String commands = ramgetstr(*cmnds);
+        doprint("    defined in RAM as: \"%s\"", commands.c_str());
+      } else if (nvssearch(*cmnds)) {
+        String commands = nvsgetstr(*cmnds);
+        doprint("    defined in NVS as: \"%s\"", commands.c_str());
+      }  else
+        doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+    }
+    strcpy(type, "xlong");
+    for (int i = 0; i < 2; i++) {
+      type[0] = '1' + i;
+      char **cmnds = getEvent(type);
+      if (*cmnds) {
+        doprint(" * on%s-event: \"%s\"", type, *cmnds);
+        if (ramsearch(*cmnds)) {
+          String commands = ramgetstr(*cmnds);
+          doprint("    defined in RAM as: \"%s\"", commands.c_str());
+        } else if (nvssearch(*cmnds)) {
+          String commands = nvsgetstr(*cmnds);
+          doprint("    defined in NVS as: \"%s\"", commands.c_str());
+        }  else
+          doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+      }
+    }
+  }
   doprint(" * Delta: %d", _delta);
   doprint(" * Show: %d (seconds)", _show / 1000);
   doprint(" * Debounce: %d (ms)", _debounceTime);
@@ -1418,8 +1773,8 @@ int RetroRadioInput::read(bool doStart) {
 
       String commands = ramsearch(cmnds) ? ramgetstr(cmnds) : nvsgetstr(cmnds); //nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
       Serial.printf("OnChangeCommand before chomp: %s\r\n", commands.c_str());
-      chomp_nvs(commands, String(x).c_str());
-      Serial.printf("OnChangeCommand after chomp: %s\r\n", commands.c_str());
+      substitute(commands, String(x).c_str());
+      Serial.printf("OnChangeCommand after substitute: %s\r\n", commands.c_str());
       analyzeCmdsRR ( commands );
     }
     if (x == 0) {                   // went to 0
@@ -1429,7 +1784,7 @@ int RetroRadioInput::read(bool doStart) {
           doprint("Input \"in.%s\": became Zero (event \"%s\")", getId(), cmnds);
         }
         String commands = ramsearch(cmnds) ? ramgetstr(cmnds) : nvsgetstr(cmnds); //nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
-        chomp_nvs(commands, String(x).c_str());
+        substitute(commands, String(x).c_str());
         analyzeCmdsRR ( commands );
       }
     } else if (lastRead == 0) {     // comes from 0
@@ -1439,11 +1794,13 @@ int RetroRadioInput::read(bool doStart) {
           doprint("Input \"in.%s\": became NonZero (event \"%s\")", getId(), cmnds);
         }
         String commands = ramsearch(cmnds) ? ramgetstr(cmnds) : nvsgetstr(cmnds); //nvssearch(specificEvent)?nvsgetstr(specificEvent):nvsgetstr(cmnds);
-        chomp_nvs(commands, String(x).c_str());
+        substitute(commands, String(x).c_str());
         analyzeCmdsRR ( commands );
       }
     }
   }
+  if (_clickEvents > 0)
+    runClick ( 0 == x );
   return x;
 }
 
@@ -1464,7 +1821,7 @@ void RetroRadioInput::checkAll() {
   for (int i = 0; i < _inputList.size(); i++) {
     RetroRadioInput *p = _inputList[i];
     bool isRunning = p->_lastInputType != NONE;
-    if ((isRunning && p->hasChangeEvent()) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
+    if ((isRunning && (p->hasChangeEvent() || (p->_clickEvents > 0))) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
       p->read(isRunning);
       //if (!isRunning)
       //Serial.printf("Input \"in.%s\" is STOPped!\r\n", p->getId());
@@ -1761,21 +2118,24 @@ void doRamlist(const char* p) {
 
 void doRam(const char* param, String value) {
   const char *s = param;
-  if (*s == '?')
+  char* s1;
+  if ( strchr ( s, '?' ) )
   {
     if ( value != "0" )
       doRamlist(value.c_str());
     else
       doRamlist ( NULL );
   }
-  else if ( *s == '-' ) 
+  else if ( strchr ( s, '-' ) ) 
   {
     ramdelkey ( value.c_str() );
   }
-  else if ( *s == '.' )
+  else if ( s1 = strchr ( s, '.' ) )
   {
-    if ( strlen ( s + 1 ) )
-      ramsetstr(s + 1, value);
+    String str = String ( s1 + 1 ) ;
+    chomp_nvs ( str ) ;
+    if ( str.length() > 0 )
+      ramsetstr ( str.c_str(), value);
   }
 }
 
@@ -1801,22 +2161,25 @@ void doNvslist(const char* p) {
 }
 
 void doNvs(const char* param, String value) {
-  const char *s = param;
-  if (*s == '?')
+ const char *s = param;
+  char* s1;
+  if ( strchr ( s, '?' ) )
   {
     if ( value != "0" )
       doNvslist(value.c_str());
     else
       doNvslist ( NULL );
   }
-  else if ( *s == '-' ) 
+  else if ( strchr ( s, '-' ) ) 
   {
     nvsdelkey ( value.c_str() );
   }
-  else if ( *s == '&' )
+  else if ( s1 = strchr ( s, '.' ) )
   {
-    if ( strlen ( s + 1 ) )
-      nvssetstr(s + 1, value);
+    String str = String ( s1 + 1 ) ;
+    chomp_nvs ( str ) ;
+    if ( str.length() > 0 )
+      nvssetstr ( str.c_str(), value);
   }
 }
 
@@ -1938,7 +2301,7 @@ void readprogbuttonsRetroRadio()
         if ( !progpin[i].reserved )                         // Do not use reserved pins
         {
           char s[200];
-          sprintf(s, "in.gpio_%02d=src=d%d,mode=2,on0=gpio_%02d,start", pinnr, pinnr, pinnr);
+          sprintf(s, "in.gpio_%02d=src=d%d,mode=2,on1click=gpio_%02d,start", pinnr, pinnr, pinnr);
           analyzeCmd(s);
           progpin[i].reserved = true;                       // reserve it so original readprogbuttons
           // does not handle it
@@ -2541,9 +2904,9 @@ void setupRR(uint8_t setupLevel) {
     adc_power_on();
     readprogbuttonsRetroRadio();
     setupIR();
-  }
-  else if (setupLevel == SETUP_NET)
-  {
+//  }
+//  else if (setupLevel == SETUP_NET)
+//  {
 #if (ETHERNET==1)
     adc_power_on();                                        // Workaround to allow GPIO36/39 as IR-Input
     NetworkFound = connecteth();                           // Try ethernet
@@ -2655,32 +3018,91 @@ void loopRR() {
   */
 }
 
-bool analyzeCmdRR(char* reply, String& param, String& value) {
+void doCall ( String param, String value ) {
+bool returnFlag = false;
+bool doShow = param.c_str()[4] == 'v';
+    if (param.length() > (doShow?5:4))
+    {
+      param = param.substring( doShow?5:4 );
+      chomp ( param ) ;
+      if ( param.c_str()[0] == '(') 
+      {
+        String group, dummy;
+        parseGroup (param, group, dummy);
+        param = group;
+      } else
+        param = "";
+    } else
+      param = "";
+    if (doShow) doprint ( "call(%s)=%s", param.c_str(), value.c_str());  
+    value = ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) ;
+    substitute(value, param.c_str());
+    if (doShow) doprint ( "call sequence (after substitution): %s", value.c_str());
+    analyzeCmdsRR ( value , returnFlag );  
+}
+
+const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {
   const char *s = param.c_str();
   char firstChar = *s;
   bool ret = false;
-  chomp_nvs(value);
+  
+  chomp(param);
+  param.toLowerCase();
+  chomp ( value ) ;
+  if ( value.c_str()[0] == '(' ) 
+  {
+    String group, dummy;
+    parseGroup ( value, group, dummy );
+    value = group;
+  } else
+    chomp_nvs(value);
+  *reply = '\0';
   if (!isalpha(firstChar))
   {
     ret = true;
     if ( firstChar == '.' )
     {
-      if (strchr ("?-", s[1])) 
-        doRam ( s + 1, value );
+      char * s1 = strpbrk ( s + 1, "?-" );
+      if ( s1 ) 
+        doRam ( s1, value );
       else
         doRam ( s , value );
     }
-    else if ( firstChar == '&' )
+    /*
+    else  if ( firstChar == '&' )
     {
-      if (strchr ("?-", s[1])) 
-        doNvs ( s + 1, value );
+      char * s1 = strpbrk ( s + 1, "?-" );
+      if ( s1 ) 
+        doNvs ( s1, value );
       else
-        doNvs ( s , value );
-    }
+        doNvs ( s , value );    }
+    */
   }
-  else if ( ret = ( param == "execute" ) ) 
+  else if ( ret = ( param.startsWith ( "call" ) )) 
   {
-    analyzeCmdsRR ( ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) );  
+    doCall ( param, value );
+  }
+  else if (ret = param.startsWith("ifnot")) 
+  {
+    //Serial.println("About to enter CalcIfWhile");
+    doCalcIfWhile(param, "if", value, returnFlag, true);//doIf(value, argument.c_str()[2] == 'v');
+  } 
+  else if (ret = param.startsWith("if")) 
+  {
+    //Serial.println("About to enter CalcIfWhile");
+    doCalcIfWhile(param, "if", value, returnFlag);//doIf(value, argument.c_str()[2] == 'v');
+  } 
+  else if (ret = param.startsWith("calc")) 
+  {
+    doCalcIfWhile(param, "calc", value, returnFlag);//doCalc(value, argument.c_str()[4] == 'v');
+  } 
+  else if (ret = param.startsWith("whilenot"))
+  {
+    doCalcIfWhile(param, "while", value, returnFlag, true);
+  }
+  else if (ret = param.startsWith("while"))
+  {
+    doCalcIfWhile(param, "while", value, returnFlag);
   }
   else if ( ret = (param.startsWith("ram" ))) 
   {
@@ -2700,6 +3122,16 @@ bool analyzeCmdRR(char* reply, String& param, String& value) {
   {
     doChannel (value, atoi ( value.c_str() ) );
   }
+  else if ( ret = (param.startsWith("return" ))) 
+  {
+    Serial.println("RETURN NEW SOURCE!!!");
+    returnFlag = true ;
+    char *s1 = strchr ( param.c_str() , '.' ) ; 
+    if ( s1 )
+      doRam ( s1, value ) ;
+    else
+      doRam ( ".return", value );
+  }
   if ( ret ) 
   {
     if ( value.length() )
@@ -2713,32 +3145,41 @@ bool analyzeCmdRR(char* reply, String& param, String& value) {
                param.c_str() ) ;
     }    
     if ( strlen ( reply ) == 0 ) 
-      strcpy ( reply, "OK from RetroRadio" ) ;
+      strcpy ( reply, "Command accepted (RetroRadio)" ) ;
+  } 
+  else 
+  {
+    const char *ret = analyzeCmd ( param.c_str(), value.c_str() ) ;  
+
+    return ret;
   }
-  return ret;
+  return reply;
 }
 
-void analyzeCmdDoneRR (char* reply, String& argument, String& value ) {
-
-}
 
 
 //**************************************************************************************************
-//                                   A N A L Y Z E C M D S                                         *
+//                                   A N A L Y Z E C M D R R                                       *
 //**************************************************************************************************
 // Handling of the various commands from remote webclient, Serial or MQTT.                         *
 // Here a sequence of commands is allowed, commands are expected to be seperated by ';'            *
 //**************************************************************************************************
-const char* analyzeCmdsRR ( String commands )
+const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
 {
   static char reply[512] ;                       // Reply to client, will be returned
   uint16_t commands_executed = 0 ;               // How many commands have been executed
 
-  char * cmds = strdup ( commands.c_str() ) ;
+  *reply = 0;
+  if (returnFlag)
+    return reply;
+  char * cmds = strdup ( commands ) ;
   if ( cmds )
   {
-    char *s = cmds ;
-    while ( s )
+    char *s = strchr ( cmds, '#' ) ;
+    if ( NULL != s )
+      *s = '\0';
+    s = cmds;
+    while ( ( NULL != s )  && !returnFlag )
     {
       char *p = s;
       char * next = NULL;
@@ -2777,12 +3218,12 @@ const char* analyzeCmdsRR ( String commands )
       if (*value)
         {
           *value = '\0' ;                              // Separate command from value
-          snprintf ( reply, sizeof ( reply ), analyzeCmd ( s, value + 1 )) ;        // Analyze command and handle it
+          analyzeCmdRR ( reply, s, value + 1, returnFlag ) ;        // Analyze command and handle it
           *value = '=' ;                               // Restore equal sign
         }
       else
         {
-          snprintf ( reply, sizeof ( reply ), analyzeCmd ( s, "0" )) ;              // No value, assume zero
+          analyzeCmdRR ( reply, s, "0", returnFlag ) ;              // No value, assume zero
         }
       commands_executed++ ;
       s = next ;
@@ -2795,6 +3236,15 @@ const char* analyzeCmdsRR ( String commands )
 }
 
 
+
+const char* analyzeCmdsRR( String s) {
+  bool returnFlag = false;
+  return analyzeCmdRR ( s.c_str() , returnFlag );
+}
+
+const char* analyzeCmdsRR( String s, bool& returnFlag) {
+  return analyzeCmdRR ( s.c_str() , returnFlag );
+}
 
 
 #endif // Retroradio

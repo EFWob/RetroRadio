@@ -5373,83 +5373,6 @@ void chomp ( String &str )
   str.trim() ;                                        // Remove spaces and CR
 }
 
-#if defined(RETRORADIO)
-//**************************************************************************************************
-//                                    C H O M P _ N V S                                            *
-//**************************************************************************************************
-// Do some filtering on de inputstring:                                                            *
-//  - do 'normal' chomp first, return if resulting string does not start with @                    *
-//  - if resulting string starts with '@', nvs is looked if a key with the name following @ is     *
-//    found in nvs. If so, that string (chomped) is returned or empty if key is not found          *
-//**************************************************************************************************
-void chomp_nvs ( String &str , const char* substitute)
-{
-  //Serial.printf("Chomp NVS with %s\r\n", str.c_str());Serial.flush();
-  if (substitute) {
-    int idx = str.indexOf('?');
-    if (idx > 0) {
-      idx = 0;
-      int nesting = 0;
-      int subLen = strlen(substitute);
-      while (idx < str.length()) {
-        if (str.c_str()[idx] == '{')
-          nesting++;
-        else if (str.c_str()[idx] == '}') {
-          if (nesting > 0)
-            nesting--;
-        } else if (str.c_str()[idx] == '?')
-          if (0 == nesting) {
-            str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
-            idx = idx + subLen - 1;
-          }
-        idx++;
-      }
-    }
-    /*
-    while(idx >= 0) {
-      str = str.substring(0, idx) + String(substitute) + str.substring(idx + 1);
-      idx = str.indexOf('?');
-    }
-    */
-  }
-  chomp ( str ) ;                                     // Normal chomp first
-  char first = str.c_str()[0];
-  if (first == '@' )                         // Reference to RAM or NVS-Key?
-    {
-    if ( ramsearch (str.c_str() + 1 ) ) 
-      { 
-      //Serial.printf("NVS Search success for key: %s\r\n", str.c_str() + 1);
-      str = ramgetstr ( str.c_str() + 1) ;
-      chomp ( str ) ;
-      } 
-
-    else if ( nvssearch (str.c_str() + 1 ) ) 
-      { 
-      //Serial.printf("NVS Search success for key: %s, result =", str.c_str() + 1);
-      str = nvsgetstr ( str.c_str() + 1) ;
-      chomp ( str ) ;
-      //Serial.println(str);
-      }
-      else
-        str = "";   
-    } 
-  else if (first == '~' )                         // Reference to System Variable?
-    {
-      str = String(readSysVariable(str.c_str() + 1));
-    }
-   else if (first == '.' )                         // Reference to RAM?
-    {
-      str = ramgetstr ( str.c_str() + 1) ;
-      chomp ( str ) ;
-    }
-   else if (first == '&' )                         // Reference to NVS?
-    {
-      str = nvsgetstr ( str.c_str() + 1) ;
-      chomp ( str ) ;
-    }
-
-}
-#endif
 
 
 
@@ -5462,7 +5385,7 @@ void chomp_nvs ( String &str , const char* substitute)
 const char* analyzeCmd ( const char* str )
 {
 #if defined(RETRORADIO)
-  return analyzeCmdsRR ( String( str ) ) ;
+  return analyzeCmdsRR ( str ) ;
 #endif  
   char*        value ;                           // Points to value after equalsign in command
   const char*  res ;                             // Result of analyzeCmd
@@ -5570,8 +5493,8 @@ const char* analyzeCmd ( const char* par, const char* val )
 #endif  
 */
 #if defined(RETRORADIO)
-  if (analyzeCmdRR(reply, argument, value))
-    return reply;
+//  if (analyzeCmdRR(reply, argument, value))
+//    return reply;
 #endif  
   ivalue = value.toInt() ;                            // Also as an integer
   ivalue = abs ( ivalue ) ;                           // Make positive
@@ -5874,10 +5797,6 @@ const char* analyzeCmd ( const char* par, const char* val )
   {
     DEBUG = ivalue ;                                  // Yes, set flag accordingly
   }
-  else if ( argument == "btdebug" )                   // debug on/off request for BlueTooth?
-  {
-    DEBUG = ivalue ;                                  // Yes, set flag accordingly
-  }
   else if ( argument == "getnetworks" )               // List all WiFi networks?
   {
     sprintf ( reply, networks.c_str() ) ;             // Reply is SSIDs
@@ -5992,13 +5911,7 @@ OLD END OF COMMENTED OUT
 */  
   } else if (argument.startsWith("in.")) {
     doInput(argument.substring(3), value);
-  } else if (argument.startsWith("if")) {
-    //Serial.println("About to enter CalcIfWhile");
-    doCalcIfWhile(argument, "if", value);//doIf(value, argument.c_str()[2] == 'v');
-  } else if (argument.startsWith("calc")) {
-    doCalcIfWhile(argument, "calc", value);//doCalc(value, argument.c_str()[4] == 'v');
-  } else if (argument.startsWith("while"))
-    doCalcIfWhile(argument, "while", value);
+  } 
 #endif
 #if defined(TRACKLIST)
   else if (argument == "tracklist") {

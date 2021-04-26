@@ -15,11 +15,11 @@
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
 extern void loopRR();
-extern bool analyzeCmdRR(char* reply, String& param, String& value);
-extern void analyzeCmdDoneRR (char* reply, String& argument, String& value );
-extern const char* analyzeCmdsRR ( String commands );
+extern const char* analyzeCmdRR ( const char* commands );
 //to be removed later
 int readSysVariable(const char *n);
+const char* analyzeCmdsRR(String s);
+const char* analyzeCmdRR( char* reply, String param, String value);
 //end to be removed later
 
 #if defined(RETRORADIO) 
@@ -74,7 +74,7 @@ extern String getStringPart(String& value, char delim = ';');
 extern bool getPairInt16(String& value, int16_t& x1, int16_t& x2,bool duplicate = false, char delim = ',');
 extern void executeCmds(String commands);//, String value = "");
 extern void doInput(String id, String value);
-extern void chomp_nvs(String & str, const char *substitute = NULL);
+//extern void chomp_nvs(String & str, const char *substitute = NULL);
 extern String ramgetstr ( const char* key );
 extern void ramsetstr ( const char* key, String val );
 
@@ -118,6 +118,8 @@ class RetroRadioInput {
     void showInfo(bool hint);
   protected:
     RetroRadioInput(const char* id);
+    void runClick( bool pressed = false );
+    void doClickEvent( const char* type, int param = 0);
     bool hasChangeEvent();
     void executeCmdsWithSubstitute(String commands, String substitute);
 
@@ -136,6 +138,10 @@ class RetroRadioInput {
 //    bool _calibrate;
     char *_id;
     char *_onChangeEvent, *_on0Event, *_onNot0Event;
+    char *_onClickEvent[6];
+    uint8_t _clickEvents, _clickState;
+    uint32_t _clickStateTime;
+    int _clickLongCtr;
     static std::vector<RetroRadioInput *> _inputList;
     RetroRadioInputReader *_reader;
 //    std::map<const char*, RetroRadioInput *, cmp_str> _listOfInputs;
