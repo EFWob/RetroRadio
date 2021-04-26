@@ -834,7 +834,10 @@ Executing commands during runtime:
   
   
 If-Command:
-- is implemented as follows: _if[\[.result\]]\(condition\)= {if-command-sequence}[\[{else-command-sequence}\]].
+- is implemented as follows: 
+```
+	if[.result](condition)= {if-command-sequence}[{else-command-sequence}]
+```
 - condition is an unary or binary expression. Can be empty and is evaluated as false (=0) then. A unary (rvalue only) is true, if the rvalue is not zero.
 - an rvalue can be a _number_, a reference to NVS-key (_&key_), a reference to RAM-key (_.key_), a reference to either RAM (if defined there) or NVS (if
   not defined in RAM) using _@key_ or a system variable (_~variable_). Undefined rvalues are assumed to be 0.
