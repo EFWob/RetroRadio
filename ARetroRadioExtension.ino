@@ -8,6 +8,7 @@ int16_t numChannels = 0;              // Number of channels defined in current c
 
 int readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 int readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
+int readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 int readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 
 #define KNOWN_SYSVARIABLES   (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
@@ -16,7 +17,7 @@ struct {                           // A table of known internal variables that c
   const char *id;
   void *ref;
   int (*readf)(void*);
-} sysVarReferences[8] = {
+} sysVarReferences[] = {
   {"volume", &ini_block.reqvol, readUint8},
   {"preset", &ini_block.newpreset, readInt16},
   {"toneha", &ini_block.rtone[0], readUint8},
@@ -24,7 +25,8 @@ struct {                           // A table of known internal variables that c
   {"tonela", &ini_block.rtone[2], readUint8},
   {"tonelf", &ini_block.rtone[3], readUint8},
   {"channel", &currentChannel, readInt16},
-  {"channels", &numChannels, readInt16}
+  {"channels", &numChannels, readInt16},
+  {"volume_vs", &numChannels, readVolume}
 };
 
 
@@ -45,7 +47,22 @@ int readUint8(void *ref) {
 int readInt16(void *ref) {
   return (int) (*((uint16_t*)ref));
 }
-#define KNOWN_SYSVARIABLES =  (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
+
+int readVolume(void* ref) {
+  return vs1053player->getVolume (  ) ;
+}
+
+void doSysList(const char* p) {
+  doprint("Known system variables (%d entries)", KNOWN_SYSVARIABLES);
+  for (int i = 0; i < KNOWN_SYSVARIABLES; i++)
+  { 
+    bool match = p == NULL;
+    if (!match)
+      match = (NULL != strstr(sysVarReferences[i].id, p));
+    if (match)  
+      doprint("%2d: '%s' = %d", i, sysVarReferences[i].id, sysVarReferences[i].readf(sysVarReferences[i].ref));
+  } 
+}
 
 
 
@@ -1111,7 +1128,7 @@ void RetroRadioInput::showInfo(bool hint) {
         doprint(" * on%s-event: \"%s\"", type, *cmnds);
         if (ramsearch(*cmnds)) {
           String commands = ramgetstr(*cmnds);
-          chomp_nvs(commands);
+          //chomp_nvs(commands);
           doprint("    defined in RAM as: \"%s\"", commands.c_str());
         } else if (nvssearch(*cmnds)) {
           String commands = nvsgetstr(*cmnds);
@@ -1493,12 +1510,12 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
   public:
     RetroRadioInputReaderSystem(const char* reference): _readf(NULL), _refname(NULL), _ref(NULL) {
       int i;
-      for (int i = 0; (_readf == NULL) && (i < sizeof(_references) / sizeof(_references[0])); i++)
-        if (0 == strcmp(reference, _references[i].id))
-          if ((NULL != _references[i].ref) && (NULL != _references[i].readf)) {
-            _ref = _references[i].ref;
-            _readf = _references[i].readf;
-            _refname = _references[i].id;
+      for (int i = 0; (_readf == NULL) && (i < KNOWN_SYSVARIABLES); i++)
+        if (0 == strcmp(reference, sysVarReferences[i].id))
+          if ((NULL != sysVarReferences[i].ref) && (NULL != sysVarReferences[i].readf)) {
+            _ref = sysVarReferences[i].ref;
+            _readf = sysVarReferences[i].readf;
+            _refname = sysVarReferences[i].id;
           }
       if (NULL == _refname)
         _refname = strdup(reference);
@@ -1532,6 +1549,7 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
     }
 
   private:
+  /*
     struct {
       const char *id;
       void *ref;
@@ -1546,7 +1564,7 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
       {"channel", &currentChannel, RetroRadioInputReaderSystem::readInt16},
       {"channels", &numChannels, RetroRadioInputReaderSystem::readInt16}
     };
-
+*/
     void *_ref;
     const char* _refname;
     int (*_readf)(void *);
@@ -3020,7 +3038,7 @@ void loopRR() {
 }
 
 void doCall ( String param, String value ) {
-bool returnFlag = false;
+//bool returnFlag = false;
 bool doShow = param.c_str()[4] == 'v';
     if (param.length() > (doShow?5:4))
     {
@@ -3039,18 +3057,28 @@ bool doShow = param.c_str()[4] == 'v';
     value = ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) ;
     substitute(value, param.c_str());
     if (doShow) doprint ( "call sequence (after substitution): %s", value.c_str());
-    analyzeCmdsRR ( value , returnFlag );  
+    analyzeCmdsRR ( value );  
 }
 
 const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {
-  const char *s = param.c_str();
-  char firstChar = *s;
+  const char *s; 
+  char firstChar; 
   bool ret = false;
   
   chomp(param);
   param.toLowerCase();
   chomp ( value ) ;
-  if ( value.c_str()[0] == '(' ) 
+
+  s = param.c_str();
+  firstChar = *s; 
+/*  
+  dbgprint("analyzeCmdRR '%s'='%s'", param.c_str(), value.c_str());
+  if (param.startsWith("ifnot"))
+    dbgprint("This is IFNOT!!");
+  else
+    dbgprint("Not ifnot, s[0] = %c!!", firstChar);
+*/
+  if ( ( value.c_str()[0] == '(' ) )
   {
     String group, dummy;
     parseGroup ( value, group, dummy );
@@ -3075,7 +3103,16 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
       if ( s1 ) 
         doNvs ( s1, value );
       else
-        doNvs ( s , value );    }
+        doNvs ( s , value );    
+    }
+    else  if ( firstChar == '~' )
+    {
+      if (value != "0")
+        doSysList(value.c_str());
+      else
+        doSysList(NULL);
+    }
+  
   }
   else if ( ret = ( param.startsWith ( "call" ) )) 
   {
@@ -3083,7 +3120,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if (ret = param.startsWith("ifnot")) 
   {
-    //Serial.println("About to enter CalcIfWhile");
+    Serial.println("About to enter CalcIfWhile");
     doCalcIfWhile(param, "if", value, returnFlag, true);//doIf(value, argument.c_str()[2] == 'v');
   } 
   else if (ret = param.startsWith("if")) 

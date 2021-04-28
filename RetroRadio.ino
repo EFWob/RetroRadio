@@ -210,7 +210,7 @@
 // Access point name if connection to WiFi network fails.  Also the hostname for WiFi and OTA.
 // Note that the password of an AP must be at least as long as 8 characters.
 // Also used for other naming.
-#define NAME "NetzRadio"
+#define NAME "ESP32Radio"
 
 #include "ARetroRadioExtension.h"
 
