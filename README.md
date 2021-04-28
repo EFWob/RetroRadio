@@ -345,7 +345,7 @@ done by pressing (PREV) or (NEXT)).
 - The 'physical readout' of an input can be mapped to a different value range.
 - Each Input can be configured and reconfigured freely during runtime. 
 
-## First input example: Volume 
+## First input example Volume 
 We will assume the following setting for the example:
 - A variable resistor is attached to an analog pin (lets say 39) in such a way, that it applies a voltage between 0 (if turned to low) and VCC (if 
   turned to max).
@@ -802,6 +802,54 @@ if the input changes from 0 to 1 (touch released). There are to more properties 
 The _touch_XX_ settings in preferences will be translated to the following setting (during startup) automatically:
 
 _in.touch_XX = src=tXX, mode=1, on0=touch_XX, start_
+
+## Using inputs to read internal variables
+
+Some internal variables can be read through inputs. The list of available variables changes. You can check the current implementation by entering just 
+the "~" as sole character. The output should be like this:
+```
+23:11:17.173 -> D: Known system variables (8 entries)
+23:11:17.173 -> D:  0: 'volume' = 70
+23:11:17.173 -> D:  1: 'preset' = 0
+23:11:17.173 -> D:  2: 'toneha' = 5
+23:11:17.173 -> D:  3: 'tonehf' = 3
+23:11:17.173 -> D:  4: 'tonela' = 15
+23:11:17.173 -> D:  5: 'tonelf' = 12
+23:11:17.173 -> D:  6: 'channel' = 1
+23:11:17.173 -> D:  7: 'channels' = 9
+```
+
+These variables can be used (read only!) if the name is preceeded by "~". This is also possible for using those in an Input to the RetroRadio.
+That way, we are able to do some neat things. Like solving the problem "if volume is below 50 I do not hear anything". We have partly solved that
+for the analog input of a [variable resistor](#first.input.example.volume), but that will only prevent volume settings between 1 and 49 from the
+"volume knob" attached to the analog input. Here is the solution to limit volume settings to 50 to 100 (or 0) only, from any source:
+```
+in.minvol=src=~volume,map=(50..100=1)(0=2)(=0),onchange=:v_limit,start
+ram.:v_limit=if(?)={.lastv = ~volume}{if(.lastv)={volume=0}{volume=50}}
+```
+The first line defines the Input that observes the internal value "~volume" (which equals the _ini_block.volume_ setting). If the current volume 
+setting is between 50 and 100 the input will read 1, if volume is 0 it is 2 and 0 on any other value. So we have the following possible transitions:
+ - volume is 0, and goes to 1..49: the input readout will change from 2 to 0
+ - volume is 0, and it goes to 50..100: readout will change from 2 to 1
+ - volume is between 50..100 and goes to 0: readout will change from 1 to 2
+ - volume is between 50..100 and goes to 1..49: readout will change from 1 to 0
+We do not want to be in the range of 1..49. If we enter that range, we want to go either to 0 (if coming from >= 50) or 50 if coming from 0.
+Unfortunately, with the _onchange_ event, we do only get the current readout. So we need to store the last state, which is done in the assigned
+_onchange_-event ":v_limit". Lets assume the first readout was within one of the desired ranges. Then the Input will call the _:vlimit_ with 
+either '1' or '2'. So _if(?)_ evaluates to true, so in RAM _.lastv_ stores the current volume (Either '0' or anything between '50' and '100).
+if later a change into the undesired zone happens, _.lastv_ will be checked. If it is "0", the command _volume=50_ is executed, otherwise 
+_volume=0_. This will in return change the Input readout again, thus calling _:v_limit_ again direct which will again store _.lastv_ as either "0"
+or "50".
+
+With a few additions, you can also cap the volume at 90:
+```
+in.minvol=src=~volume,map=(91..100=3)(50..100=1)(0=2)(=0),onchange=:v_limit,start
+ram.:v_limit=(if(~volume>90)={volume=90;return};if(?)={.lastv = ~volume}{if(.lastv)={volume=0}{volume=50}})
+```
+
+
+
+
 
 # Scripting Summary 
 ## Control flow 
