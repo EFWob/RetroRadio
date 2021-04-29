@@ -212,7 +212,7 @@
 // Also used for other naming.
 #define NAME "ESP32Radio"
 
-#include "ARetroRadioExtension.h"
+#include "AddRR.h"
 
 
 // Max number of presets in preferences
