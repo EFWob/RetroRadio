@@ -222,6 +222,9 @@ commands can be defined either by preference settings or through the input chann
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
+ToDo: this section needs to be rewritten: if only pin_ir is defined, NEC only is decoded, for decoding both pin_ir_necrc5 must be defined.
+Running both at a time does cause trouble and may be that idea should be dropped.
+
 Now also RC5 remotes (Philips protocol) can be decoded. RC5 codes are 14 bits, where the highest bit (b13) is always 1.
 Bit b11 is a toggle bit that will change with every press/release cycle of a certain key. That will make each key to generate
 two different codes. To keep things simple that bit will always be set to 0.

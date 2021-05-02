@@ -3199,6 +3199,7 @@ void setupRR(uint8_t setupLevel) {
   {
     char s[20] = "::setup";
     int l = strlen(s);
+    setupDone = true;
     doprint("Running commands from NVS '%s'", s);
     analyzeCmdsRR ( nvsgetstr(s) );
     s[l + 1] = 0;
@@ -3231,7 +3232,6 @@ void setupRR(uint8_t setupLevel) {
       i++;
     } while (i < 11);
     retroRadioLoops[numLoops] = NULL;
-    setupDone = true;
   }
 }
 
