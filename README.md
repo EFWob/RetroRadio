@@ -202,7 +202,7 @@ typedef enum {
 
 ## Channel concept
 The channel concept allows a simple re-mapping of the preferences. There are two new commands to implement the channel concept. (as usual, the
-commands can be defined either by preference settings or through the input channels at runtime, i. e. Serial input).
+commands can be defined either by preference settings or through the Input channels at runtime, i. e. Serial input).
 
 - _channels = comma-delimited-integer-list_ will (re-)define the channel list. In the list numbers (decimal) are expected which are treated as 
    reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total with Channel1 mapped to 
@@ -345,12 +345,12 @@ done by pressing (PREV) or (NEXT)).
     (For touch pins the native Espressif-IDE is used, that increases the granularity and accuracy of the readout by magnitudes)
   - For internal variables, the possible return range is -32768..32767 (int16 is used)
 - The Inputs could either be read cyclic in the loop() or just on request
-- In 'cyclic mode' a three different change events can be assigned that are executed on any change, if the input goes to zero or if the input
+- In 'cyclic mode' a three different change events can be assigned that are executed on any change, if the Input goes to zero or if the Input
   leaves zero.
-- The 'physical readout' of an input can be mapped to a different value range.
+- The 'physical readout' of an Input can be mapped to a different value range.
 - Each Input can be configured and reconfigured freely during runtime. 
 
-## First input example Volume 
+## First Input example Volume 
 We will assume the following setting for the example:
 - A variable resistor is attached to an analog pin (lets say 39) in such a way, that it applies a voltage between 0 (if turned to low) and VCC (if 
   turned to max).
@@ -369,34 +369,34 @@ of the radio).
 
 
 This line contains the new command _'in'_.
-- The command _'in'_ sets or updates the properies of a specific input.
-- Each input has a name, that name is indicated by the string following the '.' after _in_
-- In our example we have defined an input with the name 'vol'
-- The _in_ command allows to set or change the "properties" of an input.
+- The command _'in'_ sets or updates the properies of a specific Input.
+- Each Input has a name, that name is indicated by the string following the '.' after _in_
+- In our example we have defined an Input with the name 'vol'
+- The _in_ command allows to set or change the "properties" of an Input.
   * If more than one property is defined, they are separated by ','. If more than one property is set in this list, they are evaluated from left to right.
   * most properties take an argument, that argument is assigned as usual with _property = argument_
   * The argument of a property is dereferenced to RAM/NVS if it starts with '@', to RAM only if it starts with '.', to NVS only if it starts with '&'.
-  	- If an argument is dereferenced, it is used when the _in_-command is executed. If it is changed later, the input will not change.
+  	- If an argument is dereferenced, it is used when the _in_-command is executed. If it is changed later, the Input will not change.
   * If _argument_ is not provided, it is assumed to be the empty String ''.
   * Some properties (_start_ or _stop_ for instance) do not require an _argument_ (in that case, _argument_ will be ignored if set)
 - The property _'src'_ specifies the link to an input
   * Here _'a39'_ is set. This means "use pin39 as analog input" There is no checking, if that is a valid (analog) pin. In practice, this assignment will result in an 
-  _analogRead(39)_. (The setting _in.vol=src=a42_ would not result in any complaints, just render the input useless, as _analogRead(42)_ will always return _0_.)
+  _analogRead(39)_. (The setting _in.vol=src=a42_ would not result in any complaints, just render the Input useless, as _analogRead(42)_ will always return _0_.)
 - _mode_ is a property that details a few aspects of the physical input. 
-  * It is specific (has a different meaning) to a specific input type.
-  * _mode_ is bit-coded, and for analog input b0-b4 are evaluated (28 from the example is 0b11100 in binary):
-  * b0: if set, readout is inverted (so 4095 if 0V are applied to input pin and 0 is returned if pin is at Vcc). Not inverted in our example.
+  * It is specific (has a different meaning) to a specific Input type.
+  * _mode_ is bit-coded, and for analog Input b0-b4 are evaluated (28 from the example is 0b11100 in binary):
+  * b0: if set, readout is inverted (so 4095 if 0V are applied to Input pin and 0 is returned if pin is at Vcc). Not inverted in our example.
   * b1: if set, pin is configured as Input with internal PullUp (_pinMode(INPUT_PULLUP)_), otherwise (as in this example) just as Input (_pinMode(INPUT)_).
   * b2..b4: set a filter size from 0 to 7 to smoothen out glitches/noise on the input line. The higher the filter is set (max 7 as in our example) the less noise
       will be on readout with the drawback that actual changes (user change of variable resistor for instance) will be less instantaneous but will take some time
       to propagate to the readout. For volume settings this is not a bad thing at all, and the maximum size of 7 is still fine with that usecase.
   * all other bits are reserved for future ideas and should for now be set to '0'.
-  * So in our case the input is configured with the maximum filter size 7, not inverted, internal PullUp not set.  
+  * So in our case the Input is configured with the maximum filter size 7, not inverted, internal PullUp not set.  
 - The property _map_ allows a re-mapping of the physical read input value to an arbitrary different output range
   * a _map_ can contain any number of entries
   * each entry must be surrounded by paranthesis _'(x1..x2 = y1..y2)'_. _x1..x2_ is (a part) of the input range that will be transformed into the output range _y1..y2_
-    > In our example, if _analogRead(39)_ returns something between 101 or 4095, the input itself will return something between 50 to 100. If _analogRead()_ returns
-      less, (100 or less), the input will yield 0.
+    > In our example, if _analogRead(39)_ returns something between 101 or 4095, the Input itself will return something between 50 to 100. If _analogRead()_ returns
+      less, (100 or less), the Input will yield 0.
   * The arduino _map()_ function is used internally, so reversing lower and upper bounds or using negative numbers is no problem as long its within the limits of int16
   * _map_-entries can overlap both on the x and the y side. When actually performing the mapping, the entries are evaluated from left to right.
   * if a matching entry is found, that entry will be used for mapping. Further entries (to the right) are no longer considered.
@@ -407,18 +407,18 @@ This line contains the new command _'in'_.
   * A single map entry can be dereferenced to RAM/NVS using either of _'@/./&key-name_. 
     > So _'(@x1..@x2=0)'_ would search for the keys _x1_ and _x2_ in RAM/NVS and would use 
       this values at the time the 'in' command is executed. The resulting map-Entry will keep these values, even if later _x1_ or _x2_ are changed.
-- The property _onchange_ defines either a inline command sequence or a _key_ to RAM/NVS that is searched for if the input (after mapping) has changed since 
+- The property _onchange_ defines either a inline command sequence or a _key_ to RAM/NVS that is searched for if the Input (after mapping) has changed since 
   last check. 
-  * if the argument is enclosed in '{}', it es executed as command-sequence if a change on the input is detected. 
-  * if the argument is not enclosed in curly braces, it is expected to be a _key_ name that exists in either RAM/NVS. If the input changes, that key name
+  * if the argument is enclosed in '{}', it es executed as command-sequence if a change on the Input is detected. 
+  * if the argument is not enclosed in curly braces, it is expected to be a _key_ name that exists in either RAM/NVS. If the Input changes, that key name
   	will be searched for in RAM/NVS and (if found) the value associated to that key is assumed to be a commands sequence that will be executed.
-  * In the commands sequence, every occurance of '?' will be replaced by the current value of the input.
-  * (to generate _onchange_-events, you need to explicitely start cyclic polling of the input, see below.)
-- The property _delta_ defines the magnitude of change that is required on the (mapped) input for any change event to be triggered.
+  * In the commands sequence, every occurance of '?' will be replaced by the current value of the Input.
+  * (to generate _onchange_-events, you need to explicitely start cyclic polling of the Input, see below.)
+- The property _delta_ defines the magnitude of change that is required on the (mapped) Input for any change event to be triggered.
   * this allows, especially for analog input, to eleminate noise on the line that would lead to alternate readings and hence events on every other readout. Must be 
     one (any change in the input would lead to an event) or above. Will be forced to 1 if set by user to 0 or below.
-- The property _start_ starts the cylic polling of the input. Only if polling is started, any of the events (click and/or change) will be generated.
-  * _start_ results in a direct readout of the input. If _onchange_ is defined, when _start_ is set (it is in our example), that event will be called direct 
+- The property _start_ starts the cylic polling of the Input. Only if polling is started, any of the events (click and/or change) will be generated.
+  * _start_ results in a direct readout of the Input. If _onchange_ is defined, when _start_ is set (it is in our example), that event will be called direct 
   	(to do an initial setting of volume at startup depending of the position of the variable resistor in our case). If that is not desired, _start_ must 
 	be called before _onchange_ is set.
 - The property _stop_ (not used in the example) is the opposite of _start_: it stops the cyclic polling (or does just nothing if cyclic polling has 
@@ -429,13 +429,13 @@ an appropriate volume setting. If everything is connected correctly and if there
 already work.
 
 If not, it is time for some debugging. There are two properties, that are concerned with debugging:
-- The property _info_ shows the settings of the input (no argument needed).
-- The property _show = TimeInSeconds_ starts a cyclic output of the readout of the input. _TimeInSeconds_ is the distance between two observations in seconds. 
+- The property _info_ shows the settings of the Input (no argument needed).
+- The property _show = TimeInSeconds_ starts a cyclic output of the readout of the Input. _TimeInSeconds_ is the distance between two observations in seconds. 
   If TimeInSeconds is 0 or not given, the output on Serial will stop.
   > The output will show regardless of the setting of DEBUG. If you want to concentrate on the Input-information, you probably want to stop all other output
     by entering the command _debug=0_ first.
   > If _show_ is not zero, information will also show if events are happening (changes or clicks). So _show=3000_ can also be useful, if you want to debug
-    for events. _show=1_ is useful if you want to monitor an input continuously (e. g. for deriving a _map_ for that input).
+    for events. _show=1_ is useful if you want to monitor an Input continuously (e. g. for deriving a _map_ for that Input).
     
 If you enter the command _in.vol=info_ you should read:
 
@@ -458,7 +458,7 @@ D:  * t-long    :   500 ms (detect first longpress)
 D:  * t-repeat  :   500 ms (repeated longpress)
 ```
 
-If your output is different, you probably had a type somewhere. Please check and correct the settings.
+If your output is different, you probably had a typo somewhere. Please check and correct the settings.
 
 If all is expected, to have more insight, you should run the _in_-command with the property _show_ set, for instance to 1, i. e. _in.vol=show=1_. 
 That should result in somewhat like this:
@@ -555,7 +555,7 @@ the better setting.
 While we are at it, play with _b0_ of mode. As effect, the physical readout should inverse, and the direction of increasing/decreasing voltage should reverse. Enter 
 _in.vol=mode=29_ to see (hear) the difference. Switch back to 'normal' using the command _in.vol=mode=28_.
 
-You can change every property of an input at any time. Whenever a property is changed, the others are not affected: a change to _mode_ as just done will not affect 
+You can change every property of an Input at any time. Whenever a property is changed, the others are not affected: a change to _mode_ as just done will not affect 
 the _map_ (or any other property). You could even switch to a different input-pin, if this makes any sense from application perspective. (Remember that 
 if an argument is not given for a property, that argument is assumed to be the empty string '', that reads 0 if a numeric property is set).
 
@@ -566,15 +566,15 @@ if turned to the other side and will go down to 0 from the middle again. Is this
 
 
 ## Second example: tuning
-If everything is up and running, we can also change the input to have a totally different meaning: not to change the volume, but to change the preset.
-That is normally achieved by a variable capacitor, but since a variable resistor is already at hand and only two input modifications are required (change from 
-analog pin to touch pin and use a different mapping), we can use the input with the variable resistor as simulation.
+If everything is up and running, we can also change the Input to have a totally different meaning: not to change the volume, but to change the preset.
+That is normally achieved by a variable capacitor, but since a variable resistor is already at hand and only two Input modifications are required (change from 
+analog pin to touch pin and use a different mapping), we can use the Input with the variable resistor as simulation.
 
-First, stop the volume input using the command _in.vol=stop_
+First, stop the volume Input using the command _in.vol=stop_
 
-Then, change the "onchange" event of the input: _in.vol=onchange={preset=?}_
+Then, change the "onchange" event of the Input: _in.vol=onchange={preset=?}_
 Next, simplify the mapping to: _in.vol=map=(0..4095=0..2)_ to just tune between presets 0 and 2. 
-Then, set delta to 1 and re-start the cyclic polling of the (and the debug show) input with the new mapping and event: _in.vol=start, delta=1, show=1_
+Then, set delta to 1 and re-start the cyclic polling of the (and the debug show) Input with the new mapping and event: _in.vol=start, delta=1, show=1_
 Verify the settings with _in.vol=info_, output on Serial should be this:
 
 ```
@@ -593,13 +593,13 @@ D: .....
 ```
 
 If you play around, you will notice: it works in principle, but not quite. The first thing you will notice is that the mapped input value will be 0 for the 
-physical readings of 0 to 1023, 1 for 1024 to 3073 and 2 for 3074 and up. So the map is skewed (the caching range for 1 is 2048 wide, but only 1024 wide
+physical readings of 0 to 1023, 1 for 1024 to 3073 and 2 for 3074 and up. So the map is skewed (the catching range for 1 is 2048 wide, but only 1024 wide
 for 0 and 2. So the _map()_ function is skewed.
 
 The next problem is that the presets will jitter if the reading is just between two presets. To increase the problem, set the filter to 0 by using the 
 command _in.vol=mode=0_. Then try to tune close to a readout of 1024. You will notice a constant change between presets.
 
-To solve this problems, Gaps are permitted in the value map. If the current physical read falls within a gap, the input is considered to be unchanged. For the
+To solve this problems, Gaps are permitted in the value map. If the current physical read falls within a gap, the Input is considered to be unchanged. For the
 first start, if the physical read is within a gap, the next matching value in the mapping entries closest to the physical readout is assumed.
 
 _in.vol=map=(0..1200=0)(1448..2648=1)(2894..4095=2)_ will do the trick.
@@ -616,7 +616,7 @@ capacitor is cut off, especially be sure that the coil of the oscillator circuit
 As a rule of thumb, the wire between capacitor and input pin should be as short as possible and as freely running as possible to improve the readings.
 Especially avoid twisting with other wires if possible.
 
-### Calibrating the input
+### Calibrating the Input
 The touch pin could return any reading between 0 and 1023 in theory. In practice, if a variable capacitor is connected, the reading would be somewhere in 
 between. The reading will also change depending on the wiring (length and path) between capacitor and ESP32. So you probably will have different readings 
 using the same capacitor on the breadboard and in the final product.
@@ -644,7 +644,7 @@ Input "in.tune" (is stopped) physRead=  467
 
 The numbers are abritrary of course, your mileage may vary. In this example the reading range is between 103 and 467. You should observe a rather stable 
 reading if the position of the tuning knob is not changed (jitter by one only, no matter what the tuning position is). You should also observe that the 
-change is nonlinear. The higher the reading the less you have to turn for a change in the input readout.
+change is nonlinear. The higher the reading the less you have to turn for a change in the Input readout.
 
 For instance on my scale I have the the frequencies 530, 600, 800, 1200 and 1600 written on the AM scale. The corresponding readings are 113, 140, 212, 355
 and 460 in my example. A possible tuning map (with some fishing range and gaps as discussed above) for 5 'channels' mapped to that positions could be defined
@@ -667,7 +667,7 @@ Input "in.tune" (is stopped) physRead=  460 ( mapped to:    5)
 If everything is as expected, the calibration output could be stopped by issuing the command:
 _in.tune=show=0_
 
-Now the mapped reading can be used to switch presets. All what is needed to use this input to change presets is to start the cyclic polling of the preset
+Now the mapped reading can be used to switch presets. All what is needed to use this Input to change presets is to start the cyclic polling of the preset
 and assign a _onchange_-event: 
 ```
 _in.tune=onchange={preset=?}_
@@ -699,7 +699,7 @@ D:  * t-long    :   500 ms (detect first longpress)
 D:  * t-repeat  :   500 ms (repeated longpress)
 ```
 
-To actually make the radio change the preset by changing the tuning knob you need to start cyclic polling of the input:
+To actually make the radio change the preset by changing the tuning knob you need to start cyclic polling of the Input:
 
 _in.tune=start_
 
@@ -709,7 +709,7 @@ $tunemap =      (0..120 = 1)(130..160 = 2)(180..250 = 3)(330..390 = 4)(420..600 
 # Arbritary key to store the map for later use
 
 in.tune = src=t9,map=@$tunemap, onchange={preset=?}, start
-# Use touch T9 as input, using the predefined $tunemap, execure ':tune' on change of input and start cyclic polling of the input 
+# Use touch T9 as Input, using the predefined $tunemap, execute 'preset=?' on change of Input and start cyclic polling of the Input 
 ```
 
 Or you could use the variable capacitor for different thinks, like changing the volume:
@@ -718,13 +718,13 @@ _in.tune=src=t9,map=(110..475=50..100)(0..109=0)(476..500=100),onchange={volume=
 Together with the [example above](#second-example-tuning) it is thus possible to use the frequency knob to change volume and the volume knob to change presets. 
 What a crazy world!
 
-Of course it is also possible to change the direction of volume increase/decrease by changing the input map:
+Of course it is also possible to change the direction of volume increase/decrease by changing the Input map:
 _in.tune=map=(110..475=100..50)(0..109=100)(476..500=0)_
 
 
 ### Classic touch reading
 
-If you just want to detect touch input, you can also use the new input mechanism. We assume the touch input is T8. So define a touch input like this:
+If you just want to detect touch input, you can also use the new Input mechanism. We assume the touch input is T8. So define a touch Input like this:
 
 ```
 in.touch=src=t8,show=1
@@ -745,10 +745,10 @@ D: Input "in.touch" (is stopped) physRead=  846
 ```
 
 The higher readings (above 800 in this example) are while not touched (open), the lower readings (below 600) when touched. To convert the readings into 
-digital information you could apply a map to the input:
+digital information you could apply a map to the Input:
 _in.touch=map=(600..1023=1)(=0)_ 
 
-With this map the input will read 1 if untouched and 0 if touched:
+With this map the Input will read 1 if untouched and 0 if touched:
 ```
 D: Input "in.touch" (is stopped) physRead=  856 ( mapped to:    1)
 D: Input "in.touch" (is stopped) physRead=  176 ( mapped to:    0)
@@ -760,14 +760,14 @@ D: Input "in.touch" (is stopped) physRead=  815 ( mapped to:    1)
 D: Input "in.touch" (is stopped) physRead=  856 ( mapped to:    1)
 ```
 
-There is also a simplified way using the _mode_-property of the touch input. If bit b0 is set, the input is automatically converted to a binary reading. 
-In our example, first delete the input-map by assigning an 'empty' string as map:
+There is also a simplified way using the _mode_-property of the touch Input. If bit b0 is set, the Input is automatically converted to a binary reading. 
+In our example, first delete the Input-map by assigning an 'empty' string as map:
 _in.touch=map=_
 
 And then set bit b0 in the _mode_-property:
 _in.touch=mode=1_
 
-And the result will be something like this (input is touched/untouched in this example):
+And the result will be something like this (Input is touched/untouched in this example):
 ```
 D: Input "in.touch" (is stopped) physRead=    1
 D: Input "in.touch" (is stopped) physRead=    0
@@ -779,18 +779,18 @@ D: Input "in.touch" (is stopped) physRead=    0
 D: Input "in.touch" (is stopped) physRead=    1
 ```
 
-Using the _mode_-bit b0 should be the preferred option if a touch-input shall be used as binary input (touched/not touched).
+Using the _mode_-bit b0 should be the preferred option if a touch-Input shall be used as binary Input (touched/not touched).
 
-For reacting on input changes, using the _onchange_ event is problematic, as it triggers both if the input is changing from 1 to 0 (touch detected) and
-if the input changes from 0 to 1 (touch released). There are two more change-properties that can be used (on any input):
-- _on0_ will trigger if the input changes from not Zero to Zero. If that happens the command sequence associated to on0 will be executed.
-- _onnot0_ will triggered on change of the input from Zero to not Zero.
-- _on0_ and _onnot0_ can be used on any input, also on analog reads. 
+For reacting on Input changes, using the _onchange_ event is problematic, as it triggers both if the Input is changing from 1 to 0 (touch detected) and
+if the Input changes from 0 to 1 (touch released). There are two more change-properties that can be used (on any other type of Input as well, of course):
+- _on0_ will trigger if the Input changes from not Zero to Zero. If that happens the command sequence associated to on0 will be executed.
+- _onnot0_ will triggered on change of the Input from Zero to not Zero.
+- _on0_ and _onnot0_ can be used on any Input, also on analog reads. 
 - _onchange_ will always trigger before either of _on0_ or _onnot0_ triggers (if appropriate).
 - the value associated to _on0_ or _onnot0_ can either be a command sequence direct (enclosed in {}) or a _key_-name that is searched for in RAM/NVS.
   (value substituation is still done for "?", though in case of _on0_ it will always be "0").
-- to be clear: _onnot0_ will only trigger if the last read was 0. So if an analog input changes from 0 to 1, _onchange_ and _onnot0_ will trigger. If later
-  the input changes to 2, _onchange_ will trigger again, but not _onnot0_ 
+- to be clear: _onnot0_ will only trigger if the last read was 0. So if an analog Input changes from 0 to 1, _onchange_ and _onnot0_ will trigger. If later
+  the Input changes to 2, _onchange_ will trigger again, but not _onnot0_ 
 
 As a simple example, to use the touch pin T8 to toggle mute, the command could be:
 ```
@@ -817,14 +817,14 @@ in.gpio_33 = src=d33, mode=2, on0=gpio_33, start
 ```
 
 Nothing spectacular here, just notice:
-- _src=d33_ makes this a digital input linked to GPIO33 (again, no checking if this is a valid pin-nr and also no checking if this pin has not been 
+- _src=d33_ makes this a digital Input linked to GPIO33 (again, no checking if this is a valid pin-nr and also no checking if this pin has not been 
   reserved before).
 - for the _mode_ property bits b0 and b1 are evaluated:
 	* b0: if set, the readout is inversed (not inversed in our case)
 	* b1: if set (it is in our case), GPIO is configured with __INPUT_PULLUP__
     * all other bits are reseved for future ideas and should be __0__ for now.
 - _on0_ holds the key (to NVS) that contains _mute_ as command.
-- _start_ activates the input that is now listening on GPIO33
+- _start_ activates the Input that is now listening on GPIO33
 
 Now the radio should toggle mute whenever GPIO33 goes low. If this does not work, use property _show=1_ for debugging.
 
@@ -834,7 +834,7 @@ in.gpio_33 = on0={uppreset=1}
 ```
 
 ## Click-events
-Any input can be used to react to click-events. A Input is considered pressed if it reads __0__, unpressed if it reads something other then zero.
+Any Input can be used to react to click-events. A Input is considered pressed if it reads __0__, unpressed if it reads something other then zero.
 Depending on the pressing sequence, the following events can be used:
 - _on1click_ the Input has been short pressed once.
 - _on2click_ the Input has been short pressed twice.
@@ -934,7 +934,7 @@ And repeat the longpress-testing, the result on Serial should be something like:
 
 You will notice, that the first longpress is still reportet after 500ms (t-long has not been changed and is still 500), but all the following events are
 coming at a shorter distance of around 100ms as expected. 
-If not, you should debug the input by running:
+If not, you should debug the Input by running:
 ```
 in.gpio_33=info
 ```
@@ -961,9 +961,9 @@ D:  * t-repeat  :   100 ms (repeated longpress)
 ```
 
 
-## Using inputs to read internal variables
+## Using Inputs to read internal variables
 
-Some internal variables can be read through inputs. The list of available variables changes. You can check the current implementation by entering just 
+Some internal variables can be read through Inputs. The list of available variables changes. You can check the current implementation by entering just 
 the "~" as sole character. The output should be like this:
 ```
 23:11:17.173 -> D: Known system variables (8 entries)
@@ -979,8 +979,8 @@ the "~" as sole character. The output should be like this:
 
 These variables can be used (read only!) if the name is preceeded by "~". This is also possible for using those in an Input to the RetroRadio.
 That way, we are able to do some neat things. Like solving the problem "if volume is below 50 I do not hear anything". We have partly solved that
-for the analog input of a [variable resistor](#first.input.example.volume), but that will only prevent volume settings between 1 and 49 from the
-"volume knob" attached to the analog input. Here is the solution to limit volume settings to 50 to 100 (or 0) only, from any source:
+for the analog Input of a [variable resistor](#first.Input.example.volume), but that will only prevent volume settings between 1 and 49 from the
+"volume knob" attached to the analog Input. Here is the solution to limit volume settings to 50 to 100 (or 0) only, from any source:
 ```
 in.minvol=src=~volume,map=(50..100=1)(0=2)(=0),onchange=:v_limit,start
 ram.:v_limit=if(?)={.lastv = ~volume}{if(.lastv)={volume=0}{volume=50}}
