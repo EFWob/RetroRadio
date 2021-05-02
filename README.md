@@ -21,7 +21,7 @@ project now supports:
    - extended touch input (i. e. to evaluate the position of a variable capacitor to switch
      presets accordingly). Also one additional line only)
    - TODO: led output. With PWM capability / blink pattern support
-   - TODO: the functionality of inputs can be extended to define reactions
+   - the functionality of inputs can be extended to define reactions
      to double-click like events (or longpress)
    - the capabilities of of the commands/preference settings have been extended to include 
      (a limited) scripting 'programming language'. You can react on events (changing inputs or
@@ -44,7 +44,7 @@ in the section Generic enhancements below.
 If you have the ESP32 radio installed and preferences set up, so it is up and running, the RetroRadio software should run out of the box
 with a few things to notice:
 
-- This version needs more NVS-entries. If you are using already much space in NVS (namely if you have a lot of presets defined) you might
+- This version needs some more NVS-entries. If you are using already much space in NVS (namely if you have a lot of presets defined) you might
   need to increase the size of the NVS-partition. 
 - You can use the command _test_ to check if there are still entries in NVS available. If the number of free entries is close to zero, or
   you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
@@ -58,22 +58,22 @@ to simply override a 'default setting' in NVS by storing the same key in RAM).
 
 NVS keys can be defined in the preferences as usual.
 
-- There is a command _nvs_ now to set an NVS-Entry. Syntax is either _nvs = key = value_ to assign the _value_ to the given key or
-  _nvs.key = value_. There is a syntactical difference: the former does not interpret _value_ in any case, while in the latter, if 
-  _value_ starts with '@', then _value_ (without leading '@') is considered to be a key-name by itself and is exchanged with the 
-  content of the resulting search for the dereferenced key.
+- There is a command _nvs_ now to set an NVS-Entry. Syntax is _nvs.key = value_. That will set the preference entry _key_ to the specified
+  value (or create it, if it did not exist before). NVS (or RAM entries) can be dereferenced to be used as arguments for commands.
+  For details see [summary below](#storing-and-retrieving-values), for now it is sufficient to know that _@key_, if used as an argument of
+  a command, will replaced by the value of that _key_ stored in RAM, or, if it does not exist in RAM, with the value assigned to _key_ in 
+  the preferences, or the empty string "", if defined in neither RAM nor NVS.
 - There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent to the _nvs_-command above. 
 - In both cases, if _key_ exists the value associated to set key will be replaced. Otherwise the _key_-_value_-pair will be created and stored.
 - Example:
   * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst_ and _value_ == _'42'_
   * _ram.tst2 = @tst1_ will create entry _tst2_ in RAM with the _value_ == _'42'_
-  * _ram = tst3 = @tst1_ will create entry _tst3_ in RAM with the _value_ == _'@tst1'_ 
   * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
     still stay at _'42'_.
-- you can list the RAM/NVS command with the commands _nvs?=Argument_ or _ram?=Argument_. _Argument_ is optional, if set only keys that 
+- you can list the RAM/NVS entries with the commands _nvs?=Argument_ or _ram?=Argument_. _Argument_ is optional, if set only keys that 
   contain _Argument_ as substring are listed. Try _ram?=tst_ for example.
 - RAM or NVS entries can be deleted using the command _nvs- = key_ or _ram- = key_ which will delete _key_ and the associated value from RAM/NVS.
-
+  * WARNING: you probably do not want to delete your presets from NVS. There is no "Are you sure"-popup. The entry will be deleted.
 
 ## Command handling enhacements
 When a command is to be executed as a result of an event, you can now not just execute one command but a sequence of 
@@ -87,16 +87,17 @@ in the NVS-preferences, you can reference that by using "@": _ir_XXXX = @limp_ho
 are not permitted). If the given key does not exist, an empty string is used as replacement.
 
 ## The call-command
-The _call_-command takes the form _call = key-name_. If _key-name_ is defined (either NVS or RAM) the associated value is
+The _call_-command takes the form _call = key-name_. If _key-name_ is defined (RAM/NVS with RAM overriding NVS) the associated value is
 retrieved and executed as commands-list (whith each command being seperated by semicolon).
 
 ## Setup event
 If in NVS-preferences the key-value-pair _::setup = key-name_ is defined, the value associated _key-name_ is retrieved from NVS and executed as 
-commands-list. The _::setup_-'event' is generated after everything else in _setup()_ is finished just before the first _call to loop()_ 
+commands-list. The _::setup_-'calls' will happen after everything else in _setup()_ is finished just before the first _call to loop()_ 
 (So network is up and running, preferences are read, VS module is initialized. I. e. ready to play).
 
 If you set _::setup = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
-to level 70. (If one line is not enough, you can also use _::setup0_ to _::setup9_ for executing additional command-sequences.
+to level 70. (If one line is not enough, you can also use _::setup0_ to _::setup9_ for executing additional command-sequences, see 
+[below](#scripting-summary)) .
 
 ## Loop event
 If the key-value-pair _::loop = key-name_ is defined, the associated contents of _key-name_ are retrieved from NVS and executed as command-list.
@@ -109,18 +110,17 @@ More on this (and on control flow in general) will be introduced if we get along
 
 # Generic additions
 ## Summary
-Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section extended
-input handling if you are not interested to use/understand the following features for now:
- - Ethernet can be used (I had to place one radio at a spot with weak WLAN reception)
- - Philips RC5 protocol is implemented in addition to the NEC protocol. (you can configure in the preference
-	  to use both or only either one of that protocol. By default both are enabled)
- - A channel concept is introduced to simplify a re-mapping of presets.
- - IR remote handling has been extended to recognise longpress and release events
+Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section [Extended
+Input Handling](#extended-input-handling) if you are not interested to use the following features for now:
+ - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
+ - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
+ - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
+ - [IR remote handling](#added-support-for-longpress-and-release-on-ir-remotes) has been extended to recognise longpress and release events
  - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
 	  can execute not only a single command, but command sequences also. A command sequence is a list of commands
 	  separated by _;_
- - when a value for a command is evaluated, you can reference an additional nvs element by _@key_. Simple 
-	  example: if the command _volume = @def_volume_ is encountered, the preferences are searched for key _def_volume_ 
+ - when a value for a command is evaluated, you can dereference to a RAM/NVS entry by _@key_. Simple 
+	  example: if the command _volume = @def_volume_ is encountered, then RAM/NVS are searched for key _def_volume_ 
 	  which will be used as paramter (if not found, will be substituted by empty string)
  
 
