@@ -6,58 +6,59 @@ R"=====(
 $channels_am = 1,2,10,11,12,13,14,15,16
 $channels_fm = 0,1,2,3,4,5,6,7,10
 #
-$equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
-$equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
-$equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
-$equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
 $equalizermax = 3
 #
 $tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..445=8) (460..590=9)
 #
-$user1 = channels=@$channels_fm;.channel=1;.vol=70;.$eq_idx=0;in.vol=on0=
-$user2 = channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.$eq_idx=1;in.vol=on0=:volchan_any
-#
 $volmap = (100..4095=50..100)(=0)
+$volmin = 50
 #
-::loop0 = # return;#if(@channel > 0) = {if(@hmilock & 1) = {ram-=channel};if(.channel > 0) = {if(.channel > ~channels) = {ram-=channel}}};if(.channel > 0) = {call=:chan_tune};ram-=channel
+::loop0 = 
 ::loop1 = if(.vol >= 0) = {ifnot(@hmilock & 2) = {volume=.vol}};.vol=-1
-::loop2 = if(.channel)={ifv(~channels < 2)={.-=channel;return;};ifv(@hmilock&1)={.-=channel;return};ifv ( .channel > ~channels) = {.-=channel;return};debug=1;channel=.channel;.-=channel}
-::setup0 = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,event=:switch
-::setup1 = in.vol = src=a39,map=@$volmap,delta=2,start,event=:vol
-::setup2 = in.tune = src=t9,map=@$tunemap,start,event = :tune;#in.chantune =
-::setup3 = ram.$eq_idx = 1;in.equalizer=src=.$eq_idx,start,onchange=:eq_set
+::loop2 = if(.channel)={if(~channels < 2)={.-=channel;return;};if(@hmilock&1)={.-=channel;return};if ( .channel > ~channels) = {.-=channel;return};channel=.channel;.-=channel}
+::setup0 = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,onchange={call=:user?}
+::setup1 = in.vol = src=a39,map=@$volmap,delta=2,start,onchange={.vol=?}
+::setup2 = in.tune = src=t9,map=@$tunemap,start,onchange={.channel=?}
+::setup3 = .eq_idx = 1;in.equalizer=src=.eq_idx,start,onchange=:eq_set
 ::setup4 = in.channels = src=~channels;in.channel = src=~channel
-::setup5 = call=$user1
+::setup5 = call=:user1
 ::setup6 = call=:chan_tune
+::setup7 = in.volobserver= src=~volume,map=(@$volmin..100=2)(0=1)(=0),onchange=:vol_adjust,start
 #
-:chan_any = ifv(~channels > 1)={.x=~channel;whilev(.x == ~channel)={calcv.x(1><~channels)};.channel=@x}
+:chan_any = if(~channels > 1)={.x=~channel;while(.x == ~channel)={calc.x(1><~channels)};.channel=@x}
 :chan_tune = if(.channel) = {channel=.channel};ram- = channel;
 #
-:eq_down = if(@$eq_idx > 0)={@:eq_idx--}{ram.$eq_idx = 0}
-:eq_downwrap = call = :eq_idx--;if(@$eq_idx < 0) = {ram.$eq_idx = @$equalizermax}
-:eq_idx++ = calc.$eq_idx(@$eq_idx + 1)
-:eq_idx-- = calc.$eq_idx(@$eq_idx - 1)
-:eq_set = @$equalizer?
-:eq_up = if(@$eq_idx < @$equalizermax) = {@:eq_idx++}{ram.$eq_idx = @$equalizermax}
-:eq_upwrap = if(@$eq_idx < @$equalizermax)= {@:eq_idx++}{ram=$eq_idx = 0}
+:eq_down = if(.$eq_idx > 0)={call = :eq_idx--}{.eq_idx = 0}
+:eq_downwrap = call = :eq_idx--;if(.eq_idx < 0) = {.eq_idx = @$equalizermax}
+:eq_idx++ = calc.eq_idx(.eq_idx + 1)
+:eq_idx-- = calc.eq_idx(.eq_idx - 1)
+:eq_set = call = :equalizer?
+:eq_up = if(.eq_idx < @$equalizermax) = {.eq_idx++}{.eq_idx = @$equalizermax}
+:eq_upwrap = if(.eq_idx < @$equalizermax)= {call = :eq_idx++}{.eq_idx = 0}
+:equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
+:equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
+:equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
+:equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
+#
+:preset = ._pres = ?; ifnot(@hmilock & 1) = {preset = ._pres}
 #
 :setpreset = if(@hmilock & 1) = {}{preset = @pres}
-:switch = call=$user?
 #
-:tune = ram.channel = ?
+:user1 = channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
+:user2 = channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.eq_idx=1;in.vol=on0=:volchan_any
 #
-:vol = ram.vol=?
-:volchan_any = ifv(@hmilock & 2)={}{call=:chan_any}
+:vol_adjust = if(?)={.lastvol = ~volume}{if(.lastvol)={volume=0}{volume=@$volmin}}
+:volchan_any = if(@hmilock & 2)={}{call=:chan_any}
 #
 eth_clk_mode = 3
 eth_phy_power = 12
 #
 gpio_33 = call=:chan_any
 #
-ir_02FD = @$user2 # (>>|)
+ir_02FD = call= :user2 # (>>|)
 ir_10EF = ram.channel = 4 # (4)
 ir_18E7 = ram.channel = 2 # (2)
-ir_22DD = @$user1 #(|<<)
+ir_22DD = call = :user1 #(|<<)
 ir_22DDR4 = upvolume = 2 # (|<<) longpressed
 ir_30CF = ram.channel = 1 # (1)
 ir_38C7 = ram.channel = 5 # (5)
@@ -65,12 +66,12 @@ ir_42BD = ram.channel = 7 # (7)
 ir_4AB5 = ram.channel = 8 # (8)
 ir_52AD = ram.channel = 9 # (9)
 ir_5AA5 = ram.channel = 6 # (6)
-ir_629D = @:chan_any    #(CH)
-ir_629DR22 = @:chan_any #(CH) longpressed
-ir_6897 = ram.pres = 1;call=:setpreset      # (0)
+ir_629D = call = :chan_any    #(CH)
+ir_629DR22 = call = :chan_any #(CH) longpressed
+ir_6897 = callv(1)=:preset      # (0)
 ir_7A85 = ram.channel = 3 # (3)
-ir_906F = @:eq_upwrap      #(EQ)
-ir_906FR10 = @:eq_upwrap   #(EQ) (longpressed)
+ir_906F = call = :eq_upwrap      #(EQ)
+ir_906FR10 = call = :eq_upwrap   #(EQ) (longpressed)
 ir_9867 = ram.pres = 11;call=:setpreset      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
@@ -149,8 +150,6 @@ tonela = 15
 tonelf = 12
 #
 volume = 70
-volume_min = 50
-volume_zero = 1
 #
 wifi_00 = SSID/passwd
 )=====" ;

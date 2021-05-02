@@ -12,6 +12,17 @@
 #define DEBUG_BUFFER_SIZE 500
 #define NVSBUFSIZE 500
 
+#define TIME_DEBOUNCE 0
+#define TIME_CLICK    300
+#define TIME_LONG     500
+#define TIME_REPEAT   500    
+
+#define T_DEB_IDX 0
+#define T_CLI_IDX 1
+#define T_LON_IDX 2
+#define T_REP_IDX 3
+
+
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
 extern void loopRR();
@@ -66,7 +77,7 @@ struct IR_data
 } ;
 
 
-extern volatile IR_data  ir;                          // IR data received
+//extern volatile IR_data  ir;                          // IR data received
 
 
 
@@ -108,7 +119,9 @@ class RetroRadioInput {
     const char* getId();
     void setId(const char* id);
     char** getEvent(String type);
+    String getEventCommands(String type, char* srcInfo = NULL);
     void setEvent(String type, const char* name);
+    void setEvent(String type, String name);
     int read(bool doStart);
     void setParameters(String parameters);
     static RetroRadioInput* get(const char *id);
@@ -122,7 +135,7 @@ class RetroRadioInput {
     void doClickEvent( const char* type, int param = 0);
     bool hasChangeEvent();
     void executeCmdsWithSubstitute(String commands, String substitute);
-
+    void setTiming(const char* timeName, int32_t ivalue);
 
     virtual void setParameter(String param, String value, int32_t ivalue);
     void setValueMap(String value, bool extend = false);
@@ -132,7 +145,7 @@ class RetroRadioInput {
 //    bool _valid;
     int16_t _maximum;
   private:
-    uint32_t _lastReadTime, _show, _lastShowTime, _debounceTime;
+    uint32_t _lastReadTime, _show, _lastShowTime;// _debounceTime;
     int16_t _lastRead, _lastUndebounceRead, _delta, _step, _fastStep, _mode;
     LastInputType _lastInputType;
 //    bool _calibrate;
@@ -145,6 +158,7 @@ class RetroRadioInput {
     static std::vector<RetroRadioInput *> _inputList;
     RetroRadioInputReader *_reader;
 //    std::map<const char*, RetroRadioInput *, cmp_str> _listOfInputs;
+    uint32_t _timing[4];
 };
 
 

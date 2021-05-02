@@ -5,6 +5,7 @@
 std::vector<int16_t> channelList;     // The channels defined currently (by command "channels")
 int16_t currentChannel = 0;           // The channel that has been set by command "channel" (0 if not set, 1..numChannels else)
 int16_t numChannels = 0;              // Number of channels defined in current channellist
+bool setupDone = false;               // All setup for RetroRadio finished?
 
 int readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 int readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
@@ -212,6 +213,53 @@ String getStringPart(String& value, char delim) {
   ret.toLowerCase();
   return ret;
 }
+
+String getStringPart(String& value, char delim, bool protect)
+{
+  
+  if (!protect)
+    return getStringPart(value, delim);
+String ret = value;
+int nesting = 0;
+char nestingChar = 0;
+char nestingEndChar = 0;
+const char *s; 
+const char *s1 = s = value.c_str();
+  while (*s) 
+  {
+    if (*s == delim)
+      if (0 == nesting)
+        break;            
+    if ( *s == nestingChar)
+      nesting++;
+    else if ( *s == nestingEndChar ) 
+    {
+      if ( 0 == --nesting )
+        nestingEndChar = nestingChar = 0;
+    }
+    else if ( 0 == nesting) 
+      if ( *s == '(' ) 
+      {
+        nestingChar = '(';
+        nestingEndChar = ')';
+        nesting = 1;
+      }
+      if ( *s == '{' ) 
+      {
+        nestingChar = '{';
+        nestingEndChar = '}';
+        nesting = 1;
+      }
+    s++;
+  }
+  int idx = s - s1;
+  ret = ret.substring(0, idx);
+  value = value.substring(idx + 1);
+  chomp(ret);
+  ret.toLowerCase();
+  return ret;  
+}
+
 
 //**************************************************************************************************
 //                          G E T P A I R I N T 1 6                                                *
@@ -689,7 +737,7 @@ std::vector<RetroRadioInput *> RetroRadioInput::_inputList;
 //**************************************************************************************************
 RetroRadioInput::RetroRadioInput(const char* id): _show(0), _lastShowTime(0), _reader(NULL), _lastInputType(NONE), _mode(0),
   _onChangeEvent(NULL), _on0Event(NULL), _onNot0Event(NULL),
-  _id(NULL), _debounceTime(0), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0), _clickEvents(0),
+  _id(NULL), /*_calibrate(false),*/ _delta(1), _step(0), _fastStep(0), _clickEvents(0),
   _clickState(0), _clickStateTime(0) {
   _maximum = _lastRead = _lastUndebounceRead = INT16_MIN;                 // _maximum holds the highest value ever read, _lastRead the
   // last read value (after mapping. Is below 0 if no valid read so far)
@@ -698,6 +746,14 @@ RetroRadioInput::RetroRadioInput(const char* id): _show(0), _lastShowTime(0), _r
   for (int i = 0;i < 6;i++)
     _onClickEvent[i] = NULL;
   //setParameters("@/input");
+  _timing[0] = TIME_DEBOUNCE;                // DEBOUNCE
+//  else if (timingName == strstr(timingName, "cli"))
+  _timing[1] = TIME_CLICK;
+//  else if (timingName == strstr(timingName, "lon"))
+  _timing[2] = TIME_LONG;
+//  else if (timingName == strstr(timingName, "rep"))
+  _timing[3] = TIME_REPEAT;    
+
 }
 
 
@@ -752,32 +808,91 @@ void RetroRadioInput::setId(const char *id) {
 //  - returns NULL if type is not valid.                                                           *
 //**************************************************************************************************
 char** RetroRadioInput::getEvent(String type) {
+char **event = NULL;
   if (type == "change")
-    return &_onChangeEvent;
+    event = &_onChangeEvent;
   else if (type == "0")
-    return &_on0Event;
+    event = &_on0Event;
   else if (type == "not0")
-    return &_onNot0Event;
+    event = &_onNot0Event;
   else if (type == "1click")
-    return &_onClickEvent[0];
+    event = &_onClickEvent[0];
   else if (type == "2click")
-    return &_onClickEvent[1];
+    event = &_onClickEvent[1];
   else if (type == "3click")
-    return &_onClickEvent[2];
+    event = &_onClickEvent[2];
   else if (type == "long")
-    return &_onClickEvent[3];
+    event = &_onClickEvent[3];
   else if (type == "1long")
-    return &_onClickEvent[4];
+    event = &_onClickEvent[4];
   else if (type == "2long")
-    return &_onClickEvent[5];
-  return NULL;
+    event = &_onClickEvent[5];
+  return event;
 }
 
+
 //**************************************************************************************************
-// Class: RetroRadioInput.setEvent(String type, const char* name)                                  *
+// Class: RetroRadioInput.getEvent(String type)                                                    *
+//**************************************************************************************************
+//  - Returns a pointer to the name of the requested RetroRadioInput change event                  *
+//  - type can be "change" (for "onchange"), "0", "not0"                                           *
+//  - returns NULL if type is not valid.                                                           *
+//**************************************************************************************************
+String RetroRadioInput::getEventCommands(String type, char *srcInfo) {
+char **event = NULL;
+  if (srcInfo != NULL)
+    sprintf(srcInfo, "on%s????", type);
+  if (type == "change")
+    event = &_onChangeEvent;
+  else if (type == "0")
+    event = &_on0Event;
+  else if (type == "not0")
+    event = &_onNot0Event;
+  else if (type == "1click")
+    event = &_onClickEvent[0];
+  else if (type == "2click")
+    event = &_onClickEvent[1];
+  else if (type == "3click")
+    event = &_onClickEvent[2];
+  else if (type == "long")
+    event = &_onClickEvent[3];
+  else if (type == "1long")
+    event = &_onClickEvent[4];
+  else if (type == "2long")
+    event = &_onClickEvent[5];
+  if ( NULL == event) {
+    return "";
+  }
+  if ( NULL == *event) 
+    return "";
+  if ( *event[0] == '{' ) {
+    if (srcInfo != NULL)
+      strcpy(srcInfo, "(inline)");
+    return String(*event + 1);
+  }
+  else 
+    if (srcInfo == NULL)
+      return ramsearch(*event) ? ramgetstr(*event) : nvsgetstr(*event);
+  if (ramsearch(*event)) {
+    sprintf(srcInfo, "(RAM-key: '%s' )", *event);
+    return ramgetstr(*event);
+  }
+  if (nvssearch(*event)) {
+    sprintf(srcInfo, "(NVS-key: '%s')", *event);
+    return nvsgetstr(*event);
+  }
+  sprintf(srcInfo, "(undefined key: %s)", *event);
+  return "";  
+}
+
+
+
+//**************************************************************************************************
+// Class: RetroRadioInput.setEvent(String type, const char* content)                               *
 //**************************************************************************************************
 //  - Sets one of the (change) events of the RetroRadioInput object.                               *
 //  - type can be "change" (for "onchange"), "0", "not0"                                           *
+//  - type can be "1click", "2click", "3click", "long", "1long", "2long" for "on1click".."on2long" *
 //**************************************************************************************************
 void RetroRadioInput::setEvent(String type, const char* name) {
   char **event = NULL;
@@ -802,6 +917,27 @@ void RetroRadioInput::setEvent(String type, const char* name) {
   }
 }
 
+
+//**************************************************************************************************
+// Class: RetroRadioInput.setEvent(String type, String* content)                                   *
+//**************************************************************************************************
+//  - Sets one of the (change) events of the RetroRadioInput object.                               *
+//  - type can be "change" (for "onchange"), "0", "not0"                                           *
+//  - type can be "1click", "2click", "3click", "long", "1long", "2long" for "on1click".."on2long" *
+//**************************************************************************************************
+void RetroRadioInput::setEvent(String type, String content) {
+  if ( content.c_str()[0] == '{' )
+  {
+    String left, right;
+    parseGroup(content, left, right);
+    content = String( '{' ) + left;
+  }
+  setEvent(type, content.c_str());
+}
+
+
+
+
 //**************************************************************************************************
 // Class: RetroRadioInput.setParameters(String value)                                              *
 //**************************************************************************************************
@@ -823,16 +959,19 @@ void RetroRadioInput::setParameters(String params) {
   recursion++;
   chomp(params);
   while (params.length()) {                             // anything left
-    String value = getStringPart(params, ',');          // separate next parameter
+    String value = getStringPart(params, ',', true);    // separate next parameter
     int ivalue;
-    String param = getStringPart(value, '=');         // see if value is set
-    if (param.c_str()[0] == '@') {                       // reference to NVS or RAM?
-      chomp_nvs(param); setParameters(param.c_str());         // new version...
+    String param = getStringPart(value, '=');           // see if value is set
+    if (strchr("@&.", param.c_str()[0])) {               // reference to NVS or RAM?
+      chomp_nvs(param); 
+      setParameters(param.c_str());                     // new version...
       // old version... setParameters(nvsgetstr(param.c_str() + 1));             // if yes, read NVS from key
     } else {
-      value.toLowerCase();
-      if ((value.c_str()[0] == '@') || (param != "src"))
+//      value.toLowerCase();
+//      if ((value.c_str()[0] == '@') || (param != "src"))
+      if (strchr("@&.", param.c_str()[0])) {               // reference to NVS or RAM?        
         chomp_nvs(value);                                 // new version
+      }
       else
         chomp(value);                                     // chompNVS would destroy ~ for src link...
       //old chomp(value);
@@ -849,36 +988,37 @@ void RetroRadioInput::setParameters(String params) {
 
 
 void RetroRadioInput::doClickEvent(const char* type, int param)  {
-char *event = *getEvent(type);  
+//char *event = *getEvent(type);  
+  String commands = getEventCommands(type);
   if (_show)
     doprint ( "Click event for Input in.%s: %s (Parameter: %d)", getId(), type, param);
-  if ( event ) {
-      String commands = ramsearch(event) ? ramgetstr(event) : nvsgetstr(event);
-      Serial.printf("OnClickCommand before chomp: %s\r\n", commands.c_str());
+  if ( commands.length() > 0 ) {
+//      String commands = ramsearch(event) ? ramgetstr(event) : nvsgetstr(event);
+//      Serial.printf("OnClickCommand before chomp: %s\r\n", commands.c_str());
       substitute(commands, String(param).c_str());
       if (_show)
-        doprint("in.%s on%s=%s", getId(), type, commands.c_str());
-      analyzeCmdsRR ( commands );
+        doprint("in.%s on%s='%s'", getId(), type, commands.c_str());
+      if ( commands.length() > 0 )
+        analyzeCmdsRR ( commands );
     }
 }
 
 #define CLICK_IDLE          0       // Not pressed so far
-#define CLICK_DEBOUNCE      1       // Pressed after idle, wait to debounce
-#define CLICK_PRESS1        2       // Pressed after debounce, wait for release (or longPress)       
+//#define CLICK_DEBOUNCE      1       // Pressed after idle, wait to debounce
+#define CLICK_PRESS1        2       // Pressed, wait for release (or longPress)       
 #define CLICK_PRESS1DONE    3       // Released after short press, wait if any other press is seen after this release
-#define CLICK_PRESS1NEXTDEB 4       // Another click detected after click1. Wait if this can be debounced
-#define CLICK_PRESS2        5       // Pressed after 1click debounce, wait for release (or longPress)       
+//#define CLICK_PRESS1NEXTDEB 4       // Another click detected after click1. Wait if this can be debounced
+#define CLICK_PRESS2        5       // Pressed again after 1click, wait for release (or longPress)       
 #define CLICK_PRESS2DONE    6       // Released after 2click short press, wait if any other press is seen after this release
-#define CLICK_PRESS2NEXTDEB 7       // Another click detected after click2. Wait if this can be debounced
+//#define CLICK_PRESS2NEXTDEB 7       // Another click detected after click2. Wait if this can be debounced
 #define CLICK_PRESS3        8       // Pressed after 2click debounce, wait for release (or longPress)       
 #define CLICK_LONG          9       // longpress detected
 #define CLICK_1LONG         10      // longpress after short click detected
 #define CLICK_2LONG         11      // longpress after double click detected
-#define TIME_LONG          300
+//#define TIME_LONG          300
 
 void RetroRadioInput::runClick(bool pressed) {
-
-  if (0 == _clickEvents)
+  if ((0 == _clickEvents) || (NONE == _lastInputType))
   {
     _clickState = CLICK_IDLE;
   }
@@ -887,9 +1027,11 @@ void RetroRadioInput::runClick(bool pressed) {
     if (pressed) 
     {
       _clickStateTime = millis();
-      _clickState = CLICK_DEBOUNCE;
+//      _clickState = CLICK_DEBOUNCE;
+      _clickState = CLICK_PRESS1;
     }
   }
+/*
   else if (CLICK_DEBOUNCE == _clickState) 
   {
     if (!pressed)
@@ -900,22 +1042,24 @@ void RetroRadioInput::runClick(bool pressed) {
       _clickState = CLICK_PRESS1;
     }
   }
+*/  
   else if (CLICK_PRESS1 == _clickState)
   {
     if (!pressed) {
       _clickState = CLICK_PRESS1DONE;
       _clickStateTime = millis();
     } 
-    else if (millis() - _clickStateTime > TIME_LONG)
+    else if (millis() - _clickStateTime > _timing[T_LON_IDX])
     {
-      _clickStateTime = millis() - TIME_LONG;
+      _clickStateTime = millis();// - TIME_LONG;
       _clickState = CLICK_LONG;
       _clickLongCtr = 1;
+      doClickEvent("long", _clickLongCtr++);
     }
   }
   else if (CLICK_LONG == _clickState)
   {
-    if (millis() - _clickStateTime >= TIME_LONG)
+    if (millis() - _clickStateTime >= _timing[T_REP_IDX])
     {
       doClickEvent("long", _clickLongCtr++);
       _clickStateTime = millis();
@@ -929,7 +1073,7 @@ void RetroRadioInput::runClick(bool pressed) {
   {
     if (!pressed ) 
     {
-      if (millis() - _clickStateTime > TIME_LONG / 2)
+      if (millis() - _clickStateTime > _timing[T_CLI_IDX])
       {
         doClickEvent("1click");
         _clickState = CLICK_IDLE;
@@ -938,9 +1082,11 @@ void RetroRadioInput::runClick(bool pressed) {
     else
     {
       _clickStateTime = millis();
-      _clickState = CLICK_PRESS1NEXTDEB; 
+//      _clickState = CLICK_PRESS1NEXTDEB;
+      _clickState = CLICK_PRESS2; 
     }
   }
+/*
   else if (CLICK_PRESS1NEXTDEB == _clickState) 
   {
     if (!pressed)
@@ -951,22 +1097,24 @@ void RetroRadioInput::runClick(bool pressed) {
       _clickState = CLICK_PRESS2;
     }
   }
+*/  
   else if (CLICK_PRESS2 == _clickState)
   {
     if (!pressed) {
       _clickState = CLICK_PRESS2DONE;
       _clickStateTime = millis();
     } 
-    else if (millis() - _clickStateTime > TIME_LONG)
+    else if (millis() - _clickStateTime > _timing[T_LON_IDX])
     {
-      _clickStateTime = millis() - TIME_LONG;
+      _clickStateTime = millis();// - TIME_LONG;
       _clickState = CLICK_1LONG;
       _clickLongCtr = 1;
+      doClickEvent("1long", _clickLongCtr++);
     }
   }
   else if (CLICK_1LONG == _clickState)
   {
-    if (millis() - _clickStateTime >= TIME_LONG)
+    if (millis() - _clickStateTime >= _timing[T_REP_IDX])
     {
       doClickEvent("1long", _clickLongCtr++);
       _clickStateTime = millis();
@@ -980,7 +1128,7 @@ void RetroRadioInput::runClick(bool pressed) {
   {
     if (!pressed) 
     {
-      if (millis() - _clickStateTime > TIME_LONG / 2)
+      if (millis() - _clickStateTime > _timing[T_CLI_IDX])
       {
         doClickEvent("2click");
         _clickState = CLICK_IDLE;
@@ -989,9 +1137,11 @@ void RetroRadioInput::runClick(bool pressed) {
     else
     {
       _clickStateTime = millis();
-      _clickState = CLICK_PRESS2NEXTDEB; 
+//      _clickState = CLICK_PRESS2NEXTDEB; 
+      _clickState = CLICK_PRESS3; 
     }
   }
+/*
   else if (CLICK_PRESS2NEXTDEB == _clickState) 
   {
     if (!pressed)
@@ -1002,6 +1152,7 @@ void RetroRadioInput::runClick(bool pressed) {
       _clickState = CLICK_PRESS3;
     }
   }
+*/
   else if (CLICK_PRESS3 == _clickState)
   {
     if (!pressed) 
@@ -1009,16 +1160,17 @@ void RetroRadioInput::runClick(bool pressed) {
         doClickEvent("3click");
         _clickState = CLICK_IDLE;
     } 
-    else if (millis() - _clickStateTime > TIME_LONG)
+    else if (millis() - _clickStateTime > _timing[T_LON_IDX])
     {
-      _clickStateTime = millis() - TIME_LONG;
+      _clickStateTime = millis();// - TIME_LONG;
       _clickState = CLICK_2LONG;
       _clickLongCtr = 1;
+      doClickEvent("2long", _clickLongCtr++);
     }
   }
   else if (CLICK_2LONG == _clickState)
   {
-    if (millis() - _clickStateTime >= TIME_LONG)
+    if (millis() - _clickStateTime >= _timing[T_REP_IDX])
     {
       doClickEvent("2long", _clickLongCtr++);
       _clickStateTime = millis();
@@ -1028,6 +1180,32 @@ void RetroRadioInput::runClick(bool pressed) {
       _clickState = CLICK_IDLE;
     } 
   }
+}
+
+//**************************************************************************************************
+// Class: RetroRadioInput.setTiming(const char* timingName, int32_t ivalue)                        *
+//**************************************************************************************************
+//  - Set one of the timings (identified by timingName) of the Input                               *
+//  - only first 3 chars are significant, the starting "t-" is already removed by caller           *
+//    - "deb"ounce: debounce (def: 0)                                                              *
+//    - "cli"ck: how long to wait after 1./2. click if 2./3. click (or longpr.) follows  (def. 300)*
+//    - "lon"g: time for the first longpress (def. 500)                                            *
+//    - "rep"eat: time for all longpress after the first (def. 500)                                *
+//  - all times in ms                                                                              *
+//  - default times are used in constructor only, not for the empty-String assignment ("t-long="   *
+//    will set "lon"g-timing to 0)                                                                 *     
+//**************************************************************************************************
+void RetroRadioInput::setTiming(const char* timingName, int32_t ivalue) {
+  if (ivalue < 0)
+    ivalue = 0;
+  if (timingName == strstr(timingName, "deb"))
+    _timing[0] = ivalue;
+  else if (timingName == strstr(timingName, "cli"))
+    _timing[1] = ivalue;
+  else if (timingName == strstr(timingName, "lon"))
+    _timing[2] = ivalue;
+  else if (timingName == strstr(timingName, "rep"))
+    _timing[3] = ivalue;    
 }
 
 
@@ -1047,15 +1225,15 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
   } else if (param == "map+") {                       // extent the valueMap for the input
     setValueMap(value, true);                         // see RetroRadioInput::setValueMap() for details
   } else if ((param == "event") || (param == "onchange")) {                      // set the change event
-    setEvent("change", value.c_str());                  // on mapped input, if not hit, nearest valid value will be used
+    setEvent("change", value);                       // on mapped input, if not hit, nearest valid value will be used
     //  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
     //    _calibrate = ivalue;
   } else if (param.startsWith("on")) {                      // set the change event
-    setEvent(param.substring(2), value.c_str());                          // on mapped input, if not hit, nearest valid value will be used
+    setEvent(param.substring(2), value);                   // on mapped input, if not hit, nearest valid value will be used
     //  } else if (param == "calibrate") {                  // as "show", just more details on map hits.
     //    _calibrate = ivalue;
-  } else if (param == "debounce") {                     // how long must a value be read before considered valid?
-    _debounceTime = ivalue;                           // (in msec).
+//  } else if (param == "debounce") {                     // how long must a value be read before considered valid?
+    //_debounceTime = ivalue;                           // (in msec).
   } else if (param == "delta") {
     if (ivalue > 1)
       _delta = ivalue;
@@ -1085,11 +1263,14 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
     read(true);
     //Serial.printf("Start for in.%s Done!\r\n", getId());
   } else if (param == "stop") {
-    _lastInputType = NONE;
     runClick(false);
-  } else if (param == "info") {
+    _lastInputType = NONE;
+  } else if ((param == "info") || (param == "?")) {
     showInfo(true);
+  } else if (param.startsWith("t-")) {
+    setTiming(param.c_str()+2, ivalue);
   }
+  
 }
 
 //**************************************************************************************************
@@ -1101,7 +1282,8 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
 //    display of the readings (with distance between readings set by the value assigned to 'show'  *
 //  - If 'hint' is true, an info is displayed showing all other known inputs                       *
 //**************************************************************************************************
-void RetroRadioInput::showInfo(bool hint) {
+void RetroRadioInput::showInfo(bool hintToOthers) {
+  char buf[100];
   doprint("Info for Input \"in.%s\":", getId());
   if (_reader == NULL)
     doprint(" * No source linked, Input not operational!");
@@ -1119,13 +1301,22 @@ void RetroRadioInput::showInfo(bool hint) {
               _valueMap[i], _valueMap[i + 1], _valueMap[i + 2], _valueMap[i + 3]);
   } else
     doprint(" * Value map is NOT set!");
+  doprint(" * Delta: %d", _delta);
+  doprint(" * Show: %d (seconds)", _show / 1000);
+  doprint(" --Event-Info--");
   if (!hasChangeEvent()) {
-    doprint(" * no on-event(s) defined.");
-  } else for (int i = 0; i < 3; i++) {
+    doprint(" * there are no change-event(s) defined.");
+  } 
+  else 
+    for (int i = 0; i < 3; i++) 
+    {
+      
       const char* type = (i == 0) ? "change" : (i == 1 ? "0" : "not0");
-      char **cmnds = getEvent(type);
-      if (*cmnds) {
-        doprint(" * on%s-event: \"%s\"", type, *cmnds);
+      String cmnds = getEventCommands(type, buf);
+      if (cmnds.length() > 0) 
+      {
+        doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+/*        
         if (ramsearch(*cmnds)) {
           String commands = ramgetstr(*cmnds);
           //chomp_nvs(commands);
@@ -1137,17 +1328,23 @@ void RetroRadioInput::showInfo(bool hint) {
         }  else
           doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
       }
+*/  
+      }
     }
-  doprint( " There are %d click-events defined.", _clickEvents );  
-  if (_clickEvents > 0) 
+  if (_clickEvents == 0)  
+    doprint( " * There are no click-event(s) defined." );  
+  else 
   {
     char type[10];
     strcpy(type, "xclick");
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; i++) 
+    {
       type[0] = '1' + i;
-      char **cmnds = getEvent(type);
-      if (*cmnds) {
-        doprint(" * on%s-event: \"%s\"", type, *cmnds);
+      String cmnds = getEventCommands(type, buf);
+      if (cmnds.length() > 0) 
+      {
+        doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+/*
         if (ramsearch(*cmnds)) {
           String commands = ramgetstr(*cmnds);
           doprint("    defined in RAM as: \"%s\"", commands.c_str());
@@ -1157,11 +1354,15 @@ void RetroRadioInput::showInfo(bool hint) {
         }  else
           doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
       }
+*/   
+      }   
     }
     strcpy(type, "long");
-    char **cmnds = getEvent(type);
-    if (*cmnds) {
-      doprint(" * on%s-event: \"%s\"", type, *cmnds);
+    String cmnds = getEventCommands(type, buf);
+    if (cmnds.length() > 0) 
+    {
+      doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+/*
       if (ramsearch(*cmnds)) {
         String commands = ramgetstr(*cmnds);
         doprint("    defined in RAM as: \"%s\"", commands.c_str());
@@ -1170,13 +1371,18 @@ void RetroRadioInput::showInfo(bool hint) {
         doprint("    defined in NVS as: \"%s\"", commands.c_str());
       }  else
         doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+*/  
     }
+  
     strcpy(type, "xlong");
-    for (int i = 0; i < 2; i++) {
+    for (int i = 0; i < 2; i++) 
+    {
       type[0] = '1' + i;
-      char **cmnds = getEvent(type);
-      if (*cmnds) {
-        doprint(" * on%s-event: \"%s\"", type, *cmnds);
+      String cmnds = getEventCommands(type, buf);
+      if (cmnds.length() > 0) 
+      {
+        doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+/*
         if (ramsearch(*cmnds)) {
           String commands = ramgetstr(*cmnds);
           doprint("    defined in RAM as: \"%s\"", commands.c_str());
@@ -1185,14 +1391,22 @@ void RetroRadioInput::showInfo(bool hint) {
           doprint("    defined in NVS as: \"%s\"", commands.c_str());
         }  else
           doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+      }    
+    }
+*/
       }
     }
   }
-  doprint(" * Delta: %d", _delta);
-  doprint(" * Show: %d (seconds)", _show / 1000);
-  doprint(" * Debounce: %d (ms)", _debounceTime);
-  if (hint)
-    if (_inputList.size() > 1) {
+  doprint(" --Timing-Info--");
+  doprint(" * t-debounce: %5ld ms", _timing[T_DEB_IDX]);
+  doprint(" * t-click   : %5ld ms (wait after short click)", _timing[T_CLI_IDX]);
+  doprint(" * t-long    : %5ld ms (detect first longpress)", _timing[T_LON_IDX]);
+  doprint(" * t-repeat  : %5ld ms (repeated longpress)", _timing[T_REP_IDX]);
+  
+//  doprint(" * Debounce: %d (ms)", _debounceTime);
+  if (hintToOthers)
+    if (_inputList.size() > 1) 
+    {
       doprint("There are %d more Inputs defined:", _inputList.size() - 1);
       int n = 0;
       for (int i = 0; i < _inputList.size(); i++)
@@ -1771,7 +1985,7 @@ int RetroRadioInput::read(bool doStart) {
       _lastReadTime = millis();
       x = _lastRead;
     } else if (x != _lastRead) {
-      if ((millis() - _lastReadTime < _debounceTime) || (_delta > abs(_lastRead - x)))
+      if ((millis() - _lastReadTime < _timing[T_DEB_IDX]) || (_delta > abs(_lastRead - x)))
         x = _lastRead;
       else {
         lastRead = _lastRead;
@@ -1783,7 +1997,37 @@ int RetroRadioInput::read(bool doStart) {
   if (forced) {
     if (_show > 0)
       doprint("Input \"in.%s\": change to %d from %d, checking for events!", getId(), x, lastRead);
-    char *cmnds = _onChangeEvent;
+    String commands = getEventCommands("change");
+    if ( commands.length() > 0 ) 
+    {
+      substitute(commands, String(x).c_str());
+      if (_show > 0)
+        doprint ( "Executing onchange: '%s'", commands.c_str() );
+      analyzeCmdsRR ( commands );
+    }
+    if (x == 0) {                   // went to 0
+      String commands = getEventCommands("0");
+      if ( commands.length() > 0 ) 
+      {
+        substitute(commands, String(x).c_str());
+        if (_show > 0)
+          doprint ( "Executing on0: '%s'", commands.c_str() );
+        analyzeCmdsRR ( commands );
+      }
+    } 
+    if (_clickEvents > 0)
+      runClick ( 0 == x );    
+    if ((x != 0) && (lastRead == 0)) {     // comes from 0
+      String commands = getEventCommands("not0");
+      if ( commands.length() > 0 ) 
+      {
+        substitute(commands, String(x).c_str());
+        if (_show > 0)
+          doprint ( "Executing onnot0: '%s'", commands.c_str() );
+        analyzeCmdsRR ( commands );
+      }
+    }
+/*    
     if (cmnds) {
       if (_show > 0) {
         doprint("Input \"in.%s\": change to %d (event \"%s\")", getId(), x, cmnds);
@@ -1816,9 +2060,14 @@ int RetroRadioInput::read(bool doStart) {
         analyzeCmdsRR ( commands );
       }
     }
+   }
+*/
+  } 
+  else   
+  {
+    if (_clickEvents > 0)
+      runClick ( 0 == x );
   }
-  if (_clickEvents > 0)
-    runClick ( 0 == x );
   return x;
 }
 
@@ -2164,6 +2413,8 @@ void doRam(const char* param, String value) {
 // - if parameter p != NULL, only show entries which have *p as substring in keyname               *
 //**************************************************************************************************
 void doNvslist(const char* p) {
+nvs_stats_t nvs_stats;
+
   fillkeylist();
   int i = 0;
   int idx = 0;
@@ -2176,6 +2427,13 @@ void doNvslist(const char* p) {
       doprint(" %3d: '%s' = '%s'", ++idx, nvskeys[i], nvsgetstr(nvskeys[i]).c_str());
     i++;
   }
+  nvs_get_stats(NULL, &nvs_stats);
+  doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
+              nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
+  if ( nvs_stats.free_entries < 2 )  
+    doprint ("WARNING: NVS is exhausted. You probably need a bigger partition!");
+  else if ( nvs_stats.free_entries < 10 )
+    doprint ("Warning: NVS space seems to run low!");
 }
 
 void doNvs(const char* param, String value) {
@@ -2319,7 +2577,7 @@ void readprogbuttonsRetroRadio()
         if ( !progpin[i].reserved )                         // Do not use reserved pins
         {
           char s[200];
-          sprintf(s, "in.gpio_%02d=src=d%d,mode=2,on1click=gpio_%02d,start", pinnr, pinnr, pinnr);
+          sprintf(s, "in.gpio_%02d=src=d%d,mode=2,on0=gpio_%02d,start", pinnr, pinnr, pinnr);
           analyzeCmd(s);
           progpin[i].reserved = true;                       // reserve it so original readprogbuttons
           // does not handle it
@@ -2469,7 +2727,7 @@ void ethevent(WiFiEvent_t event)
 #endif
 
 
-volatile IR_data  ir = { 0, 0, 0, 0, IR_NONE } ;         // IR data received
+static volatile IR_data  ir = { 0, 0, 0, 0, IR_NONE } ;         // IR data received
 sv int8_t ir_pin = -1;
 //sv bool IRseen = false;
 
@@ -2724,25 +2982,25 @@ void setupIR() {
   ir_pin = ini_block.ir_pin;
   if ( ir_pin >= 0 )
   {
-    dbgprint ( "Enable pin %d for IR (NEC and RC5)",
+    dbgprint ( "Enable pin %d for IR (NEC)",
                ir_pin ) ;
     pinMode ( ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
     attachInterrupt ( ir_pin,                  // Interrupts will be handle by isr_IR
-                      isr_RR_IR, CHANGE ) ;
+                      isr_RR_IRNEC, CHANGE ) ;
   }
   if ( ir_pin < 0)
   {
-    val = nvsgetstr("pin_ir_nec");
+    val = nvsgetstr("pin_ir_necrc5");
     if (val.length() > 0)                                 // Parameter in preference?
     {
       ir_pin = val.toInt() ;                            // Convert value to integer pinnumber
     }
     if (ir_pin >= 0)
     {
-      dbgprint ( "Enable pin %d for IR (NEC)", ir_pin);
+      dbgprint ( "Enable pin %d for IR (NEC + RC5)", ir_pin);
       pinMode ( ir_pin, INPUT ) ;                        // Pin for IR receiver VS1838B
       attachInterrupt ( ir_pin,                  // Interrupts will be handle by isr_IR
-                        isr_RR_IRNEC, CHANGE ) ;
+                        isr_RR_IR, CHANGE ) ;
 
     }
   }
@@ -2832,7 +3090,7 @@ bool execute_ir_command ( String type, bool verbose = true )
     {
       String val = nvsgetstr ( mykey ) ;                    // Get the contents
       const char* reply;
-      chomp_nvs ( val );
+      chomp ( val );
       dbgprint ( "IR code for %s%sreceived. Will execute %s",
                  mykey, protocol_names[ir.protocol], val.c_str() ) ;
       reply = analyzeCmdsRR ( val ) ;                         // Analyze command and handle it
@@ -2862,14 +3120,16 @@ void scanIRRR()
   if ( ir_pin < 0)
     return;
 
-  if ( ir.exitcommand != 0 )                                // Key release detected?
-  {
-    execute_ir_command ( "x" ) ;
+  if ( ir.exitcommand != 0 )                                // Key release detected? By ISR! exitcommand contains info on previous key
+  {                                                         // ir.command/ir.protocol contains the new key info
+    execute_ir_command ( "x" ) ;                            // 
     ir.exitcommand = 0;
     ir.exittimeout = 0;
+    doprint("IREXIT by new keypress: %04X", ir.command);
   }
   if ( ir.protocol != IR_NONE )                             // Any input?
   {
+    doprint("IR Input, protocol: %d, key: %04X", ir.protocol, ir.command);
     //    char *protocol_names[] = {"", "NEC", "RC5"} ;           // Known IR protocol names
     //    code = ir.command ;                                     // Key code is stored in lower word of ir_value
     //    repeat_count = ir_value >> 16 ;                         // Repeat counter in upper word of if_value
@@ -2901,12 +3161,15 @@ void scanIRRR()
     if (( ir.command != 0 ) && (ir.exittimeout != 0 ) )     // was there a valid keypress before
       if ( millis() - ir.exittimeout > 500 )                // That is too long ago (so no further repeat can be expected)
       {
+        doprint("IR Input exit, protocol: %d, key: %04X, last: %ld", ir.protocol, ir.command, millis() - ir.exittimeout);
         ir.exitcommand = ir.command ;                       // Set exitcode
         ir.command = 0 ;                                    // Clear code info
         ir.repeat_counter = 0 ;                             // Clear repeat counter (just to be sure)
         ir.exittimeout = 0 ;                                // Clear exitcode timeout (jsut to be sure)
         execute_ir_command ( "x" );                         // Search NVS for "key release" ir_XXXXx
         ir.exitcommand = 0 ;                                // Clear exitcode after it has been used.
+        ir.protocol = IR_NONE;                              // Code has been handled.
+        doprint("IREXIT by timeout.");
       }
   }
 }
@@ -2968,6 +3231,7 @@ void setupRR(uint8_t setupLevel) {
       i++;
     } while (i < 11);
     retroRadioLoops[numLoops] = NULL;
+    setupDone = true;
   }
 }
 
@@ -3120,7 +3384,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if (ret = param.startsWith("ifnot")) 
   {
-    Serial.println("About to enter CalcIfWhile");
+    //Serial.println("About to enter CalcIfWhile");
     doCalcIfWhile(param, "if", value, returnFlag, true);//doIf(value, argument.c_str()[2] == 'v');
   } 
   else if (ret = param.startsWith("if")) 
@@ -3160,7 +3424,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if ( ret = (param.startsWith("return" ))) 
   {
-    Serial.println("RETURN NEW SOURCE!!!");
+    //Serial.println("RETURN NEW SOURCE!!!");
     returnFlag = true ;
     char *s1 = strchr ( param.c_str() , '.' ) ; 
     if ( s1 )
@@ -3186,8 +3450,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else 
   {
     const char *ret = analyzeCmd ( param.c_str(), value.c_str() ) ;  
-
-    return ret;
+    return "";
   }
   return reply;
 }
@@ -3215,6 +3478,12 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
     if ( NULL != s )
       *s = '\0';
     s = cmds;
+    if (!setupDone) {
+      s = strchr(cmds, ';');
+      if (s)
+        *s = 0;
+      s = cmds;
+    }
     while ( ( NULL != s )  && !returnFlag )
     {
       char *p = s;

@@ -1,9 +1,14 @@
 # Integrate RetroRadio into ESP32-Radio
+
+__TODO: this does not work that way for now. There is still some data (global variables) that need to be shifted from main RetroRadio.ino to
+addRR.ino__
+
+
 ## Necessary steps
-- Include "ARetroRadioExtension.ino" and "ARetroRadioExtension.h" from this repository to your project (src-)directory.
+- Include "addRR.ino" and "addRR.h" from this repository to your project (src-)directory.
 - In the header file, _RETRORADIO_ is defined. This define can be used as guard for conditional compile. If this define is commented out, no
   additional functionality will be included.
-- Add _#include "ARetroRadioExtension.h"_ at an appropriate location of _main.cpp_ (for older versions into _ESP32Radio.ino_).
+- Add _#include "addRR.h"_ at an appropriate location of _main.cpp_ (for older versions into _ESP32Radio.ino_).
 - in _setup()_, add _setupRR ( SETUP_START );_ after NVS has started but before _readprogbuttons()_ is called. Direct before is fine.
 - this step also starts Ethernet, if that interface is existing and the configuration is correct. If Ethernet is startet succesfully , you must check
 	  the flag _NetworkFound_ and only execute the command block starting with _WiFi.mode ( WIFI_STA ) ;_ up to the line _NetworkFound = connectwifi() ;_
@@ -34,7 +39,7 @@
 - in _const char* analyzeCmd ( const char* str ) ;_, add _return analyzeCmdsRR ( str ) ;_ as very first statement to the function body.
 
 ## Strongly suggested steps
-Increase the _#defines_ for _DEBUG_BUFFER_SIZE_ and _NVSBUFSIZE_. They are defined in _ARetroRadioExtension.h_ but will most likely be overwritten as the
+Increase the _#defines_ for _DEBUG_BUFFER_SIZE_ and _NVSBUFSIZE_. They are defined in _addRR.h_ but will most likely be overwritten as the
   _#define_ for them is after the 'natural' position for including the header file. Suggestion is to use compile guard as such:
 ```
 #if !defined(RETRORADIO)

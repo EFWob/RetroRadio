@@ -15,7 +15,6 @@
 // A library for the VS1053 (for ESP32) is not available (or not easy to find).  Therefore
 // a class for this module is derived from the maniacbug library and integrated in this sketch.
 //
-// See http://www.internet-radio.com for suitable stations.  Add the stations of your choice
 // to the preferences in either Esp32_radio_init.ino sketch or through the webinterface.
 //
 // Brief description of the program:
@@ -1262,7 +1261,7 @@ esp_err_t nvssetstr ( const char* key, String val )
   String curcont ;                                         // Current contents
   bool   wflag = true  ;                                   // Assume update or new key
 
-  dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
+  //dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
   if ( val.length() >= NVSBUFSIZE )                        // Limit length of string to store
   {
     dbgprint ( "nvssetstr length failed!" ) ;
@@ -1744,6 +1743,7 @@ void IRAM_ATTR timer100()
 //**************************************************************************************************
 void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
 {
+#ifdef OLD  
 //#define RC5SHORT_MIN 444   /* 444 microseconds */
 //#define RC5SHORT_MAX 1333  /* 1333 microseconds */
 //#define RC5LONG_MIN 1334   /* 1334 microseconds */
@@ -1763,7 +1763,7 @@ void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
      *  4 - long space
      *  6 - long pulse
      */
-
+/*
     uint8_t event = pin_state? 2 : 0 ; 
     if(intval > 1333 && intval <= 2222)  // "Long" event detected?
     {
@@ -1832,6 +1832,7 @@ void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
         }
       }
     }          
+#endif
 }
 
 
@@ -1847,7 +1848,7 @@ void IRAM_ATTR decoder_IRRC5(uint32_t intval, uint32_t t0, int pin_state)
 //**************************************************************************************************
 void IRAM_ATTR decoder_IRNEC ( uint32_t intval, uint32_t t0 ) 
 {
-
+/*
   sv uint32_t      ir_locvalue = 0 ;                 // IR code
   sv int           ir_loccount = 0 ;                 // Length of code
   sv uint32_t      ir_lasttime = 0;                  // Last time of valid code (either first shot or repeat)
@@ -1911,7 +1912,7 @@ void IRAM_ATTR decoder_IRNEC ( uint32_t intval, uint32_t t0 )
     ir_locvalue = 0 ;                                // Reset decoding
     ir_loccount = 0 ;
   }
-  
+*/  
 }
 
 //**************************************************************************************************
@@ -5733,10 +5734,6 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "Max. mp3 available was %d", max_mp3av ) ;
     max_mp3chunk = 0;
     max_mp3av = 0;
-    nvs_stats_t nvs_stats;
-    nvs_get_stats(NULL, &nvs_stats);
-    dbgprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
-              nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
     dbgprint ("Total PSRAM: %d", ESP.getPsramSize());
     dbgprint ("Free PSRAM: %d", ESP.getFreePsram());
 #endif       
