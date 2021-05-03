@@ -134,12 +134,13 @@ on the native ethernet implementation of the Esp32 chip.
 **USE AT YOUR OWN RISK!**
 
 ### Compile time settings for Ethernet
-There is a define now in the very first line of ***RetroRadio.ino*** that reads `#define ETHERNET 1`
+There is a define in ***addRR.h*** that reads `#define ETHERNET 2`
 	
-* this will compile **with** Ethernet support
-* if changed to `#define ETHERNET 0` (or any value different from '1'), support for Ethernet is **not** compiled
-* if this line is deleted/commented out, Ethernet support will be compiled depending on the Boards setting in the Tools menu of Arduino IDE.
-	  Currently, only the settings **OLIMEX ESP32-PoE** and **OLIMEX ESP32-PoE-ISO** would then compile Ethernet support.
+* this will compile **with** Ethernet support, if the selected board is known to have Ethernet capabilities. As of now, that is true
+  for Olimex PoE/PoE ISO only
+* if changed to `#define ETHERNET 0` (or any value different from '1' or '2'), support for Ethernet is **not** compiled
+* if changed to `#define ETHERNET 1`, support for Ethernet is compiled
+* if this line is deleted/commented out, Ethernet support will **not** compiled in.
 * if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
 * if compiled with Ethernet support, there is another define that controls the ethernet connection: `#define ETHERNET_CONNECT_TIMEOUT 5`
 	  that defines how long the radio should wait for an ethernet connection to be established (in seconds). If no IP connection over 
@@ -147,7 +148,8 @@ There is a define now in the very first line of ***RetroRadio.ino*** that reads 
 	  my experience 4 seconds is too short. If the connection succeds earlier, the radio will commence earlier (and will not wait to consume
 	  the full timeframe defined by 'ETHERNET_CONNECT_TIMEOUT'). 
 * the following defines are used. They are set to default values in 'ETH.h' (and 'pins_ardunio.h' for ethernet boards). If you need to change
-	  those (not for **OLIMEX ESP32-PoE...**), you need to re-define them before '#include ETH.h' (search in ***RetroRadio.ino***) or set them in the preferences (see below):
+	  those (not for **OLIMEX ESP32-PoE...**), you need to re-define them before '#include ETH.h' (search in ***addRR.h***) or set them in the 
+	  preferences (see below):
   * ETH_PHY_ADDR
   * ETH_PHY_POWER
   * ETH_PHY_MDC
