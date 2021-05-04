@@ -3303,6 +3303,7 @@ void loopRR() {
 
 void doCall ( String param, String value ) {
 //bool returnFlag = false;
+static int calllevel = 0;
 bool doShow = param.c_str()[4] == 'v';
     if (param.length() > (doShow?5:4))
     {
@@ -3321,7 +3322,9 @@ bool doShow = param.c_str()[4] == 'v';
     value = ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) ;
     substitute(value, param.c_str());
     if (doShow) doprint ( "call sequence (after substitution): %s", value.c_str());
+    doprint("callLevel: %d", ++calllevel);
     analyzeCmdsRR ( value );  
+    calllevel--;
 }
 
 const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {

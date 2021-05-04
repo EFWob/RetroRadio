@@ -15,26 +15,22 @@ $volmin = 50
 #
 ::loop1 = if(.vol >= 0) = {ifnot(@hmilock & 2) = {volume=.vol}};.vol=-1
 ::loop2 = if(.channel)={if(~channels < 2)={.-=channel;return;};if(@hmilock&1)={.-=channel;return};if ( .channel > ~channels) = {.-=channel;return};channel=.channel;.-=channel}
-::loop3 = if(.preset < 0)={return}; if(.preset==~preset)={.preset=-1;return};ifnot(@hmilock&1)={preset=.preset};.preset=-1
+::loop3 = if(.preset < 0)={return}; if(.preset==~preset)={return.preset=-1};ifnot(@hmilock&1)={preset=.preset};.preset=-1
 ::setup0 = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,onchange={call=:user?}
 ::setup1 = in.vol = src=a39,map=@$volmap,delta=2,start,onchange={.vol=?}
 ::setup2 = .preset=-1;in.tune = src=t9,map=@$tunemap,start,onchange={.channel=?}
-::setup3 = .eq_idx = 1;in.equalizer=src=.eq_idx,start,onchange=:eq_set
-::setup4 = in.channels = src=~channels;in.channel = src=~channel
-::setup5 = call=:user1
-::setup6 = call=:chan_tune
-::setup7 = in.volobserver= src=~volume,map=(@$volmin..100=2)(0=1)(=0),onchange=:vol_adjust,start
+::setup3 = .eq_idx = 1;in.equalizer=src=.eq_idx,start,onchange={call=:equalizer?}
+::setup4 = call=:user1
+::setup5 = in.volobserver= src=~volume,map=(@$volmin..100=2)(0=1)(=0),onchange=:vol_adjust,start
 #
 :chan_any = if(~channels > 1)={.x=~channel;while(.x == ~channel)={calc.x(1><~channels)};.channel=@x}
 :chan_tune = if(.channel) = {channel=.channel};ram- = channel;
 #
-:eq_down = if(.$eq_idx > 0)={call = :eq_idx--}{.eq_idx = 0}
-:eq_downwrap = call = :eq_idx--;if(.eq_idx < 0) = {.eq_idx = @$equalizermax}
-:eq_idx++ = calc.eq_idx(.eq_idx + 1)
-:eq_idx-- = calc.eq_idx(.eq_idx - 1)
+:eq_down = if(.eq_idx > 0)={calc.eq_idx(.eq_idx-1)}{.eq_idx = 0}
+:eq_downwrap = if(.eq_idx > 0) = {calc.eq_idx(.eq_idx-1)}{.eq_idx = @$equalizermax}
 :eq_set = call = :equalizer?
-:eq_up = if(.eq_idx < @$equalizermax) = {.eq_idx++}{.eq_idx = @$equalizermax}
-:eq_upwrap = if(.eq_idx < @$equalizermax)= {call = :eq_idx++}{.eq_idx = 0}
+:eq_up = if(.eq_idx < @$equalizermax) = {calc.eq_idx(.eq_idx+1))}{.eq_idx = @$equalizermax}
+:eq_upwrap = if(.eq_idx < @$equalizermax)= {calc.eq_idx(.eq_idx+1)}{.eq_idx = 0}
 :equalizer0 = toneha = 5; tonehf = 3; tonela = 15; tonelf = 12
 :equalizer1 = toneha = 7; tonehf = 4; tonela = 8; tonelf = 14
 :equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
@@ -87,7 +83,7 @@ pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
 pin_vs_dcs = 16       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
-preset = 5
+preset = 0
 preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
 preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
 preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
@@ -104,12 +100,12 @@ preset_14 = www.ndr.de/resources/metadaten/audio/aac/ndrblue.m3u # NDR Blue
 preset_15 = direct.fipradio.fr/live/fip-midfi.mp3    #   FIP
 preset_16 = live.helsinki.at:8088/live160.ogg # Radio Helsinki (Graz)
 #
-toneha = 5
-tonehf = 3
-tonela = 15
-tonelf = 12
+toneha = 7
+tonehf = 4
+tonela = 8
+tonelf = 14
 #
-volume = 57
+volume = 80
 #
 wifi_00 = SSID/passwd
 )=====" ;
