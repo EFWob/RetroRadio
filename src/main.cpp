@@ -5002,7 +5002,7 @@ const char* analyzeCmd ( const char* str )
   char*        value ;                           // Points to value after equalsign in command
   const char*  res ;                             // Result of analyzeCmd
 #if defined(RETRORADIO)
-  return analyzeCmdsRR ( str ) ; 
+  return analyzeCmdsRR ( String(str) ) ; 
 #endif
   value = strstr ( str, "=" ) ;                  // See if command contains a "="
   if ( value )

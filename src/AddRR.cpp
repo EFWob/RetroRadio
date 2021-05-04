@@ -2,6 +2,101 @@
 #if defined(RETRORADIO)
 #define sv DRAM_ATTR static volatile
 #include <nvs.h>
+#include <map>
+
+#define TIME_DEBOUNCE 0
+#define TIME_CLICK    300
+#define TIME_LONG     500
+#define TIME_REPEAT   500    
+
+#define T_DEB_IDX 0
+#define T_CLI_IDX 1
+#define T_LON_IDX 2
+#define T_REP_IDX 3
+
+enum IR_protocol { IR_NONE = 0, IR_NEC, IR_RC5 } ;      // Known IR-Protocols
+
+enum RC5State 
+{
+      RC5STATE_START1, 
+      RC5STATE_MID1, 
+      RC5STATE_MID0, 
+      RC5STATE_START0, 
+      RC5STATE_ERROR, 
+      RC5STATE_BEGIN, 
+      RC5STATE_END
+} ;
+
+struct IR_data 
+{
+   uint16_t command ;                                 // Command received
+   uint16_t exitcommand ;                             // Last command, key released, release event due
+   uint32_t exittimeout ;                             // Start for exittimeout
+   uint16_t repeat_counter ;                          // Repeat counter
+   IR_protocol protocol ;                             // Protocol of command (set to IR_NONE to report to ISR as consumed)
+} ;
+
+class RetroRadioInputReader {
+  public:
+    virtual int16_t read() = 0;
+    virtual void mode(int mod) = 0;
+    virtual String info() {return String("");};
+  protected:
+    int _mode;
+};
+
+enum LastInputType  { NONE, NEAREST, HIT };
+
+class RetroRadioInput {
+  public:
+    ~RetroRadioInput();
+    const char* getId();
+    void setId(const char* id);
+    char** getEvent(String type);
+    String getEventCommands(String type, char* srcInfo = NULL);
+    void setEvent(String type, const char* name);
+    void setEvent(String type, String name);
+    int read(bool doStart);
+    void setParameters(String parameters);
+    static RetroRadioInput* get(const char *id);
+    static void checkAll();
+    static void showAll(const char *p);
+    void setReader(String value);
+    void showInfo(bool hint);
+  protected:
+    RetroRadioInput(const char* id);
+    void runClick( bool pressed = false );
+    void doClickEvent( const char* type, int param = 0);
+    bool hasChangeEvent();
+    void executeCmdsWithSubstitute(String commands, String substitute);
+    void setTiming(const char* timeName, int32_t ivalue);
+
+    virtual void setParameter(String param, String value, int32_t ivalue);
+    void setValueMap(String value, bool extend = false);
+//    void clearValueMap();
+    int16_t physRead();
+    std::vector<int16_t> _valueMap;
+//    bool _valid;
+    int16_t _maximum;
+  private:
+    uint32_t _lastReadTime, _show, _lastShowTime;// _debounceTime;
+    int16_t _lastRead, _lastUndebounceRead, _delta, _step, _fastStep, _mode;
+    LastInputType _lastInputType;
+//    bool _calibrate;
+    char *_id;
+    char *_onChangeEvent, *_on0Event, *_onNot0Event;
+    char *_onClickEvent[6];
+    uint8_t _clickEvents, _clickState;
+    uint32_t _clickStateTime;
+    int _clickLongCtr;
+    static std::vector<RetroRadioInput *> _inputList;
+    RetroRadioInputReader *_reader;
+//    std::map<const char*, RetroRadioInput *, cmp_str> _listOfInputs;
+    uint32_t _timing[4];
+};
+
+
+
 
 std::vector<int16_t> channelList;     // The channels defined currently (by command "channels")
 int16_t currentChannel = 0;           // The channel that has been set by command "channel" (0 if not set, 1..numChannels else)
@@ -12,7 +107,7 @@ int readUint8(void *);                // Takes a void pointer and returns the co
 int readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
 int readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 int readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
-
+const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
 
 #define KNOWN_SYSVARIABLES   (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
 
@@ -41,15 +136,24 @@ bool ramsearch ( const char* key ) ;
 void ramdelkey ( const char* key) ;
 const char* analyzeCmdsRR ( String s, bool& returnFlag ) ;
 
-/*
-int            eth_phy_addr;                        // Ethernet Phy Address setting
-int            eth_phy_power;                       // Ethernet Power setting
-int            eth_phy_mdc;                         // Ethernet MDC setting
-int            eth_phy_mdio;                        // Ethernet Phy MDIO setting
-int            eth_phy_type;                        // Ethernet Phy Type setting
-int            eth_clk_mode;                        // Ethernet clock mode setting
-*/
+#if !defined(ETHERNET)
+#define ETHERNET 0
+#endif
+
+#if (ETHERNET == 2) && (defined(ARDUINO_ESP32_POE) || defined(ARDUINO_ESP32_POE_ISO))
+#undef ETHERNET
+#define ETHERNET 1
+#else 
+#if defined(ETHERNET)
+#undef ETHERNET
+#endif
+#define ETHERNET 0
+#endif
+
+
 #if (ETHERNET == 1)
+#include <ETH.h>
+#define ETHERNET_TIMEOUT        5UL // How long to wait for ethernet (at least)?
 int eth_phy_addr  =     ETH_PHY_ADDR ;    // Ethernet Phy Address setting
 int eth_phy_power =   12; // ETH_PHY_POWER ;   // Ethernet Power setting
 int eth_phy_mdc   =      ETH_PHY_MDC ;     // Ethernet MDC setting
@@ -59,6 +163,8 @@ int eth_clk_mode  =   3;//  ETH_CLK_MODE ;    // Ethernet clock mode setting
 uint32_t eth_timeout =  ETHERNET_TIMEOUT ;    // Ethernet timeout (in seconds)
 
 //TODO Read ethernet prefs from NVS!
+#else 
+#define ETHERNET_TIMEOUT        0UL
 #endif
 
 //**************************************************************************************************
