@@ -1,9 +1,13 @@
 #include "AddRR.h"
 #if defined(RETRORADIO)
 #define sv DRAM_ATTR static volatile
+#include <freertos/task.h>
+#include <nvs_flash.h>
 #include <nvs.h>
 #include <map>
+#include <queue>
 
+#if !defined(WRAPPER)
 #define TIME_DEBOUNCE 0
 #define TIME_CLICK    300
 #define TIME_LONG     500
@@ -96,6 +100,16 @@ class RetroRadioInput {
 };
 
 
+void doGenre ( String param, String value );
+void doGpreset ( String param, String value );
+void gnvsLoop ();
+void        gnvsopen   ( ) ;
+esp_err_t   gnvsclear  ( ) ;
+String      gnvsgetstr ( const char* key ) ;
+bool        gnvssearchstr ( const char* key ) ;
+bool        gnvssearchcache ( int id ) ;
+esp_err_t   gnvssetstr ( const char* key, String val ) ;
+
 
 
 std::vector<int16_t> channelList;     // The channels defined currently (by command "channels")
@@ -108,6 +122,14 @@ int readInt16(void *);                // Takes a void pointer and returns the co
 int readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 int readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
+static int genreId = 0 ;                             // ID of active genre
+static int genrePresets = 0 ;                        // Nb of presets in active genre
+static int genrePreset;                              // Nb of current preset in active genre (only valid if genreId > 0)
+static bool gverbose = true ;                        // Verbose output on any genre related activity
+//static int gchannels = 0 ;                           // channels are active on genre
+uint8_t gmaintain = 0;                 // Genre-Maintenance-mode? (play is suspended)
+
+
 
 #define KNOWN_SYSVARIABLES   (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
 
@@ -126,7 +148,11 @@ struct {                           // A table of known internal variables that c
   {"tonelf", &ini_block.rtone[3], readUint8},
   {"channel", &currentChannel, readInt16},
   {"channels", &numChannels, readInt16},
-  {"volume_vs", &numChannels, readVolume}
+  {"volume_vs", &numChannels, readVolume},
+  {"genre", &genreId, readInt16},
+  {"gpresets", &genrePresets, readInt16},
+  {"gpreset", &genrePreset, readInt16},
+  {"gmaintain", &gmaintain, readUint8},
 };
 
 
@@ -487,7 +513,8 @@ String extractgroup(String& inValue) {
 //  - If extendNvs (defaults to false) is true, left and right will be assumed to be reference to  *
 //    nvs-key if preceeded by '@'                                                                  *
 //**************************************************************************************************
-int parseGroup(String & inValue, String& left, String& right, char** delimiters = NULL, bool extendNvs = false) {
+int parseGroup(String & inValue, String& left, String& right, char** delimiters = NULL, bool extendNvs = false,
+        bool extendNvsLeft = false, bool extendNvsRight = false) {
   int idx = -1, i;
   bool found;
   chomp(inValue);
@@ -541,8 +568,14 @@ int parseGroup(String & inValue, String& left, String& right, char** delimiters 
       chomp_nvs(left);
       chomp_nvs(right);
     } else {
-      chomp(left);
-      chomp(right);
+      if (extendNvsLeft)
+        chomp_nvs(left);
+      else
+        chomp(left);
+      if (extendNvsRight)
+        chomp_nvs(right);
+      else
+        chomp(right);
     }
     return i;
   } else {
@@ -742,6 +775,7 @@ void doCalc(String value, bool show, bool& returnFlag) {
   }
 }
 
+
 void doIf(String condition, String value, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   if (show) doprint("Start if(%s)=\"%s\"", condition.c_str(), value.c_str());
   int result = doCalculation(condition, show, ramKey.c_str());
@@ -791,6 +825,67 @@ void doCalc(String expression, String value, bool show, String ramKey, bool& ret
     analyzeCmdsRR ( calcCommand, returnFlag );
   }
 }
+
+String searchElement(String input, int& idx)
+{
+  String result;
+  chomp_nvs(input);
+  if (strchr(input.c_str(), ','))
+    do
+    {
+      String left = getStringPart(input, ',');
+      result = searchElement(left, idx);
+    }
+    while ((input.length() > 0) && (idx > 0));
+  else
+  {
+    if (idx == 1)
+      result = input;
+    idx--;
+  }
+  return result;
+}
+
+void doIdx(String expression, String value, bool show, String ramKey, bool& returnFlag) {
+  String idxCommand;
+  String left, right;
+  String result;
+  if (show) doprint("Start idx(%s)=\"%s\"", expression.c_str(), value.c_str());
+ 
+  
+  parseGroup(value, idxCommand, right);
+  left = getStringPart(expression, ',');
+  chomp_nvs(left);
+  int idx = left.toInt();
+  if (show) doprint("Searching for element %d in %s", idx, expression.c_str());
+  do {
+    left = getStringPart(expression, ',');
+    chomp_nvs(left);
+    if(show) doprint("Search %s, idx==%d", left.c_str(), idx);
+    result = searchElement(left, idx);
+//    if (idx == 1) 
+//      result = left;
+//    if (idx > 1)
+//      idx = idx - 1;
+  } while ((idx > 0) && (expression.length() > 0));
+
+  if (show) doprint("Result = '%s' (found: %d)", result, idx == 0);
+  if (ramKey.length() > 0)
+    ramsetstr(ramKey.c_str(), result);
+
+  if ( idxCommand == "0" )
+    idxCommand = "";
+  if (show) {
+    doprint("IdxCommand = \"%s\"", idxCommand.c_str());
+  }
+  if ( idxCommand.length() > 0 )
+  {
+    substitute(idxCommand, result.c_str());
+    if (show) doprint("Running \"idx\" with (substituted) command \"%s\"", idxCommand.c_str());
+    analyzeCmdsRR ( idxCommand, returnFlag );
+  }
+}
+
 
 void doWhile(String conditionOriginal, String valueOriginal, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   bool done = false;
@@ -854,15 +949,18 @@ void doCalcIfWhile(String command, const char *type, String value, bool& returnF
 
   if (show)
     doprint("ParseResult: %s(%s)=%s; Ramkey=%s", type, cond.c_str(), value.c_str(), ramKey.c_str());
-  switch (*type) {
-    case 'w':
+  switch (*(type + 1)) {
+    case 'h':
       doWhile(cond, value, show, ramKey, returnFlag, invertedLogic);
       break;
-    case 'c':
+    case 'a':
       doCalc(cond, value, show, ramKey, returnFlag);
       break;
-    case 'i':
+    case 'f':
       doIf(cond, value, show, ramKey, returnFlag, invertedLogic);
+      break;
+    case 'd':
+      doIdx(cond, value, show, ramKey, returnFlag);
       break;
 
   }
@@ -2675,7 +2773,67 @@ void doChannels(String value) {
 }
 
 void doChannel(String value, int ivalue) {
-  if (channelList.size() > 0) {
+  if ((genreId > 0) && (genrePresets > 1))                             // Are we in genre playmode?
+  {
+    int16_t curPreset, newPreset;
+    curPreset  = newPreset = genrePreset;
+    if (value == "up")  
+    {
+      ++newPreset;
+//      if (++newPreset >= genrePresets)
+//        newPreset -= genrePresets;
+    }
+    else if (value == "down")
+    {
+      --newPreset;
+//      if (--newPreset < 0)
+//        newPreset += genrePresets;
+    }
+    else if (value == "any")
+      while (newPreset == curPreset)
+        newPreset = random(genrePresets);
+    else if ((ivalue > 0) && (ivalue <= numChannels) && (ivalue != currentChannel))   // could be cannel = number
+    {
+      int chanDistance = genrePresets / numChannels;
+      if ( 0 == currentChannel )  
+        currentChannel = 1;
+      if (0 == chanDistance)
+        chanDistance = 1;
+//      newPreset = curPreset - (currentChannel - 1) * chanDistance;
+//      newPreset = newPreset + (ivalue - 1) * chanDistance ;
+      newPreset = curPreset - (genrePresets * (currentChannel - 1)) / numChannels ;
+      newPreset = newPreset + (genrePresets * (ivalue - 1)) / numChannels;
+/*
+      if (newPreset >= genrePresets)
+//        while (newPreset >= genrePresets)
+//          newPreset -= genrePresets;
+        newPreset = newPreset - genrePresets * (newPreset / genrePresets) ;
+      else if (newPreset < 0)
+          newPreset = newPreset + genrePresets * (1 + (-newPreset - 1) / genrePresets) ;
+//        while (newPreset < 0)
+//          newPreset += genrePresets;
+*/
+      /*
+      int chanDelta = ivalue - currentChannel;
+      int chanDistance = genrePresets / gchannels;
+      if (chanDelta < 0)
+        chanDelta = chanDelta + gchannels;
+      if (0 == chanDistance)
+        chanDistance = 1;
+      newPreset = (curPreset + chanDelta * chanDistance) % genrePresets ;
+      */
+      currentChannel = ivalue;
+    }
+    if (newPreset != curPreset)
+    {
+      char cmd[30];
+      if (gverbose)
+        doprint("Genre preset changed by channel command '%s' from %d to %d", value.c_str(), curPreset, newPreset) ;
+      sprintf(cmd, "gpreset=%d", newPreset);
+      analyzeCmd( cmd );
+    }    
+  }
+  else if (channelList.size() > 0) {
     int16_t channel = currentChannel;
     //    Serial.printf("CurrentChannel = %d, value=%s, ivalue=%d\r\n", channel, value.c_str(), ivalue);
     if (channel)
@@ -3357,6 +3515,7 @@ void scanIRRR()
 void setupRR(uint8_t setupLevel) {
   if (setupLevel == SETUP_START)
   {
+    gnvsopen();
     touch_pad_init();
     touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
     touch_pad_filter_start(16);
@@ -3437,6 +3596,7 @@ void loopRR() {
     DEBUG = deb;
   }
   scanIRRR();
+  gnvsLoop();
   return;
   /*
     static bool statusWasNeverPublished = true;
@@ -3478,6 +3638,7 @@ void loopRR() {
     RetroRadioInput::checkAll();
   */
 }
+
 
 void doCall ( String param, String value ) {
 //bool returnFlag = false;
@@ -3563,6 +3724,15 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     doCall ( param, value );
   }
+  else if ( ret = ( param.startsWith ( "genre" ) )) 
+  {
+    doGenre ( param, value );
+  }
+  else if ( ret = (param == "gpreset")  ) 
+  {
+    doGpreset ( param, value );
+  }
+
   else if (ret = param.startsWith("ifnot")) 
   {
     //Serial.println("About to enter CalcIfWhile");
@@ -3584,6 +3754,10 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else if (ret = param.startsWith("while"))
   {
     doCalcIfWhile(param, "while", value, returnFlag);
+  }
+  else if (ret = param.startsWith("idx"))
+  {
+    doCalcIfWhile(param, "idx", value, returnFlag);
   }
   else if ( ret = (param.startsWith("ram" ))) 
   {
@@ -3736,13 +3910,991 @@ const char* analyzeCmdsRR( String s) {
 const char* analyzeCmdsRR( String s, bool& returnFlag) {
   return analyzeCmdRR ( s.c_str() , returnFlag );
 }
+#endif //if !defined(WRAPPER)
+
+#include <WiFiClientSecure.h>
+#include <nvs.h>
+WiFiClientSecure rdbsClient;
+
+
+const char *rdbsHost = "de1.api.radio-browser.info";
+const int rdbsPort = 443;
+
+
+#define MAX_GENRE_PRESETS   500
+#define GENRE_LOOP_READ_NONE     0
+#define GENRE_LOOP_READ          1
+#define GENRE_LOOP_READ_FAIL     2
+
+#define GENRE_PARTITION_NAME    "presets"
+#define GENRE_IDENTIFIER_LEN    40
+#define GENRE_TABLE_ENTRIES     10
+
+#define GENRE_ENTRY_MODE_EMPTY  0         // Entry can be used to store a Genre
+#define GENRE_ENTRY_MODE_DELETE 1         // Entry shall be deleted (set task to delete if identied on page load?)
+#define GENRE_ENTRY_MODE_FILL   2         // Entry is currently used to read presets (set task to restart on cache load?)
+
+#define GNVS_TASK_LOAD          0         // Serach gnvs if specific genre is already in gnvs, if not load it from rdbs into gnve
+//#define GNVS_TASK_OPEN          1         // Open specific genre for playing (load if not in gnvs so far)
+#define GNVS_TASK_CLEAR         2         // erase entire gnvs
+
+
+#define GNVS_STATE_IDLE         0         // Ready to handle gnvs task (from gnvsTaskList)
+#define GNVS_STATE_SEARCH       1         // Search if specific genre is existing in gnvs
+#define GNVS_STATE_OPEN         2         // Not found, open client to rdbs
+#define GNVS_STATE_READ         3         // After successful open, do read
+#define GNVS_STATE_READFAIL     4         // Read failed
+#define GNVS_STATE_DONE         5         // current task has been handled, can be deleted from tasklist
+
+uint32_t                gnvshandle = 0 ;                  // Handle for nvs access
+esp_err_t               gnvserr ;                         // Error code from nvs functions
+
+
+
+class GnvsTask
+{
+public:
+  GnvsTask(int taskId ) :_genreId(0), _taskId(taskId), _genreName(NULL) {};
+  GnvsTask(int genreId, int taskId ) :_genreId(genreId), _taskId(taskId), _genreName(NULL) {};
+  GnvsTask(const char* genreName, int taskId ):_genreId(0), _taskId(taskId)
+  {
+    _genreName = strdup(genreName);
+  };
+  ~GnvsTask() 
+  {
+    if (_genreName != NULL)
+      free (_genreName);
+  }
+  int _genreId, _taskId;
+  char* _genreName;
+};
+
+std::queue<GnvsTask *> gnvsTaskList;
+
+struct gnvs_table_entry_t 
+{
+  int id;
+  time_t timeMode;
+  char name[GENRE_IDENTIFIER_LEN + 1];
+  int presets;
+} ;
+
+struct gnvs_table_part_t
+{
+  int id;
+  struct gnvs_table_entry_t entry[GENRE_TABLE_ENTRIES];
+} gnvsTableCache;
+
+
+void clearGnvsTableCache() 
+{
+  memset(&gnvsTableCache, 0, sizeof(gnvsTableCache)) ;
+}
+
+//**************************************************************************************************
+//                           writeGnvsTableCache()                                                 *
+//**************************************************************************************************
+// Write back current gnvsTableCache, only if id > 0 and only if there is some change              *
+// No writing if no change.                                                                        *
+//**************************************************************************************************
+bool writeGnvsTableCache() 
+{
+  char key[20];
+  gnvs_table_part_t buf;
+  bool   wflag = true  ;                                   // Assume update
+  if (0 == gnvsTableCache.id)                              // No valid table in cache
+    return false;
+  sprintf(key, "t%d", gnvsTableCache.id);                  // 
+  dbgprint ( "Flush Cache with key: %s:", key ) ;
+  size_t l = sizeof(buf);
+  if ( gnvssearchcache ( gnvsTableCache.id ) )                                 // Already in nvs?
+  {
+    nvs_get_blob ( gnvshandle, key, &buf, &l);             // Read the current table content in nvs
+    wflag = ( l != sizeof(buf) ) ;                         // Wrong BufSize?
+    if (! wflag )
+      wflag = (0 != memcmp(&buf, &gnvsTableCache, l));
+  }
+  l = sizeof(buf);
+  if ( wflag )                                             // Update or new?
+  {
+    //dbgprint ( "nvssetstr update value" ) ;
+    gnvserr = nvs_set_blob ( gnvshandle, key, &gnvsTableCache, sizeof(gnvsTableCache) ) ; // Store key and value
+    if ( gnvserr )                                          // Check error
+    {
+      dbgprint ( "gnvssetstr failed!" ) ;
+    }
+  }
+  return gnvserr != 0;
+}
+
+//**************************************************************************************************
+//                           createGnvsTableCache()                                                *
+//**************************************************************************************************
+// Create a new gnvsTableCache. The last is assumed to be the last known valid one.                *
+// Application is responsible to flush out current Cache                                           *
+//**************************************************************************************************
+void createGnvsTableCache() 
+{
+  int id = gnvsTableCache.id + 1;
+  clearGnvsTableCache();
+  gnvsTableCache.id = id;
+  writeGnvsTableCache();
+}
+
+//**************************************************************************************************
+//                           loadGnvsTableCache()                                                  *
+//**************************************************************************************************
+// Load a specific Table. Returns false (and unchanged gnvsTableCache), if table with that id does *
+// not exists                                                                                      *
+//**************************************************************************************************
+bool loadGnvsTableCache(int id)
+{
+  char key[20];
+  gnvs_table_part_t buf;
+  gnvsopen();
+  if (gnvshandle == 0)
+  {
+    dbgprint("Error reading table: gnvs not available!");
+    return false;
+  }
+  sprintf(key, "t%d", id);                  // 
+  if (gverbose)
+    doprint ( "Load Cache with key: %s:", key ) ;
+  size_t l = sizeof(buf);
+  if ( gnvssearchcache ( id ) )                                 // Already in nvs?
+  {
+    nvs_get_blob ( gnvshandle, key, &buf, &l);             // Read the current table content in nvs
+    if (l != sizeof(buf) )                           // Wrong BufSize?
+    {
+      dbgprint("Wrong size of blog in gnvs for blob %s", key);
+      return false;
+    }
+    memcpy(&gnvsTableCache, &buf, sizeof(buf));
+    if (gverbose)
+      doprint("Cache loaded: %s", key);
+    return true;
+  }
+  if (gverbose)
+    doprint("Could not load cache: %s", key);
+  return false;
+}
+
+
+
+//**************************************************************************************************
+//                                    G N V S O P E N                                              *
+//**************************************************************************************************
+// Open Preferences with my-app namespace. Each application module, library, etc.                  *
+// has to use namespace name to prevent key name collisions. We will open storage in               *
+// RW-mode (second parameter has to be false).                                                     *
+//**************************************************************************************************
+void gnvsopen()
+{
+  if ( ! gnvshandle )                                         // Opened already?
+  {
+    clearGnvsTableCache();
+    if ( ESP_OK == nvs_flash_init_partition (GENRE_PARTITION_NAME) )
+      gnvserr = nvs_open_from_partition ( GENRE_PARTITION_NAME, 
+          GENRE_PARTITION_NAME, NVS_READWRITE, &gnvshandle ) ;  // No, open nvs
+      if ( gnvserr )
+      {
+        dbgprint ( "nvs_open for GENRE failed!" ) ;
+      }
+      else
+      {
+        dbgprint (" SUCCESS!!! nvs_open for GENRE!") ;
+      }
+  }
+
+}
+
+//**************************************************************************************************
+//                                    G N V S C L E A R                                            *
+//**************************************************************************************************
+// Clear all preferences.                                                                          *
+//**************************************************************************************************
+esp_err_t gnvsclear()
+{
+  gnvsopen() ;                                         // Be sure to open gnvs
+  return nvs_erase_all ( gnvshandle ) ;                // Clear all keys
+}
+
+
+//**************************************************************************************************
+//                                    G N V S G E T S T R                                          *
+//**************************************************************************************************
+// Read a string from nvs.                                                                         *
+//**************************************************************************************************
+String gnvsgetstr ( const char* key )
+{
+  static char   nvs_buf[NVSBUFSIZE] ;       // Buffer for contents
+  size_t        len = NVSBUFSIZE ;          // Max length of the string, later real length
+
+  gnvsopen() ;                              // Be sure to open nvs
+  nvs_buf[0] = '\0' ;                       // Return empty string on error
+  gnvserr = nvs_get_str ( gnvshandle, key, nvs_buf, &len ) ;
+  if ( gnvserr )
+  {
+    dbgprint ( "nvs_get_str failed %X for genre-key %s, keylen is %d, len is %d!",
+               gnvserr, key, strlen ( key), len ) ;
+    dbgprint ( "Contents: %s", nvs_buf ) ;
+  }
+  return String ( nvs_buf ) ;
+}
+
+
+//**************************************************************************************************
+//                                    G N V S S E T S T R                                          *
+//**************************************************************************************************
+// Put a key/value pair in gnvs. Length is limited to allow easy read-back.                        *
+// No writing if no change.                                                                        *
+//**************************************************************************************************
+esp_err_t gnvssetstr ( const char* key, String val )
+{
+  String curcont ;                                         // Current contents
+  bool   wflag = true  ;                                   // Assume update or new key
+
+  //dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
+  if ( val.length() >= NVSBUFSIZE )                        // Limit length of string to store
+  {
+    dbgprint ( "nvssetstr length failed!" ) ;
+    return ESP_ERR_NVS_NOT_ENOUGH_SPACE ;
+  }
+  if ( gnvssearchstr ( key ) )                                 // Already in nvs?
+  {
+    curcont = gnvsgetstr ( key ) ;                          // Read current value
+    wflag = ( curcont != val ) ;                           // Value change?
+  }
+  if ( wflag )                                             // Update or new?
+  {
+    //dbgprint ( "nvssetstr update value" ) ;
+    gnvserr = nvs_set_str ( gnvshandle, key, val.c_str() ) ; // Store key and value
+    if ( gnvserr )                                          // Check error
+    {
+      dbgprint ( "gnvssetstr failed!" ) ;
+    }
+  }
+  return gnvserr ;
+}
+
+//**************************************************************************************************
+//                                    G N V S S E A R C H S T R                                    *
+//**************************************************************************************************
+// Check if key exists in gnvs.                                                                    *
+//**************************************************************************************************
+bool gnvssearchstr ( const char* key )
+{
+  size_t        len = NVSBUFSIZE ;                      // Length of the string
+
+  gnvsopen() ;                                           // Be sure to open nvs
+  gnvserr = nvs_get_str ( gnvshandle, key, NULL, &len ) ; // Get length of contents
+  return ( gnvserr == ESP_OK ) ;                         // Return true if found
+}
+
+//**************************************************************************************************
+//                                    G N V S S E A R C H S T R                                    *
+//**************************************************************************************************
+// Check if cache exists in gnvs.                                                                  *
+//**************************************************************************************************
+bool gnvssearchcache ( int id )
+{
+  char key[20];
+  sprintf(key, "t%d", id);
+  size_t        len = sizeof(gnvsTableCache) ;           // Length of the blob
+
+  gnvsopen() ;                                           // Be sure to open nvs
+  gnvserr = nvs_get_blob ( gnvshandle, key, NULL, &len ) ; // Get length of contents
+  return ( gnvserr == ESP_OK ) ;                         // Return true if found
+}
+
+
+
+char* listOfPresets[MAX_GENRE_PRESETS];
+static uint16_t numPresets;
+static int genreLoopReadState = GENRE_LOOP_READ_NONE;
+
+
+
+const char* rdbsRootCa PROGMEM = R"=====(-----BEGIN CERTIFICATE-----
+MIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/
+MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT
+DkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVow
+PzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQD
+Ew5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
+AN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4O
+rz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEq
+OLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9b
+xiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw
+7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaD
+aeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNV
+HQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqG
+SIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69
+ikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXr
+AvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZz
+R8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5
+JDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo
+Ob8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ
+-----END CERTIFICATE-----)=====" ;
+
+bool connectRdbs(String tag) 
+{
+  rdbsClient.setCACert(rdbsRootCa);
+  if (gverbose)
+    doprint ("Try to connect RDBS: %s to read tag: %s?hidebroken = true", rdbsHost, tag.c_str());
+  if ( rdbsClient.connect ( rdbsHost, rdbsPort ) )
+  {
+    String getreq ;
+    String uri = "/json/stations/bytag/" + tag + "?hidebroken=true";
+    //String uri = "/";
+    if (gverbose)
+      doprint ( "Connected to RDBS server" ) ;
+    getreq = String ( "GET " ) +                            // Format get request
+             uri +
+             String ( " HTTP/1.0\r\n" ) +
+             String ( "Host: " ) +
+             rdbsHost +
+             String ( "\r\n" ) +
+             String ("User-Agent: RetroRadio/betaTest\r\n") +
+             String ( "Connection: close\r\n\r\n" ) ;
+    rdbsClient.print ( getreq ) ;                            // Send get request
+    vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;              // Give some time to react
+    
+    while (rdbsClient.connected()) {
+      String line = rdbsClient.readStringUntil('\n');
+      if (line == "\r") {
+        break;
+      }
+    }
+    // if there are incoming bytes available
+    // from the server, read them and print them:
+
+    genreLoopReadState = GENRE_LOOP_READ;
+    return true ;                                           // Send is probably okay
+  }
+  if (gverbose)
+    doprint ( "Connect to RDBS failed!" ) ;
+  genreLoopReadState = GENRE_LOOP_READ_NONE;
+  return false ;
+}
+
+//std::vector<char *>* listOfPresets = NULL;
+
+
+//**************************************************************************************************
+//                                    genreReadLoop                                                *
+//**************************************************************************************************
+// Actually read the response from Put a key/value pair in gnvs. Length is limited to allow easy read-back.                        *
+// No writing if no change.                                                                        *
+//**************************************************************************************************
+
+int rdbsReadLoop(int nb)
+{
+#define READ_WAIT 0
+#define READ_KEY 1
+#define KEY_SEEN 2
+#define WAIT_VALUE 3
+#define SKIP     4
+#define READ_VALUE 5
+    static int state = READ_WAIT;
+    static bool expectKey = true;
+    static int arrayNest = 0;
+    static char buf[300];
+    static int count = 0;
+    static int idx = 0;
+    int ret = count;
+    if (0 == ret)
+      ret = -1;
+    if (genreLoopReadState == GENRE_LOOP_READ_NONE)
+    {
+      dbgprint("RDBS loop returned because state is READ_NONE");
+      count = 0;
+      if (rdbsClient.connected())
+        rdbsClient.stop();
+      return ret;
+    }
+
+    if (genreLoopReadState == GENRE_LOOP_READ)
+    {
+      gnvsopen();
+      if ( !gnvshandle ) 
+        if (rdbsClient.connected())
+          rdbsClient.stop();
+      if (!rdbsClient.connected()) 
+      {
+        dbgprint("RDBS client connection closed!");
+        state = READ_WAIT;
+        expectKey = true;
+        genreLoopReadState = GENRE_LOOP_READ_NONE;
+        count = 0;
+        return ret;
+      }
+      while (rdbsClient.available()) {
+        char c = rdbsClient.read();
+        if ((c == '}') || (c == ']') || (c == '{') || (c == '['))
+        {
+          state = READ_WAIT;
+          if (c == ']')
+          {
+            arrayNest--;
+            if (arrayNest < 1)
+              if (arrayNest == 0)
+                Serial.println("End of Array seen!");
+              else if (arrayNest < 0)
+                Serial.printf("Array nesting error: %d\r\n", arrayNest);
+          }
+          else if (c == '[')
+            arrayNest++;
+        }
+        else if (c == '"') 
+        {
+          if (READ_WAIT== state ) 
+          {
+//            Serial.println("Switch to state ReadKey");
+            state = READ_KEY;
+            idx = 0;
+          }
+          else if (READ_KEY == state)
+          {
+            buf[idx] = 0;
+            if (buf == strstr(buf, "url_resolved"))
+            {
+//              Serial.printf("Key: %s\r\n", buf);
+              idx = 0;
+              state = WAIT_VALUE;
+            }
+            else
+              state = SKIP;
+          } 
+          else if (WAIT_VALUE == state)
+          {
+              state = READ_VALUE;
+              idx = 0;
+          }
+          else if (READ_VALUE == state)
+          {
+            buf[idx] = 0;
+            state = READ_WAIT;
+            if (buf == strstr(buf, "http:")) 
+            {
+              char key[20];
+              char *s = strchr(buf, '?');
+              if (s)
+                *s = 0;
+              sprintf(key, "%d_%d", nb, count++);
+              if (gverbose)
+                doprint("gnvs %s: %s", key, buf + 7);
+              if (ESP_OK != gnvssetstr(key, buf + 7)) 
+              {
+                count--;
+                ret = count?count:-1;
+                rdbsClient.stop();
+                state = READ_WAIT;
+                expectKey = true;
+                genreLoopReadState = GENRE_LOOP_READ_NONE;
+                dbgprint("Bummer: gnvs write error (full?): Genre: %d is truncated (count is %d)", 
+                  nb, count);                  
+                count = 0;
+                return ret;
+              }
+              //dbgprint("gnvssetstr %s: %s", key, buf + 7);
+            }
+          }
+        }
+        else if ((SKIP == state) && (',' == c))
+          state = READ_WAIT;
+        else if (isprint(c) && ((READ_VALUE == state) || (READ_KEY == state)))
+          if (idx < sizeof(buf)  - 1)
+            buf[idx++] = c;
+      }
+
+    }    //rdbsClient.stop();
+  return 0;     // not yet finished
+}
+
+
+int searchGenre(const char * name)
+{
+  int ret = 0;
+  if (gverbose)
+    doprint("Start searching for genre: '%s'", name) ;
+  gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
+  if (gnvshandle == 0)
+  {
+    if (gverbose)
+      doprint("ERRPR: can not open gnvs!");
+    return ret;
+  }
+  if (!loadGnvsTableCache(1))
+  {
+    gnvsTableCache.id = 0;
+    createGnvsTableCache();
+  }
+  if (!loadGnvsTableCache(1))
+  {
+    if (gverbose)
+      doprint("ERROR: Could not load/create table in gnvs");
+    return ret; 
+  }     
+  bool found, done;
+  do
+  {
+    /* code */
+    if (gverbose)
+      doprint("Scanning genre table %d", 1 + ret / GENRE_TABLE_ENTRIES);
+    do {                // search current table (start with 1)
+      doprint("%d: '%s' (%ld)", ret + 1, gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].name, 
+                gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].timeMode);
+      found = (0 == strcmp(gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].name, name));
+      if (found)        // name match: check if it has presets and mode is OK
+      found = (gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].presets > 0) &&
+              (gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].timeMode >= 100);
+      ret++;
+    } while (!found && ( 0 != (ret % GENRE_TABLE_ENTRIES))) ;
+    if (!found)
+      done = !loadGnvsTableCache(gnvsTableCache.id + 1);
+    else 
+      done = true;
+  } while ( !done );
+  if (!found)
+    ret = 0;
+  if (found)
+    doprint("Found: Genre-Id is: %d for genre '%s', %d presets", ret, name, 
+              gnvsTableCache.entry[(ret - 1) % GENRE_TABLE_ENTRIES].presets);
+  else
+    doprint("Error: Genre '%s' not found in gnvs.", name); 
+  return ret;
+}
+
+void dirGenre()
+{
+  int idx = 0;
+  doprint("List known genres in gnvs");
+  gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
+  if (gnvshandle == 0)
+  {
+    doprint("ERRPR: can not open gnvs!");
+    return ;
+  }
+  if (!loadGnvsTableCache(1))
+  {
+    gnvsTableCache.id = 0;
+    createGnvsTableCache();
+  }
+  if (!loadGnvsTableCache(1))
+  {
+    if (gverbose)
+      doprint("ERROR: Could not load/create table in gnvs");
+    return ; 
+  }     
+  doprint("ID: '%-30s' %8s %-20s", "Name", "Presets", "Mode");
+  bool done;
+  do
+  {
+    /* code */
+    do {                // search current table (start with 1)
+      char mode[30];
+      uint32_t timeMode = gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].timeMode;
+      if (0 == timeMode)
+        strcpy(mode, "<empty>");
+      else if (timeMode >= 100)
+        strcpy(mode, "<valid>");
+      else
+        strcpy(mode, "<invalid>");
+      doprint("%2d: '%-30s' %8d %-20s", idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
+                gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
+                mode);
+      idx++;
+    } while ( 0 != (idx % GENRE_TABLE_ENTRIES)) ;
+    done = !loadGnvsTableCache(gnvsTableCache.id + 1);
+  } while ( !done );
+}
+
+
+bool playGenre(int id)
+{
+  if (0 == id)
+  {
+    genreId = genrePresets = genrePreset = 0;
+    if (gverbose)
+      doprint("Genre playmode is stopped");
+    return true;
+  }
+  gnvsopen();
+  if (gnvshandle == 0)
+  {
+    if (gverbose)
+      doprint("Error: could not open gnvs!") ;
+    return false;
+  }
+  id = id - 1;              // For accessing the tables...
+  if ( !loadGnvsTableCache ( 1 + (id / GENRE_TABLE_ENTRIES )))
+  {
+    doprint("Error: could not load genre table (invalid ID: %d?)", id + 1);
+    return false;
+  }
+  int numPresets = gnvsTableCache.entry[id % GENRE_TABLE_ENTRIES].presets ;
+  if (numPresets > 0 && (gnvsTableCache.entry[id % GENRE_TABLE_ENTRIES].timeMode >= 100))
+  {
+    char cmd[50];
+    genreId = id + 1 ;
+    genrePresets = numPresets ;
+    genrePreset = random(genrePresets) ;
+    if (gverbose)
+      doprint("Active genre is now: '%s' (id: %d), random start gpreset=%d (of %d)",
+        gnvsTableCache.entry[id % GENRE_TABLE_ENTRIES].name, genreId, genrePreset, genrePresets);
+    sprintf(cmd, "gpreset=%d", genrePreset);
+    analyzeCmd(cmd);
+
+  }
+  else
+  {
+    if (gverbose)
+      doprint("Error! genre-ID: %d is invalid/does not seem to have valid presets associated", id + 1) ;
+    return false;
+  }
+}
+
+#define GNVS_STATE_IDLE         0         // Ready to handle gnvs task (from gnvsTaskList)
+#define GNVS_STATE_SEARCH       1         // Search if specific genre is existing in gnvs
+#define GNVS_STATE_OPEN         2         // Not found, open client to rdbs
+#define GNVS_STATE_READ         3         // After successful open, do read
+#define GNVS_STATE_READFAIL     4         // Read failed
+#define GNVS_STATE_FOUND        5         // genre is found (or has been loaded) to gnvs
+#define GNVS_STATE_DONE         6         // current task has been handled, can be deleted from tasklist
+
+void gnvsTaskLoop()
+{
+  static GnvsTask* task;
+  static int state = GNVS_STATE_IDLE;
+  static int spareIdx = 0;
+  if (state == GNVS_STATE_IDLE)
+  {
+    if (gnvsTaskList.size() == 0)
+      return;
+    gnvsopen();                           // Here we have a Task. DoubleCheck if gnvs can be used
+    if (0 == gnvshandle) 
+    {
+      if (gverbose)
+        doprint("ERROR: gnvs could not be loaded, but task has been assigned: ignored!");
+      state = GNVS_STATE_DONE;
+    }
+    task = gnvsTaskList.front();
+    if (task->_taskId == GNVS_TASK_CLEAR)
+    {
+      if (gverbose)
+        doprint("gnvstask: clear all in gnvs!");
+      gnvsclear();
+      clearGnvsTableCache();
+      if (gverbose) 
+      {
+        doprint("gnvs should be clear now. Running 'genre=--dir' to verify");
+        analyzeCmd("genre=--dir") ;
+      }
+      genreId = genrePresets = 0;
+      state = GNVS_STATE_DONE;
+    }
+    else if (task->_taskId == GNVS_TASK_LOAD)
+    {
+      spareIdx = 0;
+      if (!loadGnvsTableCache(1))
+      {
+        gnvsTableCache.id = 0;
+        createGnvsTableCache();
+      }
+      if (!loadGnvsTableCache(1))
+      {
+        dbgprint("ERROR: Could not load/create table in gnvs");
+        state = GNVS_STATE_DONE;
+      }
+      else
+      {
+        dbgprint("Start searching genre %s in gnvs", task->_genreName);
+        state = GNVS_STATE_SEARCH;
+      }
+    }
+    else
+      state = GNVS_STATE_DONE;
+  }
+  else if ( state == GNVS_STATE_SEARCH)
+  {
+    bool found = false;
+    int i;
+      for (i = 0;(i < GENRE_TABLE_ENTRIES) && !found;i++)
+      {
+        if (gnvsTableCache.entry[i].timeMode >= 100)
+          found = (0 == strcmp(task->_genreName, gnvsTableCache.entry[i].name));
+        else if (gnvsTableCache.entry[i].timeMode == 0)
+          if (0 == spareIdx)
+            spareIdx = i + ( gnvsTableCache.id - 1) * GENRE_TABLE_ENTRIES + 1;
+      }
+      if (found)
+      {
+        task->_genreId = i + ( gnvsTableCache.id - 1) * GENRE_TABLE_ENTRIES;
+        state = GNVS_STATE_FOUND;
+      }
+      else                                // not found in current cache table, try next
+      {
+        if (!loadGnvsTableCache(gnvsTableCache.id + 1))       // No next? Finally not found...
+        {
+          if (0 == spareIdx)                                  // Any space to re-use?
+          {                                                   // if not, allocate new space
+            createGnvsTableCache();
+            spareIdx = 1 + ( gnvsTableCache.id - 1) * GENRE_TABLE_ENTRIES;
+          }
+          dbgprint("Genre not found. Have spare (or new): %d", spareIdx);
+          task->_genreId = spareIdx;
+          state = GNVS_STATE_OPEN;
+        }
+      
+      }
+
+  }
+  else if ( state == GNVS_STATE_OPEN)
+  {
+    dbgprint("Genre %s is not in preferences, load it to idx: %d", task->_genreName, task->_genreId);
+    String tag;
+    const char *s = task->_genreName;
+    for (int i = 0; s[i] != 0;i++)
+      if (isalnum(s[i]))
+        tag = tag + s[i];
+      else
+      {
+        char buf[10];
+        sprintf(buf, "%%%02X", s[i]);
+        tag = tag + String(buf);
+      }
+    dbgprint("GetGenre=%s, heap: %ld", tag.c_str(), ESP.getFreeHeap());  
+    if (connectRdbs(tag))
+    {
+      dbgprint("Successfully connected to RDBS, start read");
+      gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].timeMode = GENRE_ENTRY_MODE_FILL;
+      writeGnvsTableCache();
+      state = GNVS_STATE_READ;
+    }
+    else
+    {
+      dbgprint("Connect to RDBS failed!");
+      state = GNVS_STATE_DONE;
+    }
+  }
+  else if ( state == GNVS_STATE_READ)
+  {
+    int ret = rdbsReadLoop(task->_genreId);
+    if (ret)
+    {
+      dbgprint("Read from RDBS finished! Result: %d", ret);
+      if (ret < 0)
+      {
+        dbgprint("RDBS read failed!");
+        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].timeMode = GENRE_ENTRY_MODE_EMPTY;
+        state = GNVS_STATE_DONE;
+      }
+      else
+      {
+        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].timeMode = 2021; // must be now
+        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].presets = ret; 
+        strncpy(gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].name,
+          task->_genreName, GENRE_IDENTIFIER_LEN);
+        state = GNVS_STATE_FOUND;
+      }
+      writeGnvsTableCache();
+    }
+  }
+  else if (state == GNVS_STATE_FOUND)
+  {
+    if (gverbose)
+      doprint("Genre found in presets: %s (%d), NumPresets: %d", task->_genreName, task->_genreId,
+        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].presets);
+    state = GNVS_STATE_DONE;
+  }
+  else if (state == GNVS_STATE_DONE)
+  {
+    if (gnvsTaskList.size())
+    {    
+      task = gnvsTaskList.front();
+      gnvsTaskList.pop();
+      delete task;
+    }
+    state = GNVS_STATE_IDLE;
+  }
+}
+
+
+void gnvsLoop() 
+{
+  gnvsTaskLoop();
+}
+
+void addToTaskList(int taskType, String value)
+{
+  String left;
+  do 
+  {
+    left = getStringPart(value, ',');
+    chomp_nvs(left);
+    if (strchr(left.c_str(), ','))
+      addToTaskList(taskType, left);
+    else
+//      doprint("addtask for :%s", left.c_str());
+      gnvsTaskList.push(new GnvsTask(left.c_str(), taskType));
+    chomp(value);
+  } while (value.length() > 0);
+}      
+
+
+void doGenre(String param, String value)
+{
+  
+  if (value.startsWith("--")) 
+  {
+    static bool gverbosestore;
+    const char *s = value.c_str() + 2;
+    const char *remainder = strchr(s, ' ');
+    if (remainder) 
+    {
+      param = String(s).substring(0, remainder - s) ;
+      remainder++;
+      value = String(remainder);
+      chomp(value);
+    }
+    else
+    {
+      value = "";
+      param = String(s);
+    }
+    if (gverbose)
+      doprint("Genre controlCommand --%s ('%s')",
+        param.c_str(), value.c_str());
+/*
+    if (param == "channels")
+    {
+      if (isdigit(value.c_str()[0]))
+        gchannels = value.toInt();
+      dbgprint("Genre channels are: %d", gchannels);
+    }
+*/
+    else if (param == "clearall")
+      gnvsTaskList.push(new GnvsTask(GNVS_TASK_CLEAR));
+    else if (param ==  "dir")
+      dirGenre();
+    else if (param == "id")
+    {
+      if (isdigit(value.c_str()[0]))
+        playGenre(value.toInt());
+      dbgprint("Current genre id is: %d", genreId);
+    }
+    else if (param == "verbose")
+    {
+      if (isdigit(value.c_str()[0]))
+        gverbose = value.toInt();
+      dbgprint("Genre actions are verbose: %d", gverbose);
+    }
+    else if (param == "stop")
+    {
+      playGenre(0);
+    }
+    else if (param == "load")
+    {
+      addToTaskList(GNVS_TASK_LOAD, value);
+    }
+/*    else if (param == "show")
+    {
+      nvs_iterator_t it = nvs_entry_find("presets", "presets", NVS_TYPE_ANY);
+      if (gverbose)
+        while (it != NULL) 
+        {
+          nvs_entry_info_t info;
+          nvs_entry_info(it, &info);
+          it = nvs_entry_next(it);
+          doprint("key '%s', type '%d' \n", info.key, info.type);
+       }
+    } */
+    else if (param == "maintain")
+    {
+      if (isdigit(value.c_str()[0]))
+      {
+        bool request = value.toInt() != 0;
+        if ( request != gmaintain )
+        {
+          gmaintain = request;
+          if (request)
+          {
+            vTaskSuspend( xplaytask );
+            vTaskSuspend ( xspftask );
+            gverbosestore = gverbose;
+            gverbose = true;
+          }
+          else
+          {
+            vTaskResume( xplaytask );
+            vTaskResume ( xspftask );
+            gverbose = gverbosestore;
+          }
+        }
+      }
+    }
+  }
+  else
+  {
+    int id = searchGenre(value.c_str());
+    if (id)
+      playGenre(id);
+    else
+    {
+      doprint ("Error: Genre '%s' is not known. Run \"genre=--load %s\" to load it from RDBS first!", value.c_str()) ;
+    }
+  }
+  // else   gnvsTaskList.push(new GnvsTask(value.c_str(), GNVS_TASK_OPEN));
+  return;
+
+}
+
+void doGpreset(String param, String value)
+{
+  int ivalue = value.toInt();
+  if (genreId != 0) 
+  {
+    if (ivalue >= genrePresets)
+      ivalue = ivalue - genrePresets * (ivalue / genrePresets) ;
+    else if (ivalue < 0)
+      ivalue = ivalue + genrePresets * (1 + (-ivalue - 1) / genrePresets) ;
+
+    if (ivalue < genrePresets) 
+    {
+      char key[20];
+      String s;
+      sprintf(key, "%d_%d", genreId, ivalue);
+      genrePreset = ivalue;
+      s = gnvsgetstr(key);
+      if (gverbose)
+        doprint("Switch to GenreUrl: %s", s.c_str());
+      if (s.length() > 0)
+      {
+        host = s;
+        connecttohost();
+      }
+      else
+      {
+      if (gverbose)
+        doprint("BUMMER: url not in gnvs");
+
+      }
+    }
+    else
+    {
+      if (gverbose)
+        doprint("Id %d is not in genre:presets(%d)", ivalue);
+    }
+  }
+  else
+  {
+    dbgprint("BUMMER: genrePreset is called but no genre is selected!");
+  }
+
+}
 
 
 #else
 
-void loopRR() 
-{
-
-}
 
 #endif // Retroradio

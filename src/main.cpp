@@ -386,6 +386,9 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datast
                 } ;
 
 // Global variables
+#if defined(RETRORADIO)
+bool              connectDelay = false ;                 // Station with ConnectDelay 
+#endif
 int               DEBUG = 1 ;                            // Debug on/off
 int               numSsid ;                              // Number of available WiFi networks
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
@@ -2105,7 +2108,11 @@ bool connecttohost()
              auth +
              String ( "Connection: close\r\n\r\n" ) ;
     mp3client.print ( getreq ) ;                            // Send get request
-//    vTaskDelay ( 1000 / portTICK_PERIOD_MS ) ;              // Give some time to react
+#if defined(RETRORADIO)
+    dbgprint("CONNECTTOHOST connectDelay: %d", connectDelay );
+    if ( connectDelay )
+#endif
+    vTaskDelay ( 1000 / portTICK_PERIOD_MS ) ;              // Give some time to react
     return true ;                                           // Send is probably okay
   }
   dbgprint ( "Request %s failed!", host.c_str() ) ;
@@ -2440,6 +2447,17 @@ String readhostfrompref ( int16_t preset )
     }
   }
   // Get the contents
+#if defined(RETRORADIO)
+  String s = nvsgetstr ( tkey ) ;
+  connectDelay = (s.indexOf("##") > 0);
+  if ( connectDelay) 
+  {
+    s = s.substring(0, s.indexOf("##"));
+  } 
+  else
+    connectDelay = ( s.indexOf("bbc") > 0 ) ;
+  return s;
+#endif
   return nvsgetstr ( tkey ) ;                          // Get the station (or empty sring)
 }
 
@@ -4412,6 +4430,15 @@ void mp3loop()
 //**************************************************************************************************
 void loop()
 {
+#if defined(RETRORADIO)
+  loopRR();
+  if ( gmaintain )
+  {
+    scanserial() ;                                    // Handle serial input
+    return ;
+  }
+#endif  
+
   mp3loop() ;                                       // Do mp3 related actions
   if ( updatereq )                                  // Software update requested?
   {
@@ -4452,9 +4479,6 @@ void loop()
   handleVolPub() ;                                  // See if time to publish volume
   chk_enc() ;                                       // Check rotary encoder functions
   check_CH376() ;                                   // Check Flashdrive insert/remove
-#if defined(RETRORADIO)
-  loopRR();
-#endif  
 }
 
 
@@ -5268,6 +5292,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
     dbgprint ( "%d IR interrupts seen", ir_intcount ) ;
+    dbgprint ( reply );
     max_mp3loop_time = 0 ;                            // Start new check
   }
   // Commands for bass/treble control

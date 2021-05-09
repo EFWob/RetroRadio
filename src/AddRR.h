@@ -205,6 +205,7 @@ class VS1053
 } ;
 
 // prototypes for functions/global data in main.cpp()
+extern String            host;                                  // host to connect to
 extern String            ipaddress ;                            // Own IP-address
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data
@@ -216,6 +217,11 @@ extern uint32_t          nvshandle  ;                           // Handle for nv
 extern uint32_t          ir_0 ;                                 // Average duration of an IR short pulse
 extern uint32_t          ir_1 ;                                 // Average duration of an IR long pulse
 extern touchpin_struct   touchpin[] ;                           // Touch pins and programmed function
+extern TaskHandle_t      maintask ;                             // Taskhandle for main task
+extern TaskHandle_t      xplaytask ;                            // Task handle for playtask
+extern TaskHandle_t      xspftask ;                             // Task handle for special functions
+extern uint8_t           gmaintain ;                            // Genre-Maintenance-mode? (play is suspended)
+
 
 char*       dbgprint( const char* format, ... ) ;
 void        tftlog ( const char *str ) ;
@@ -227,6 +233,8 @@ void        fillkeylist() ;
 const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
+bool connecttohost();
+
 
 #endif
 #endif

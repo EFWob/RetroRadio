@@ -45,6 +45,13 @@ const char search_html[] PROGMEM = R"=====(<!DOCTYPE html>
    <td><button class="button" onclick="listStats('meditation')">Meditation</button></td>
    <td><button class="button" onclick="listStats('lounge')">Lounge</button></td>
    <td><button class="button" onclick="listStats('chill')">Chill</button></td><tr>
+   <td><button class="button" onclick="listStats('eclectic')">Eclectic</button></td>
+   <td><button class="button" onclick="listStats('world music')">World music</button></td>
+   <td><button class="button" onclick="listStats('brazilian music')">Brasil</button></td>
+   <td><button class="button" onclick="listStats('japanese')">Japan</button></td>
+   <td><button class="button" onclick="listStats('jazz')">Jazz</button></td>
+   <td><button class="button" onclick="listStats('progressive rock')">progRock</button></td><tr>
+   <td><button class="button" onclick="listStats('classical')">Klassik</button></td><tr>
    </table>
    <br><input type="text" size="80" id="resultstr" placeholder=""><br>
    <table class="table2" id="stationsTable" width="450">
