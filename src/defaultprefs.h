@@ -8,6 +8,8 @@ $channels_fm = 0,1,2,3,4,5,6,7,10
 #
 $equalizermax = 3
 #
+$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
+#
 $tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..445=8) (460..590=9)
 #
 $volmap = (100..4095=50..100)(=0)
@@ -16,7 +18,7 @@ $volmin = 50
 ::loop1 = if(.vol >= 0) = {ifnot(@hmilock & 2) = {volume=.vol}};.vol=-1
 ::loop2 = if(.channel)={if(~channels < 2)={.-=channel;return;};if(@hmilock&1)={.-=channel;return};if ( .channel > ~channels) = {.-=channel;return};channel=.channel;.-=channel}
 ::loop3 = if(.preset < 0)={return}; if(.preset==~preset)={return.preset=-1};ifnot(@hmilock&1)={preset=.preset};.preset=-1
-::setup0 = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=2),start,onchange={call=:user?}
+::setup0 = in.switch=mode=0,src=a36,map=(0..500=1)(0..4095=3),start,onchange={call=:user?}
 ::setup1 = in.vol = src=a39,map=@$volmap,delta=2,start,onchange={.vol=?}
 ::setup2 = .preset=-1;in.tune = src=t9,map=@$tunemap,start,onchange={.channel=?}
 ::setup3 = .eq_idx = 1;in.equalizer=src=.eq_idx,start,onchange={call=:equalizer?}
@@ -37,8 +39,12 @@ $volmin = 50
 :equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
 :equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
 #
-:user1 = channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
-:user2 = channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.eq_idx=1;in.vol=on0=:volchan_any
+:genre = idx(?,@$genres)={genre=?}
+:genrestop = genre=--stop;in.tune=onchange={.channel=?}
+#
+:user1 = call=:genrestop;channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
+:user2 = call=:genrestop;channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.eq_idx=1;in.vol=on0=:volchan_any
+:user3 = in.tune=onchange={call(?)=:genre},start
 #
 :vol_adjust = if(?)={.lastvol = ~volume}{if(.lastvol)={volume=0}{volume=@$volmin}}
 :volchan_any = if(@hmilock & 2)={}{call=:chan_any}
@@ -54,6 +60,7 @@ ir_18E7 = ram.channel = 2 # (2)
 ir_22DD = call = :user1 #(|<<)
 ir_22DDR4 = upvolume = 2 # (|<<) longpressed
 ir_30CF = ram.channel = 1 # (1)
+ir_30CFr4 = callv(1)=:genre # (1)
 ir_38C7 = ram.channel = 5 # (5)
 ir_42BD = ram.channel = 7 # (7)
 ir_4AB5 = ram.channel = 8 # (8)
@@ -84,7 +91,7 @@ pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
 pin_vs_dcs = 16       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
-preset = 11
+preset = 0
 preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
 preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
 preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
@@ -106,7 +113,7 @@ tonehf = 3
 tonela = 15
 tonelf = 12
 #
-volume = 72
+volume = 70
 #
 wifi_00 = SSID/passwd
 )=====" ;
