@@ -3937,6 +3937,7 @@ const int rdbsPort = 443;
 #define GNVS_TASK_LOAD          0         // Serach gnvs if specific genre is already in gnvs, if not load it from rdbs into gnve
 //#define GNVS_TASK_OPEN          1         // Open specific genre for playing (load if not in gnvs so far)
 #define GNVS_TASK_CLEAR         2         // erase entire gnvs
+#define GNVS_TASK_PUSHBACK      3         // Treat as command-line command...
 
 
 #define GNVS_STATE_IDLE         0         // Ready to handle gnvs task (from gnvsTaskList)
@@ -4604,13 +4605,27 @@ void gnvsTaskLoop()
       if (!loadGnvsTableCache(1))
       {
         dbgprint("ERROR: Could not load/create table in gnvs");
-        state = GNVS_STATE_DONE;
       }
       else
       {
         dbgprint("Start searching genre %s in gnvs", task->_genreName);
         state = GNVS_STATE_SEARCH;
       }
+    }
+    else if (task->_taskId == GNVS_TASK_PUSHBACK)
+    {
+      if (task->_genreName) 
+      {
+        char cmd[200];
+        sprintf(cmd, "genre=%s", task->_genreName); 
+        if (gverbose)
+          doprint("Genre: Pushback will execute: %s", cmd);
+        analyzeCmd( cmd ) ;
+      }
+      else
+        if (gverbose)
+          doprint("Genre: Pushback with empty command encountered...");
+      state = GNVS_STATE_DONE;
     }
     else
       state = GNVS_STATE_DONE;
@@ -4773,7 +4788,7 @@ void doGenre(String param, String value)
       dbgprint("Genre channels are: %d", gchannels);
     }
 */
-    else if (param == "clearall")
+    if (param == "clearall")
       gnvsTaskList.push(new GnvsTask(GNVS_TASK_CLEAR));
     else if (param ==  "dir")
       dirGenre();
@@ -4783,7 +4798,7 @@ void doGenre(String param, String value)
         playGenre(value.toInt());
       dbgprint("Current genre id is: %d", genreId);
     }
-    else if (param == "verbose")
+    else if (param.startsWith("verb"))
     {
       if (isdigit(value.c_str()[0]))
         gverbose = value.toInt();
@@ -4797,6 +4812,17 @@ void doGenre(String param, String value)
     {
       addToTaskList(GNVS_TASK_LOAD, value);
     }
+    else if (param.startsWith("push"))
+    {
+      doprint("Pushback: '%s'", value.c_str());
+      if (value.length() > 0) 
+        gnvsTaskList.push(new GnvsTask(value.c_str(), GNVS_TASK_PUSHBACK));
+    }
+    else if (param == "cmd")
+    {
+      if (value.length() > 0) 
+        analyzeCmd(value.c_str());
+    }
 /*    else if (param == "show")
     {
       nvs_iterator_t it = nvs_entry_find("presets", "presets", NVS_TYPE_ANY);
@@ -4809,7 +4835,7 @@ void doGenre(String param, String value)
           doprint("key '%s', type '%d' \n", info.key, info.type);
        }
     } */
-    else if (param == "maintain")
+    else if (param == "maint")
     {
       if (isdigit(value.c_str()[0]))
       {

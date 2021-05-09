@@ -40,6 +40,7 @@ $volmin = 50
 :equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
 #
 :genre = idx(?,@$genres)={genre=?}
+:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
 :genrestop = genre=--stop;in.tune=onchange={.channel=?}
 #
 :user1 = call=:genrestop;channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
@@ -101,7 +102,7 @@ preset_05 = www.ndr.de/resources/metadaten/audio/m3u/ndr1niedersachsen.m3u #  ND
 preset_06 = mp3channels.webradio.antenne.de/80er-kulthits # Antenne Bayern 80er
 preset_07 = stream.radioparadise.com/mp3-192         #   Radio Paradise
 preset_10 = www.ndr.de/resources/metadaten/audio/m3u/ndrinfo.m3u #  NDR Info
-preset_11 = streams.br.de/br-klassik_2.m3u  #   BR Klassik
+preset_11 = br-brklassik-live.cast.addradio.de/br/brklassik/live/mp3/mid  #   BR Klassik 
 preset_12 = avw.mdr.de/streams/284350-0_aac_high.m3u #  MDR Klassik
 preset_13 = www.ndr.de/resources/metadaten/audio/m3u/ndrkultur.m3u  #  NDR Kultur
 preset_14 = www.ndr.de/resources/metadaten/audio/aac/ndrblue.m3u # NDR Blue
