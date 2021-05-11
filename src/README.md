@@ -967,6 +967,7 @@ D:  * t-repeat  :   100 ms (repeated longpress)
 
 Some internal variables can be read through Inputs. The list of available variables changes. You can check the current implementation by entering just 
 the "~" as sole character. The output should be like this:
+
 ```
 23:11:17.173 -> D: Known system variables (8 entries)
 23:11:17.173 -> D:  0: 'volume' = 70
