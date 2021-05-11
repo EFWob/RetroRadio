@@ -1131,10 +1131,31 @@ Calc-Command:
   to if. (you can consider this as if with identical _if_ and _else_ sequence.
 - expression is evaluated same way as for _if_-condition. The result can be stored to RAM using the given _result-key_ or used in the (optional) 
   _calc-command-sequence_. Both _result_key_ and _calc-command-sequence_ are optional, however if none is given, the command takes no effect.
-  is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _while_ and
-  before condition.
+  is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _calc_ and before the expression.
+- the result of the calculation can be used for '?'-substitution within the _calc-command-sequence_
 - _calcv()_ for verbose version can be used.
 
+Idx-Command:
+- is implemented as follows: 
+```
+	idx[.result-key](list-index, list) [= {idx-command-sequence}]
+```
+- this command does also not influences the control flow (_idx-command-sequence_ will always be executed, if given). - _list-index_ is expected to be an integer. If the integer is greater or equal to 1 (so 'n') the _n_-th element of the following (comma-delimited) _list_ beginning from the leftmost _list_-element. 
+- if _list-index_ is 0 or bigger than the number of elements, the empty string "" is returned.
+- if the optional _result-key_ is given, the result will be stored into RAM using _result-key_.  
+- the result can be used for '?'-substitution within the _idx-command-sequence_
+- list element can be any type of string (not only numbers) but must not contain ',' or ')'.
+- each list element can be dereferenced to RAM/NVS using the usual _@key_-notation. Every dereferenced value can be either a single value or a (sub-) list in itself.
+- _idxv()_ for verbose version can be used.
+
+```
+.list=(@list1, @list2)      # define list in RAM holding a list with two entries @list1, @list2 (references to list1 and list2)
+.list1=(@list11, @list12)   # define list1 in RAM holding a list with two entries @list11, @list12 (references)
+.list11=Entry 1, Entry 2    # define list11 in RAM with two list-items Entry1, Entry 2
+.list12=Entry 3             
+.list2=Entry 4              # list2 holds just Entry 4
+```
+so if evaluated in _idx_-command, @list will finally expand to ((Entry 1, Entry 2), Entry 3), Entry 4 (Paranthesis are just for clarification to indicate the bounderies of each key in RAM)
 
 Call-Command:
 - is implemented as follows: 

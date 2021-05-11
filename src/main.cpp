@@ -2174,6 +2174,16 @@ bool connectwifi()
     }
     if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect
     {
+#if defined(RETRORADIO)
+      dbgprint("Wifi connect failed, try once again...");
+      WiFi.disconnect(true);
+      WiFi.softAPdisconnect(true);
+      if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
+        WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
+      else                                                // More AP to try
+        wifiMulti.run() ;                                 // Connect to best network
+      if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect      
+#endif
       localAP = true ;                                  // Error, setup own AP
     }
   }
@@ -2195,7 +2205,9 @@ bool connectwifi()
     pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
   }
   tftlog ( pfs ) ;                                      // Show IP
+#if (!defined(RETRORADIO))
   delay ( 3000 ) ;                                      // Allow user to read this
+#endif
   tftlog ( "\f" ) ;                                     // Select new page if NEXTION 
   return ( localAP == false ) ;                         // Return result of connection
 }

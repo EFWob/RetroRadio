@@ -826,17 +826,25 @@ void doCalc(String expression, String value, bool show, String ramKey, bool& ret
   }
 }
 
-String searchElement(String input, int& idx)
+String searchElement(String input, int& idx, bool show)
 {
   String result;
-  chomp_nvs(input);
+  chomp(input);
+  if (show) doprint("Search idx(%d) in %s", idx, input.c_str());
   if (strchr(input.c_str(), ','))
     do
     {
       String left = getStringPart(input, ',');
-      result = searchElement(left, idx);
+      if (show) doprint("Searching deeper with %s (idx is still %d)", left.c_str(), idx);
+      result = searchElement(left, idx, show);
     }
     while ((input.length() > 0) && (idx > 0));
+  else if (input.c_str()[0] == '@')
+  {
+    if (show) doprint ("resolving (and analyzing) key %s", input.c_str()) ;
+    chomp_nvs(input);
+    result = searchElement (input, idx, show);
+  }
   else
   {
     if (idx == 1)
@@ -862,7 +870,7 @@ void doIdx(String expression, String value, bool show, String ramKey, bool& retu
     left = getStringPart(expression, ',');
     chomp_nvs(left);
     if(show) doprint("Search %s, idx==%d", left.c_str(), idx);
-    result = searchElement(left, idx);
+    result = searchElement(left, idx, show);
 //    if (idx == 1) 
 //      result = left;
 //    if (idx > 1)
@@ -4237,6 +4245,33 @@ JDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo
 Ob8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ
 -----END CERTIFICATE-----)=====" ;
 
+const char* rdbsRootCa2 PROGMEM =R"=====(-----BEGIN CERTIFICATE-----
+MIIEZTCCA02gAwIBAgIQQAF1BIMUpMghjISpDBbN3zANBgkqhkiG9w0BAQsFADA/
+MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT
+DkRTVCBSb290IENBIFgzMB4XDTIwMTAwNzE5MjE0MFoXDTIxMDkyOTE5MjE0MFow
+MjELMAkGA1UEBhMCVVMxFjAUBgNVBAoTDUxldCdzIEVuY3J5cHQxCzAJBgNVBAMT
+AlIzMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuwIVKMz2oJTTDxLs
+jVWSw/iC8ZmmekKIp10mqrUrucVMsa+Oa/l1yKPXD0eUFFU1V4yeqKI5GfWCPEKp
+Tm71O8Mu243AsFzzWTjn7c9p8FoLG77AlCQlh/o3cbMT5xys4Zvv2+Q7RVJFlqnB
+U840yFLuta7tj95gcOKlVKu2bQ6XpUA0ayvTvGbrZjR8+muLj1cpmfgwF126cm/7
+gcWt0oZYPRfH5wm78Sv3htzB2nFd1EbjzK0lwYi8YGd1ZrPxGPeiXOZT/zqItkel
+/xMY6pgJdz+dU/nPAeX1pnAXFK9jpP+Zs5Od3FOnBv5IhR2haa4ldbsTzFID9e1R
+oYvbFQIDAQABo4IBaDCCAWQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8E
+BAMCAYYwSwYIKwYBBQUHAQEEPzA9MDsGCCsGAQUFBzAChi9odHRwOi8vYXBwcy5p
+ZGVudHJ1c3QuY29tL3Jvb3RzL2RzdHJvb3RjYXgzLnA3YzAfBgNVHSMEGDAWgBTE
+p7Gkeyxx+tvhS5B1/8QVYIWJEDBUBgNVHSAETTBLMAgGBmeBDAECATA/BgsrBgEE
+AYLfEwEBATAwMC4GCCsGAQUFBwIBFiJodHRwOi8vY3BzLnJvb3QteDEubGV0c2Vu
+Y3J5cHQub3JnMDwGA1UdHwQ1MDMwMaAvoC2GK2h0dHA6Ly9jcmwuaWRlbnRydXN0
+LmNvbS9EU1RST09UQ0FYM0NSTC5jcmwwHQYDVR0OBBYEFBQusxe3WFbLrlAJQOYf
+r52LFMLGMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcDAjANBgkqhkiG9w0B
+AQsFAAOCAQEA2UzgyfWEiDcx27sT4rP8i2tiEmxYt0l+PAK3qB8oYevO4C5z70kH
+ejWEHx2taPDY/laBL21/WKZuNTYQHHPD5b1tXgHXbnL7KqC401dk5VvCadTQsvd8
+S8MXjohyc9z9/G2948kLjmE6Flh9dDYrVYA9x2O+hEPGOaEOa1eePynBgPayvUfL
+qjBstzLhWVQLGAkXXmNs+5ZnPBxzDJOLxhF2JIbeQAcH5H0tZrUlo5ZYyOqA7s9p
+O5b85o3AM/OJ+CktFBQtfvBhcJVd9wvlwPsk+uyOy2HI7mNxKKgsBTt375teA2Tw
+UdHkhVNcsAKX1H7GNNLOEADksd86wuoXvg==
+-----END CERTIFICATE-----)=====" ;
+
 bool connectRdbs(String tag) 
 {
   rdbsClient.setCACert(rdbsRootCa);
@@ -4466,6 +4501,37 @@ int searchGenre(const char * name)
   return ret;
 }
 
+void partGenre() 
+{
+  size_t ul;
+  esp_partition_iterator_t _mypartiterator;
+  const esp_partition_t *_mypart;
+  ul = spi_flash_get_chip_size(); 
+  doprint("Flash chip size: %ld", ul);
+  doprint("Partiton table:");
+  _mypartiterator = esp_partition_find(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
+  if (_mypartiterator) 
+  {
+    do 
+    {
+      _mypart = esp_partition_get(_mypartiterator);
+      doprint("%x - %x - %x - %x - %s - %i\r\n", _mypart->type, _mypart->subtype, _mypart->address, _mypart->size, _mypart->label, _mypart->encrypted);
+    } while (_mypartiterator = esp_partition_next(_mypartiterator));
+  }
+  esp_partition_iterator_release(_mypartiterator);
+  _mypartiterator = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, NULL);
+  if (_mypartiterator) 
+  {
+    do 
+    {
+      _mypart = esp_partition_get(_mypartiterator);
+      doprint("%x - %x - %x - %x - %s - %i", _mypart->type, _mypart->subtype, _mypart->address, _mypart->size, _mypart->label, _mypart->encrypted);
+    } 
+    while (_mypartiterator = esp_partition_next(_mypartiterator));  
+  }
+  esp_partition_iterator_release(_mypartiterator);
+}
+
 void dirGenre()
 {
   int idx = 0;
@@ -4508,6 +4574,11 @@ void dirGenre()
     } while ( 0 != (idx % GENRE_TABLE_ENTRIES)) ;
     done = !loadGnvsTableCache(gnvsTableCache.id + 1);
   } while ( !done );
+  nvs_stats_t nvs_stats;
+  nvs_get_stats("presets", &nvs_stats);
+  doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
+              nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
+
 }
 
 
@@ -4724,6 +4795,8 @@ void gnvsTaskLoop()
   }
   else if (state == GNVS_STATE_DONE)
   {
+    if (gnvshandle != 0)
+      nvs_commit (gnvshandle);
     if (gnvsTaskList.size())
     {    
       task = gnvsTaskList.front();
@@ -4818,6 +4891,10 @@ void doGenre(String param, String value)
       if (value.length() > 0) 
         gnvsTaskList.push(new GnvsTask(value.c_str(), GNVS_TASK_PUSHBACK));
     }
+    else if (param.startsWith( "part")) 
+    {
+      partGenre();
+    }
     else if (param == "cmd")
     {
       if (value.length() > 0) 
@@ -4835,7 +4912,7 @@ void doGenre(String param, String value)
           doprint("key '%s', type '%d' \n", info.key, info.type);
        }
     } */
-    else if (param == "maint")
+    else if (param.startsWith("maint"))
     {
       if (isdigit(value.c_str()[0]))
       {
