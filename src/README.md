@@ -1006,6 +1006,126 @@ or "50".
 
 
 # Scripting Summary 
+## Storing and retrieving values
+- values can be stored to NVS (known as preferences) and now also to RAM
+- in both cases, values are identified by a _key-name_, which can hold a value (assigned to by "=" in preferences in case of NVS).
+	- example from preferences: _pin_ir = 0_ defines the value of _pin_ir_ to be 5.
+- there is some mixup between commands and preferences. For instance you will find _volume = 75_ in preferences. This line is (at startup) interpreted
+  as command to set the volume to 75, but it might also change during runtime to store the current value of volume setting.
+- the value associated to a key can be any arbritrary string constant. 
+
+We will start with RAM, as this is more safe. Accidentially deleting a vital NVS entry while playing around might cause trouble. The basic commands
+to manipulate RAM and NVS entries are similar.
+RAM entries can be used to store and retrieve information that can be used for commands. They are only available through the current power cycle of 
+course.
+
+Using command ram to list RAM entries:
+- you can list the contents of RAM using the command 
+```
+	ram?[ = key-name-part ]
+```
+- this lists the current entries in RAM. If _key-name-part_ is given, only entries that have _key-name-part_ as substring in their key are listed.
+- listing is shown on Serial (even if _DEBUG=0_).
+- if nothing has been set by your scripting so far, _ram?_ should list nothing
+
+Using command ram to add/update a RAM entry:
+```
+	ram.key-name = value
+```
+- this sets the value of _key-name_ in RAM to _value_. If _key-name_ does not exist, it is created by that command.
+
+
+Using command ram to delete a RAM-entry
+- you can delete an entry in RAM using the command 
+```
+	ram- = key-name
+```
+- this deletes the entry associated to _key-name_ from RAM. There will be no complaints if _key-name_ does not exist in RAM.
+- full _key-name_ must be specified, no pattern matching, so only one entry can be deleted by this command.
+- from Serial, try:
+```
+	DEBUG = 0
+	ram? = test
+	ram.test = 77
+	ram? = test
+	ram.test = 0
+	ram? = test	
+	ram- = test
+	ram? = test
+```
+
+The dot "." can be used as shortcut for the _ram_-command:
+- _.? = key-name-part_ is the same as _ram? = key-name-part_
+- _.key-name = value_ is equivalent to _ram.key-name = value_
+- _.- = key-name_ is equivalent to _ram- = key-name_
+
+The dot is also used to dereference RAM keys to use them in commands, for instance as argument. Example:
+```
+	DEBUG = 1
+	.test = 77
+	volume = .test
+```
+This sequence will store 77 to RAM entry named "test" and this value is then passed as argument to the _volume_ command. As a result, radio will play
+at volume level 77.
+
+Handling/using of NVS entries is similar. Whenever possible, RAM entries should be preferred to store information. Use NVS entries only if your 
+usecase requires the data to be persistent over power cycles.
+
+Using the nvs command:
+- you can list the contents of NVS using the command _nvs?[ = key-name-part ]_ (shortcut: _&? = key-name-part_)
+- you can add/update an NVS entry using the command _nvs.key-name = value_ (shortcut: _&key-name = value_)
+- you can remove an NVS entry using the command _nvs-=key-name_ (shortcut: _&- = key-name_). It should be clear that deleting NVS entries has the 
+  possibility to push you into danger zone again, if for instance pin entries are deleted).
+
+The ampersand "&" can also be used to dereference NVS-entries to be used as argument to commands. For demonstration purposes, try:
+```
+	DEBUG = 1
+	volume = 80
+	&test = 52
+	volume = &test
+```
+
+You can also dereference a key by using "@". Try:
+```
+	volume = @test
+```
+The logic for dereferencing _@key-name_ is as follows: if _key-name_ exists in RAM, this value is used. If not, the value from NVS is used.
+If _key-name_ also does not exist in NVS, empty string (evaluated to "0" if number is expected) is used. So volume should be set to 77 if you 
+followed the steps so far, as there still should be a RAM-entry _test_ with value "77".
+
+If you do not want the argument to be evaluated, but just store a string constant, you have to surround this string constant by round brackets.
+The brackets will be removed before the command is executed. In our example, try: 
+```
+	DEBUG = 1
+	volume = ( @test )
+```
+That should result in an output on Serial like: _Command: volume with parameter @test_ which means: the brackets have been removed and parameter
+passed to command volume is "@test". As volume expects a number (as string of digits) that will fail. If converted to a number using _atoi("@test")_
+the result would be "0". So say good-bye to whatever you just heared.
+
+This is also important to understand if you want to assign for instance a command-sequence to a RAM (or NVS) key. Consider the following idea:
+you want to go "home", where "home" means: _preset=1_ and _volume = 70_ To be available for later _calls_, you want to store that command sequence
+into RAM using the key _:home_. Entering _.:home=preset=1;volume=70_ will not do what is wanted. Output on Serial would be something like this:
+```
+23:58:59.026 -> D: Command: .:home with parameter preset=1
+23:58:59.026 -> D: Command: volume with parameter 70
+23:58:59.026 -> D: Executed 2 command(s) from sequence .:home=preset=1
+```
+If you run the command _.?=home_ you will see that the value for RAM-key _:home_ is just _preset = 1_.
+The reason is that in fact the line _:home=preset=1;volume=70_ is interpreted as two commands:
+```
+	.:home = preset = 1
+	volume = 70
+```
+
+To achieve what was wanted, you have to use round brackets in this case:
+```
+	.:home = (preset = 1; volume = 70)
+```
+
+You can verify by listening the content of the key using _.?=:home_ Or you can just use that entry by _call = :home_
+
+
 ## Control flow 
 
 Word of warning: there are internal limits (like NVS keylen or NVS content len or NVS size). There is no protection against buffer overruns or creating 
@@ -1147,15 +1267,25 @@ Idx-Command:
 - list element can be any type of string (not only numbers) but must not contain ',' or ')'.
 - each list element can be dereferenced to RAM/NVS using the usual _@key_-notation. Every dereferenced value can be either a single value or a (sub-) list in itself.
 - _idxv()_ for verbose version can be used.
+- _list_index_  must be a number, either as literal or dereferenced (by @, &, . or ~)
 
 ```
 .list=(@list1, @list2)      # define list in RAM holding a list with two entries @list1, @list2 (references to list1 and list2)
 .list1=(@list11, @list12)   # define list1 in RAM holding a list with two entries @list11, @list12 (references)
-.list11=Entry 1, Entry 2    # define list11 in RAM with two list-items Entry1, Entry 2
-.list12=Entry 3             
-.list2=Entry 4              # list2 holds just Entry 4
+.list11=entry1, entry2    # define list11 in RAM with two list-items entry1, entry2
+.list12=entry3             
+.list2=entry4              # list2 holds just entry4
 ```
-so if evaluated in _idx_-command, @list will finally expand to ((Entry 1, Entry 2), Entry 3), Entry 4 (Paranthesis are just for clarification to indicate the bounderies of each key in RAM)
+so if evaluated in _idx_-command, @list will finally expand to ((Entry 1, Entry 2), Entry 3), Entry 4 (Paranthesis are just for clarification to indicate the bounderies of each key in RAM).
+
+For example, you can load a random element of that list into RAM key _entry_ by using
+
+```
+calc(1><4)={idx.entry(?, @list)}
+```
+
+
+
 
 Call-Command:
 - is implemented as follows: 
@@ -1183,122 +1313,4 @@ Return-Command:
 - if _return-key_ is given, _value_ will be stored to that RAM-key. (The caller "must know" the RAM-key to evaluate it)
 
 
-  ## Storing and retrieving values
-- values can be stored to NVS (known as preferences) and now also to RAM
-- in both cases, values are identified by a _key-name_, which can hold a value (assigned to by "=" in preferences in case of NVS).
-	- example from preferences: _pin_ir = 0_ defines the value of _pin_ir_ to be 5.
-- there is some mixup between commands and preferences. For instance you will find _volume = 75_ in preferences. This line is (at startup) interpreted
-  as command to set the volume to 75, but it might also change during runtime to store the current value of volume setting.
-- the value associated to a key can be any arbritrary string constant. 
-
-We will start with RAM, as this is more safe. Accidentially deleting a vital NVS entry while playing around might cause trouble. The basic commands
-to manipulate RAM and NVS entries are similar.
-RAM entries can be used to store and retrieve information that can be used for commands. They are only available through the current power cycle of 
-course.
-
-Using command ram to list RAM entries:
-- you can list the contents of RAM using the command 
-```
-	ram?[ = key-name-part ]
-```
-- this lists the current entries in RAM. If _key-name-part_ is given, only entries that have _key-name-part_ as substring in their key are listed.
-- listing is shown on Serial (even if _DEBUG=0_).
-- if nothing has been set by your scripting so far, _ram?_ should list nothing
-
-Using command ram to add/update a RAM entry:
-```
-	ram.key-name = value
-```
-- this sets the value of _key-name_ in RAM to _value_. If _key-name_ does not exist, it is created by that command.
-
-
-Using command ram to delete a RAM-entry
-- you can delete an entry in RAM using the command 
-```
-	ram- = key-name
-```
-- this deletes the entry associated to _key-name_ from RAM. There will be no complaints if _key-name_ does not exist in RAM.
-- full _key-name_ must be specified, no pattern matching, so only one entry can be deleted by this command.
-- from Serial, try:
-```
-	DEBUG = 0
-	ram? = test
-	ram.test = 77
-	ram? = test
-	ram.test = 0
-	ram? = test	
-	ram- = test
-	ram? = test
-```
-
-The dot "." can be used as shortcut for the _ram_-command:
-- _.? = key-name-part_ is the same as _ram? = key-name-part_
-- _.key-name = value_ is equivalent to _ram.key-name = value_
-- _.- = key-name_ is equivalent to _ram- = key-name_
-
-The dot is also used to dereference RAM keys to use them in commands, for instance as argument. Example:
-```
-	DEBUG = 1
-	.test = 77
-	volume = .test
-```
-This sequence will store 77 to RAM entry named "test" and this value is then passed as argument to the _volume_ command. As a result, radio will play
-at volume level 77.
-
-Handling/using of NVS entries is similar. Whenever possible, RAM entries should be preferred to store information. Use NVS entries only if your 
-usecase requires the data to be persistent over power cycles.
-
-Using the nvs command:
-- you can list the contents of NVS using the command _nvs?[ = key-name-part ]_ (shortcut: _&? = key-name-part_)
-- you can add/update an NVS entry using the command _nvs.key-name = value_ (shortcut: _&key-name = value_)
-- you can remove an NVS entry using the command _nvs-=key-name_ (shortcut: _&- = key-name_). It should be clear that deleting NVS entries has the 
-  possibility to push you into danger zone again, if for instance pin entries are deleted).
-
-The ampersand "&" can also be used to dereference NVS-entries to be used as argument to commands. For demonstration purposes, try:
-```
-	DEBUG = 1
-	volume = 80
-	&test = 52
-	volume = &test
-```
-
-You can also dereference a key by using "@". Try:
-```
-	volume = @test
-```
-The logic for dereferencing _@key-name_ is as follows: if _key-name_ exists in RAM, this value is used. If not, the value from NVS is used.
-If _key-name_ also does not exist in NVS, empty string (evaluated to "0" if number is expected) is used. So volume should be set to 77 if you 
-followed the steps so far, as there still should be a RAM-entry _test_ with value "77".
-
-If you do not want the argument to be evaluated, but just store a string constant, you have to surround this string constant by round brackets.
-The brackets will be removed before the command is executed. In our example, try: 
-```
-	DEBUG = 1
-	volume = ( @test )
-```
-That should result in an output on Serial like: _Command: volume with parameter @test_ which means: the brackets have been removed and parameter
-passed to command volume is "@test". As volume expects a number (as string of digits) that will fail. If converted to a number using _atoi("@test")_
-the result would be "0". So say good-bye to whatever you just heared.
-
-This is also important to understand if you want to assign for instance a command-sequence to a RAM (or NVS) key. Consider the following idea:
-you want to go "home", where "home" means: _preset=1_ and _volume = 70_ To be available for later _calls_, you want to store that command sequence
-into RAM using the key _:home_. Entering _.:home=preset=1;volume=70_ will not do what is wanted. Output on Serial would be something like this:
-```
-23:58:59.026 -> D: Command: .:home with parameter preset=1
-23:58:59.026 -> D: Command: volume with parameter 70
-23:58:59.026 -> D: Executed 2 command(s) from sequence .:home=preset=1
-```
-If you run the command _.?=home_ you will see that the value for RAM-key _:home_ is just _preset = 1_.
-The reason is that in fact the line _:home=preset=1;volume=70_ is interpreted as two commands:
-```
-	.:home = preset = 1
-	volume = 70
-```
-
-To achieve what was wanted, you have to use round brackets in this case:
-```
-	.:home = (preset = 1; volume = 70)
-```
-
-You can verify by listening the content of the key using _.?=:home_ Or you can just use that entry by _call = :home_
 
