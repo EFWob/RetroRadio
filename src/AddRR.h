@@ -221,6 +221,7 @@ extern TaskHandle_t      maintask ;                             // Taskhandle fo
 extern TaskHandle_t      xplaytask ;                            // Task handle for playtask
 extern TaskHandle_t      xspftask ;                             // Task handle for special functions
 extern uint8_t           gmaintain ;                            // Genre-Maintenance-mode? (play is suspended)
+extern int16_t           currentpreset ;                   // Preset station playing
 
 
 char*       dbgprint( const char* format, ... ) ;

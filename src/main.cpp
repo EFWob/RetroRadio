@@ -4388,6 +4388,7 @@ void mp3loop()
   }
   if ( ini_block.newpreset != currentpreset )            // New station or next from playlist requested?
   {
+    dbgprint("New request: %d, current preset is: %d", ini_block.newpreset, currentpreset);
     if ( datamode != STOPPED )                           // Yes, still busy?
     {
       setdatamode ( STOPREQD ) ;                         // Yes, request STOP

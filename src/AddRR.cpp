@@ -252,7 +252,7 @@ int readUint8(void *ref) {
 }
 
 int readInt16(void *ref) {
-  return (int) (*((uint16_t*)ref));
+  return (int) (*((int16_t*)ref));
 }
 
 int readVolume(void* ref) {
@@ -651,7 +651,7 @@ int parseGroup(String & inValue, String& left, String& right, char** delimiters 
 #endif
 
 int doCalculation(String& value, bool show, const char* ramKey = NULL) {
-  char *operators[] = {"==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">", NULL};
+  char *operators[] = {"==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">", "..", NULL};
   String opLeft, opRight;
   int idx = parseGroup(value, opLeft, opRight, operators, true);
   int op1, op2, ret = 0;
@@ -681,7 +681,7 @@ int doCalculation(String& value, bool show, const char* ramKey = NULL) {
     case 2:
       ret = op1 <= op2;
       break;
-    case 3:
+    case 3: case 17:
       ret = random(op1, op2 + 1);
       break;
     case 4:
@@ -2789,7 +2789,11 @@ void doChannels(String value) {
 }
 
 void doChannel(String value, int ivalue) {
-  if ((genreId > 0) && (genrePresets > 1))                             // Are we in genre playmode?
+  if ((ivalue == -1) && (currentChannel >= 0))
+  {
+    currentChannel = -1 - currentChannel;
+  }
+  else if ((genreId > 0) && (genrePresets > 1))                             // Are we in genre playmode?
   {
     int16_t curPreset, newPreset;
     curPreset  = newPreset = genrePreset;
@@ -2810,15 +2814,19 @@ void doChannel(String value, int ivalue) {
         newPreset = random(genrePresets);
     else if ((ivalue > 0) && (ivalue <= numChannels) && (ivalue != currentChannel))   // could be cannel = number
     {
-      int chanDistance = genrePresets / numChannels;
-      if ( 0 == currentChannel )  
-        currentChannel = 1;
-      if (0 == chanDistance)
-        chanDistance = 1;
+      if (currentChannel < 0)
+        --curPreset;
+      else 
+      {
+        int chanDistance = genrePresets / numChannels;
+        if ( 0 == currentChannel )  
+          currentChannel = 1;
+        if (0 == chanDistance)
+          chanDistance = 1;
 //      newPreset = curPreset - (currentChannel - 1) * chanDistance;
 //      newPreset = newPreset + (ivalue - 1) * chanDistance ;
-      newPreset = curPreset - (genrePresets * (currentChannel - 1)) / numChannels ;
-      newPreset = newPreset + (genrePresets * (ivalue - 1)) / numChannels;
+        newPreset = curPreset - (genrePresets * (currentChannel - 1)) / numChannels ;
+        newPreset = newPreset + (genrePresets * (ivalue - 1)) / numChannels;
 /*
       if (newPreset >= genrePresets)
 //        while (newPreset >= genrePresets)
@@ -2838,11 +2846,14 @@ void doChannel(String value, int ivalue) {
         chanDistance = 1;
       newPreset = (curPreset + chanDelta * chanDistance) % genrePresets ;
       */
+      }
       currentChannel = ivalue;
     }
     if (newPreset != curPreset)
     {
       char cmd[30];
+      if (currentChannel < 0)
+        currentChannel = -1 - currentChannel;
       if (gverbose)
         doprint("Genre preset changed by channel command '%s' from %d to %d", value.c_str(), curPreset, newPreset) ;
       sprintf(cmd, "gpreset=%d", newPreset);
@@ -3805,6 +3816,11 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
       doRam ( s1, value ) ;
 //    else
 //      doRam ( ".return", value );
+  }
+  else if ((param == "preset") && (value.toInt() == -1))
+  {
+    currentpreset = ini_block.newpreset = -1;
+    ret = true;
   }
   if ( ret ) 
   {

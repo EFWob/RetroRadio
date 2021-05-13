@@ -219,6 +219,7 @@ commands can be defined either by preference settings or through the Input chann
     in the channel list, i. e. if tuned to by other means, tune to Channel1).
   - The word 'down': if the current preset is not the first channel in the channe-list, tune to previous preset in channel-list. (if the current preset 
   	is not in the channel-list, i. e. if tuned to by other means, tune to ChannelMax).
+  - The number -1. This will not do any change to the current playing, but can be useful to force the radio to switch to a specific channel (which would not happen if that channel was the same that has been set by the previous call to the channel-command). 
 
 
 
@@ -967,6 +968,7 @@ D:  * t-repeat  :   100 ms (repeated longpress)
 
 Some internal variables can be read through Inputs. The list of available variables changes. You can check the current implementation by entering just 
 the "~" as sole character. The output should be like this:
+
 ```
 23:11:17.173 -> D: Known system variables (8 entries)
 23:11:17.173 -> D:  0: 'volume' = 70
@@ -1006,163 +1008,7 @@ or "50".
 
 
 # Scripting Summary 
-## Control flow 
-
-Word of warning: there are internal limits (like NVS keylen or NVS content len or NVS size). There is no protection against buffer overruns or creating 
-endless loops. So keep that in mind with your design. In theory you can deeply nest control structures (calling a subroutine in an else case of another if in
-a while loop). In practice that is error prone, difficult to read and maintain. Better solution is probably to define and use flags to flatten the nesting.
-
-Another word of warning: the "RadioScriptingLanguage" was not planned but has happened (was developed on the go). The language grammer might be not be bullet
-prove, so observe whats happening and dont be surprised if some scripting constructs are not behaving as expected (well, I am surprised sometimes). 
-There are no "compiler errors" generated nor is there any form of "exception handling". Best case it will just not work, worse it will show an unexpected 
-behaviour or worst it might crash.
-The examples in this README or the defaultprefs.h do work, though. 
-
-The advantage is, that you can try scripting using the Serial interface. So you can test your ideas on the fly, and if you came up with a working solution
-you can integrate that solution to preferences. There are some debug facilities (like verbose command execution) included in the scripting language.
-
-- Sequences are allowed. Several commands can be separated using the semicolon ';' Commands will be executed from left to right. Last command does not need 
-  to be terminated by semicolon.
-- So on serial, you can still just enter one command without any change for the known commands. Or you can enter a sequence on serial that will be executed 
-  directly, for instance: _preset=1;volume=70_ to set both preset and volume.
-
-Executing commands at startup:
-- At startup NVS is searched for key _::setup_. The content of this key is expected do be a command sequence that will be executed. At this
-  point in time, the radio is about to start player task. So there is no audio yet, and you can still alter the settings 
-  (for instance for preset or volume) to override the "defaults" based on your usecase.
-- For convenience, (if one line is not enough), after _::setup_ has been searched (and executed if found), _::setup0_ to _::setup9_ are searched and executed
-  in that order. Gaps dont matter. So it is perfectly legal, if _::setup7_ is the only entry, it will be executed even though _::setup_ (or any other of 
-  _::setup0_ to _::setup6_) does not exist. 
-
-Executing commands during runtime:
-- At every _loop()_ of the software, NVS is searched for key _::loop_. The content of that key are expected do be a command sequence and will be executed.
-- For convenience, (if one line is not enough), after _::loop_ has been searched (and executed if found), _::loop0_ to _::loop9_ are seearched and executed 
-	(if defined) in that order. Gaps dont matter. So it is perfectly legal, if _::loop7_ is the only entry, it will be executed even though _::loop_ 
-	(or any other of _::loop0_ to _::loop6_) does not exist. 
-- To speed things up, _::loopx_ is not retrieved from NVS every time, but a RAM copy will be taken at startup. Therefore if you change any _::loop_-key
-  that change will only take effect after next start of the radio.
-- DEBUG is set to 0 before executing any _::loop_ key to avoid flooding of Serial output. If you need it within a _::loop_-Sequence, you need to turn it
-  on again from within the sequence.
-  
-  
-If-Command:
-- is implemented as follows: 
-```
-	if[.result-key](condition)= {if-command-sequence}[{else-command-sequence}]
-```
-- parts in square brackets (_.result_key_ and _{else-command-sequence}_ are optional.
-- condition is an unary or binary expression. Can be empty and is evaluated as false (=0) then. A unary (rvalue only) is true, if the rvalue is not zero.
-- an rvalue can be a _number_, a reference to NVS-key (_&key_), a reference to RAM-key (_.key_), a reference to either RAM (if defined there) or NVS (if
-  not defined in RAM) using _@key_ or a system variable (_~variable_). Undefined rvalues are assumed to be 0.
-- numbers are calculated on _int_16_ base, so range is limited to _-32768..32767_. There is no protection against over/underruns. Only decimal numbers 
-  can be used (no hex or binary).
-- two rvalues can be combined by a binary operator. The following operators are permitted: 
-	 - "==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">"
-- work exactly as in C, with the exception of "><". With _op1 >< op2_ a random number is generated within the range of _op1_ (included) up to 
-  _op2_ (_op2_ is also included). So _if(1 >< 3)_ will generate numbers between 1 and 3 (hence never 0 or always true for if) whereas so _if(0><3)_ will generate
-  numbers between 0 and 3 (and will therefore be true in 3 out of 4 cases only).
-- the result of the expression is stored into RAM using key   _"result-key"_ if the key (preceeded by '.') is placed after _if_ but before the condition. 
-  Result-key can be any string that is suitable as key into RAM and is purely optional. So _if.xyz(0><3)={}_ will store a number between 0 and 3 to RAM-key 
-  "xyz" (and do nothing else as the _if-command-sequence_ is empty). (with the command _.?=xyz_ you can list the contents of RAM for all keys that 
-  contain "xyz" in the key name. Or you can chain _if.xyz(0><4)={};.?=xyz;_ The result of the calculation is already stored into RAM and available within the _if-_ or _else-_
-  command sequence (whichever fires).
-- The result of the calculation will also be used to substitute all occurances of the question mark "?" within the _if_/_else_ command sequence before 
-  execution. This is a strict textual replacement, "?" will be replaced by the resulting number without any leading/trailing spaces or "0"-characters.
-  That allows for a "simulation of array data structures": _if(1><4)={ram.test??=????};.?=test_ will store _xxxx_ into RAM-key _testxx_ (with x being one
-  of the digits between '1' and '4').
-- Both _if-_ and _else-_ command sequence must be surrounded by curly braces, even if they contain only 1 (or 0) commands. _else_-Sequence is optional. 
-- For convenience, there is also the _ifnot_ command, that inverts the logical evaluation. So in cases where you do not need the _if_ but the _else_ part only
-  you can avoid writing empty _if_-sequence by using _ifnot_: _ifnot.xyz(0><4)={.xyz=88};.?=xyz_ will _xyz_ to 1..4 (due to calculation of condition) or
-  88 if the condition was calculated to be 0.
-- For debugging, you can add the letter 'v' (verbose) to the command word (so _ifv_ or _ifnotv_) that will output some (hopefully usefull) information on the
-  serial monitor (also if _DEBUG=0_)
-
-A note on substituting question marks: the scope of the question mark is respected. So for instance if if-commands are nested, question marks in each 
-command-sequence will be substituted correctly. For instance: _ifv.x(7) = {ifv(.x == 7) = { .x = ? }};.?=x_ will set x to 1. As the verbose command option
-has been used, Serial output gives some details on what happened:
-```
-18:54:34.379 -> ParseResult: if(7)={ifv(.x == 7) = { .x = ? }}; Ramkey=x
-18:54:34.379 -> Start if(7)="{ifv(.x == 7) = { .x = ? }}"
-18:54:34.379 -> Calculate: ("7" [-1] "")
-18:54:34.379 -> Caclulation result=7
-18:54:34.379 -> Calculation result set to ram.x=7
-18:54:34.413 ->   IfCommand = "ifv(.x == 7) = { .x = ? }"
-18:54:34.413 -> ElseCommand = ""
-18:54:34.413 -> Condition is TRUE (7)
-18:54:34.413 -> Running "if(true)" with (substituted) command "ifv(.x == 7) = { .x = ? }"
-18:54:34.413 -> ParseResult: if(.x == 7)={ .x = ? }; Ramkey=
-18:54:34.413 -> Start if(.x == 7)="{ .x = ? }"
-18:54:34.413 -> Calculate: ("7" [0] "7")
-18:54:34.413 -> Caclulation result=1
-18:54:34.413 ->   IfCommand = ".x = ?"
-18:54:34.413 -> ElseCommand = ""
-18:54:34.413 -> Condition is TRUE (1)
-18:54:34.446 -> Running "if(true)" with (substituted) command ".x = 1"
-18:54:34.446 -> RAM content (3 entries)
-18:54:34.446 ->   1: 'x' = '1'
-```
-In a nutshell: condition of the left _if()_ was evaluated first to be "7", that "7" has been stored to RAM using key _x_. So expression is true, and the
-_if-command-sequence_ gets executed: _ifv( .x == ?) = { .x = ? }_ Before execution, only the "?" in the condition expression is substituted but not the second.
-And that is as it should be, as the second is part of another _if()_-command. This has the condition (after substitution) as: _( 7 == 7 )_ which is "1",
-and this is then used to substitute the "?" in the associated _if-command-sequence_ to yield _.x = 1_ which finally sets _x_ to 1. (_.?=x_ is a command 
-to list all RAM-entrys which have "x" as part of their _key-name_, which is only _'x'_ in our case).
-
-
-
-While-Command:
-- is implemented as follows: 
-```
-	while[.result-key](condition)= {while-command-sequence}
-```
-- condition is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _while_ and
-  before condition.
-- inverted version (_whilenot()_) and verbose version (_whilev()_ or _whilenotv()_) can be used.  
-- _while-command-sequence_ is executed as long as the condition is true (so must in fact change the conditions such that it will evaluate to "0" and hence
-  terminate the the loop. So _while(1)={}_ is a bad idea, the loop will idle forever, and other tasks (like playing music or listening on Serial) will not 
-  work. Only way to terminate is a HW- or power-on reset.
-- in general, use this command with special caution.   
-
-Calc-Command:
-- is implemented as follows: 
-```
-	calc[.result-key](expression) [= {calc-command-sequence}]
-```
-- this is not exactly a command that influences the control flow (_calc-command-sequence_ will always be executed, if given), just the syntax is identical
-  to if. (you can consider this as if with identical _if_ and _else_ sequence.
-- expression is evaluated same way as for _if_-condition. The result can be stored to RAM using the given _result-key_ or used in the (optional) 
-  _calc-command-sequence_. Both _result_key_ and _calc-command-sequence_ are optional, however if none is given, the command takes no effect.
-  is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _while_ and
-  before condition.
-- _calcv()_ for verbose version can be used.
-
-
-Call-Command:
-- is implemented as follows: 
-```
-	call[( parameter )] = key-name
-```
-- _key-name_ is used to search for in first RAM and if not found there in NVS. If a match is found, the content of the RAM/NVS entry are expected to
-  be a command-sequence and executed.
-- when this sequence is finished (all commands of the sequence have been executed or a return command was found), the sequence the _call()_ command is in
-  is continued after the _call()_ command.
-- if optional parameter is given, everything between '(' and ')' is used as a string to replace any "?" using the known mechanism in the command-sequence
-  given by _key-name_. If parameter is given, leading and trailing spaces are removed: _call (   param ) =_ would substitute any "?" by "param".
-- again danger zone here: do not create loops. This innocent looking sequence will crash the radio: _.x = call = y; .y = call = x; call = x_
-	- with the first command, a RAM entry is created with name "x" that holds "call y"
-	- second command creates RAM entry "y" with "call x"
-	- the third command starts the call cycle "x->y->x->y..." that will trigger the stack watchdog eventually.
-	
-Return-Command:
-- is implemented as follows: 
-```
-	return[.return-key] [= value ]
-```
-- this command will cancel the execution of the current sequence. If that sequence was _called_ from another sequence, execution will commence there  (or
-  just stop if there was no caller, like from serial).
-- if _return-key_ is given, _value_ will be stored to that RAM-key. (The caller "must know" the RAM-key to evaluate it)
-
-
-  ## Storing and retrieving values
+## Storing and retrieving values
 - values can be stored to NVS (known as preferences) and now also to RAM
 - in both cases, values are identified by a _key-name_, which can hold a value (assigned to by "=" in preferences in case of NVS).
 	- example from preferences: _pin_ir = 0_ defines the value of _pin_ir_ to be 5.
@@ -1280,4 +1126,193 @@ To achieve what was wanted, you have to use round brackets in this case:
 ```
 
 You can verify by listening the content of the key using _.?=:home_ Or you can just use that entry by _call = :home_
+
+
+## Control flow 
+
+Word of warning: there are internal limits (like NVS keylen or NVS content len or NVS size). There is no protection against buffer overruns or creating 
+endless loops. So keep that in mind with your design. In theory you can deeply nest control structures (calling a subroutine in an else case of another if in
+a while loop). In practice that is error prone, difficult to read and maintain. Better solution is probably to define and use flags to flatten the nesting.
+
+Another word of warning: the "RadioScriptingLanguage" was not planned but has happened (was developed on the go). The language grammer might be not be bullet
+prove, so observe whats happening and dont be surprised if some scripting constructs are not behaving as expected (well, I am surprised sometimes). 
+There are no "compiler errors" generated nor is there any form of "exception handling". Best case it will just not work, worse it will show an unexpected 
+behaviour or worst it might crash.
+The examples in this README or the defaultprefs.h do work, though. 
+
+The advantage is, that you can try scripting using the Serial interface. So you can test your ideas on the fly, and if you came up with a working solution
+you can integrate that solution to preferences. There are some debug facilities (like verbose command execution) included in the scripting language.
+
+- Sequences are allowed. Several commands can be separated using the semicolon ';' Commands will be executed from left to right. Last command does not need 
+  to be terminated by semicolon.
+- So on serial, you can still just enter one command without any change for the known commands. Or you can enter a sequence on serial that will be executed 
+  directly, for instance: _preset=1;volume=70_ to set both preset and volume.
+
+Executing commands at startup:
+- At startup NVS is searched for key _::setup_. The content of this key is expected do be a command sequence that will be executed. At this
+  point in time, the radio is about to start player task. So there is no audio yet, and you can still alter the settings 
+  (for instance for preset or volume) to override the "defaults" based on your usecase.
+- For convenience, (if one line is not enough), after _::setup_ has been searched (and executed if found), _::setup0_ to _::setup9_ are searched and executed
+  in that order. Gaps dont matter. So it is perfectly legal, if _::setup7_ is the only entry, it will be executed even though _::setup_ (or any other of 
+  _::setup0_ to _::setup6_) does not exist. 
+
+Executing commands during runtime:
+- At every _loop()_ of the software, NVS is searched for key _::loop_. The content of that key are expected do be a command sequence and will be executed.
+- For convenience, (if one line is not enough), after _::loop_ has been searched (and executed if found), _::loop0_ to _::loop9_ are seearched and executed 
+	(if defined) in that order. Gaps dont matter. So it is perfectly legal, if _::loop7_ is the only entry, it will be executed even though _::loop_ 
+	(or any other of _::loop0_ to _::loop6_) does not exist. 
+- To speed things up, _::loopx_ is not retrieved from NVS every time, but a RAM copy will be taken at startup. Therefore if you change any _::loop_-key
+  that change will only take effect after next start of the radio.
+- DEBUG is set to 0 before executing any _::loop_ key to avoid flooding of Serial output. If you need it within a _::loop_-Sequence, you need to turn it
+  on again from within the sequence.
+  
+  
+If-Command:
+- is implemented as follows: 
+```
+	if[.result-key](condition)= {if-command-sequence}[{else-command-sequence}]
+```
+- parts in square brackets (_.result_key_ and _{else-command-sequence}_ are optional.
+- condition is an unary or binary expression. Can be empty and is evaluated as false (=0) then. A unary (rvalue only) is true, if the rvalue is not zero.
+- an rvalue can be a _number_, a reference to NVS-key (_&key_), a reference to RAM-key (_.key_), a reference to either RAM (if defined there) or NVS (if
+  not defined in RAM) using _@key_ or a system variable (_~variable_). Undefined rvalues are assumed to be 0.
+- numbers are calculated on _int_16_ base, so range is limited to _-32768..32767_. There is no protection against over/underruns. Only decimal numbers 
+  can be used (no hex or binary).
+- two rvalues can be combined by a binary operator. The following operators are permitted: 
+	 - "==", "!=", "<=", ".." , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">"
+- work exactly as in C, with the exception of "..". With _op1 .. op2_ a random number is generated within the range of _op1_ (included) up to 
+  _op2_ (_op2_ is also included). So _if(1 .. 3)_ will generate numbers between 1 and 3 (hence never 0 or always true for if) whereas so _if(0..3)_ will generate
+  numbers between 0 and 3 (and will therefore be true in 3 out of 4 cases only).
+- the result of the expression is stored into RAM using key   _"result-key"_ if the key (preceeded by '.') is placed after _if_ but before the condition. 
+  Result-key can be any string that is suitable as key into RAM and is purely optional. So _if.xyz(0..3)={}_ will store a number between 0 and 3 to RAM-key 
+  "xyz" (and do nothing else as the _if-command-sequence_ is empty). (with the command _.?=xyz_ you can list the contents of RAM for all keys that 
+  contain "xyz" in the key name. Or you can chain _if.xyz(0..4)={};.?=xyz;_ The result of the calculation is already stored into RAM and available within the _if-_ or _else-_
+  command sequence (whichever fires).
+- The result of the calculation will also be used to substitute all occurances of the question mark "?" within the _if_/_else_ command sequence before 
+  execution. This is a strict textual replacement, "?" will be replaced by the resulting number without any leading/trailing spaces or "0"-characters.
+  That allows for a "simulation of array data structures": _if(1..4)={ram.test??=????};.?=test_ will store _xxxx_ into RAM-key _testxx_ (with x being one
+  of the digits between '1' and '4').
+- Both _if-_ and _else-_ command sequence must be surrounded by curly braces, even if they contain only 1 (or 0) commands. _else_-Sequence is optional. 
+- For convenience, there is also the _ifnot_ command, that inverts the logical evaluation. So in cases where you do not need the _if_ but the _else_ part only
+  you can avoid writing empty _if_-sequence by using _ifnot_: _ifnot.xyz(0..4)={.xyz=88};.?=xyz_ will _xyz_ to 1..4 (due to calculation of condition) or
+  88 if the condition was calculated to be 0.
+- For debugging, you can add the letter 'v' (verbose) to the command word (so _ifv_ or _ifnotv_) that will output some (hopefully usefull) information on the
+  serial monitor (also if _DEBUG=0_)
+
+A note on substituting question marks: the scope of the question mark is respected. So for instance if if-commands are nested, question marks in each 
+command-sequence will be substituted correctly. For instance: _ifv.x(7) = {ifv(.x == 7) = { .x = ? }};.?=x_ will set x to 1. As the verbose command option
+has been used, Serial output gives some details on what happened:
+```
+18:54:34.379 -> ParseResult: if(7)={ifv(.x == 7) = { .x = ? }}; Ramkey=x
+18:54:34.379 -> Start if(7)="{ifv(.x == 7) = { .x = ? }}"
+18:54:34.379 -> Calculate: ("7" [-1] "")
+18:54:34.379 -> Caclulation result=7
+18:54:34.379 -> Calculation result set to ram.x=7
+18:54:34.413 ->   IfCommand = "ifv(.x == 7) = { .x = ? }"
+18:54:34.413 -> ElseCommand = ""
+18:54:34.413 -> Condition is TRUE (7)
+18:54:34.413 -> Running "if(true)" with (substituted) command "ifv(.x == 7) = { .x = ? }"
+18:54:34.413 -> ParseResult: if(.x == 7)={ .x = ? }; Ramkey=
+18:54:34.413 -> Start if(.x == 7)="{ .x = ? }"
+18:54:34.413 -> Calculate: ("7" [0] "7")
+18:54:34.413 -> Caclulation result=1
+18:54:34.413 ->   IfCommand = ".x = ?"
+18:54:34.413 -> ElseCommand = ""
+18:54:34.413 -> Condition is TRUE (1)
+18:54:34.446 -> Running "if(true)" with (substituted) command ".x = 1"
+18:54:34.446 -> RAM content (3 entries)
+18:54:34.446 ->   1: 'x' = '1'
+```
+In a nutshell: condition of the left _if()_ was evaluated first to be "7", that "7" has been stored to RAM using key _x_. So expression is true, and the
+_if-command-sequence_ gets executed: _ifv( .x == ?) = { .x = ? }_ Before execution, only the "?" in the condition expression is substituted but not the second.
+And that is as it should be, as the second is part of another _if()_-command. This has the condition (after substitution) as: _( 7 == 7 )_ which is "1",
+and this is then used to substitute the "?" in the associated _if-command-sequence_ to yield _.x = 1_ which finally sets _x_ to 1. (_.?=x_ is a command 
+to list all RAM-entrys which have "x" as part of their _key-name_, which is only _'x'_ in our case).
+
+
+
+While-Command:
+- is implemented as follows: 
+```
+	while[.result-key](condition)= {while-command-sequence}
+```
+- condition is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _while_ and
+  before condition.
+- inverted version (_whilenot()_) and verbose version (_whilev()_ or _whilenotv()_) can be used.  
+- _while-command-sequence_ is executed as long as the condition is true (so must in fact change the conditions such that it will evaluate to "0" and hence
+  terminate the the loop. So _while(1)={}_ is a bad idea, the loop will idle forever, and other tasks (like playing music or listening on Serial) will not 
+  work. Only way to terminate is a HW- or power-on reset.
+- in general, use this command with special caution.   
+
+Calc-Command:
+- is implemented as follows: 
+```
+	calc[.result-key](expression) [= {calc-command-sequence}]
+```
+- this is not exactly a command that influences the control flow (_calc-command-sequence_ will always be executed, if given), just the syntax is identical
+  to if. (you can consider this as if with identical _if_ and _else_ sequence.
+- expression is evaluated same way as for _if_-condition. The result can be stored to RAM using the given _result-key_ or used in the (optional) 
+  _calc-command-sequence_. Both _result_key_ and _calc-command-sequence_ are optional, however if none is given, the command takes no effect.
+  is evaluated as with if command. As there, the result of the calculation can be stored to RAM using key _.result_key_ after keyword _calc_ and before the expression.
+- the result of the calculation can be used for '?'-substitution within the _calc-command-sequence_
+- _calcv()_ for verbose version can be used.
+
+Idx-Command:
+- is implemented as follows: 
+```
+	idx[.result-key](list-index, list) [= {idx-command-sequence}]
+```
+- this command does also not influences the control flow (_idx-command-sequence_ will always be executed, if given). - _list-index_ is expected to be an integer. If the integer is greater or equal to 1 (so 'n') the _n_-th element of the following (comma-delimited) _list_ beginning from the leftmost _list_-element. 
+- if _list-index_ is 0 or bigger than the number of elements, the empty string "" is returned.
+- if the optional _result-key_ is given, the result will be stored into RAM using _result-key_.  
+- the result can be used for '?'-substitution within the _idx-command-sequence_
+- list element can be any type of string (not only numbers) but must not contain ',' or ')'.
+- each list element can be dereferenced to RAM/NVS using the usual _@key_-notation. Every dereferenced value can be either a single value or a (sub-) list in itself.
+- _idxv()_ for verbose version can be used.
+- _list_index_  must be a number, either as literal or dereferenced (by @, &, . or ~)
+
+```
+.list=(@list1, @list2)      # define list in RAM holding a list with two entries @list1, @list2 (references to list1 and list2)
+.list1=(@list11, @list12)   # define list1 in RAM holding a list with two entries @list11, @list12 (references)
+.list11=entry1, entry2    # define list11 in RAM with two list-items entry1, entry2
+.list12=entry3             
+.list2=entry4              # list2 holds just entry4
+```
+so if evaluated in _idx_-command, @list will finally expand to ((Entry 1, Entry 2), Entry 3), Entry 4 (Paranthesis are just for clarification to indicate the bounderies of each key in RAM).
+
+For example, you can load a random element of that list into RAM key _entry_ by using
+
+```
+calc(1..4)={idx.entry(?, @list)}
+```
+
+
+
+
+Call-Command:
+- is implemented as follows: 
+```
+	call[( parameter )] = key-name
+```
+- _key-name_ is used to search for in first RAM and if not found there in NVS. If a match is found, the content of the RAM/NVS entry are expected to
+  be a command-sequence and executed.
+- when this sequence is finished (all commands of the sequence have been executed or a return command was found), the sequence the _call()_ command is in
+  is continued after the _call()_ command.
+- if optional parameter is given, everything between '(' and ')' is used as a string to replace any "?" using the known mechanism in the command-sequence
+  given by _key-name_. If parameter is given, leading and trailing spaces are removed: _call (   param ) =_ would substitute any "?" by "param".
+- again danger zone here: do not create loops. This innocent looking sequence will crash the radio: _.x = call = y; .y = call = x; call = x_
+	- with the first command, a RAM entry is created with name "x" that holds "call y"
+	- second command creates RAM entry "y" with "call x"
+	- the third command starts the call cycle "x->y->x->y..." that will trigger the stack watchdog eventually.
+	
+Return-Command:
+- is implemented as follows: 
+```
+	return[.return-key] [= value ]
+```
+- this command will cancel the execution of the current sequence. If that sequence was _called_ from another sequence, execution will commence there  (or
+  just stop if there was no caller, like from serial).
+- if _return-key_ is given, _value_ will be stored to that RAM-key. (The caller "must know" the RAM-key to evaluate it)
+
+
 
