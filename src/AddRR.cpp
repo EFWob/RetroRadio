@@ -219,7 +219,9 @@ char* doprint ( const char* format, ... )
 {
   static char sbuf[2 * DEBUG_BUFFER_SIZE] ;                // For debug lines
   va_list varArgs ;                                    // For variable number of params
-
+#if defined(NOSERIAL)
+  sbuf[0] = 0 ;
+#else
   va_start ( varArgs, format ) ;                       // Prepare parameters
   vsnprintf ( sbuf, sizeof(sbuf), format, varArgs ) ;  // Format the message
   va_end ( varArgs ) ;                                 // End of using parameters
@@ -229,6 +231,7 @@ char* doprint ( const char* format, ... )
   }
   Serial.println ( sbuf ) ;                            // always print the info
   Serial.flush();
+ #endif
   return sbuf ;                                        // Return stored string
 }
 
@@ -1936,7 +1939,8 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
     RetroRadioInputReaderTouch(int pin, int mod) {
       _pin = pin;
       _auto = false;
-      touch_pad_config((touch_pad_t)pin, 0);
+ //     if (pin != 8)
+        touch_pad_config((touch_pad_t)pin, 0);
       int i = 0;
       uint16_t x = 0;
 
@@ -1944,7 +1948,8 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
         touch_pad_read_filtered((touch_pad_t)_pin, &x);
         delay(1);
       }
-      //Serial.printf("TouchRead Nr. %d, T%d=%d\r\n", i, pin, x);
+      if (pin == 8)
+        Serial.printf("TouchRead Nr. %d, T%d=%d\r\n", i, pin, x);
       mode(mod);
     };
     void mode(int mod) {
@@ -2089,7 +2094,10 @@ void RetroRadioInput::setReader(String value) {
         case 'c': reader = new RetroRadioInputReaderCapa(idx);
                   break;
     */
-    case 't': reader = new RetroRadioInputReaderTouch(idx, _mode);
+    case 't': //if (idx == 9)
+              reader = new RetroRadioInputReaderTouch(idx, _mode);
+              //else
+                //doprint("ignoring reader for any touch other than 9 (request: %d)", idx);
       break;
     case '.': reader = new RetroRadioInputReaderRam(value.c_str() + 1);
       break;
@@ -2895,12 +2903,6 @@ void doInlist(const char *p) {
 }
 
 
-void retroRadioInit() {
-  bool initDone = false;
-  if (!initDone) {
-    initDone = true;
-  }
-}
 
 
 char *retroRadioLoops[12];
@@ -3523,7 +3525,6 @@ void scanIRRR()
 void setupRR(uint8_t setupLevel) {
   if (setupLevel == SETUP_START)
   {
-    gnvsopen();
     touch_pad_init();
     touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
     touch_pad_filter_start(16);
@@ -3583,14 +3584,21 @@ void setupRR(uint8_t setupLevel) {
 
 
 void loopRR() {
-  static bool first = false;
-
-  if (first) {
-    first = false;
-    retroRadioInit();
-
-    return;
+  static int8_t firstLoops = 0xff;
+  if (firstLoops)
+  {
+    if (!--firstLoops)
+    {
+//      gnvsopen();
+    }
   }
+  else
+  {
+    scanIRRR();
+    gnvsLoop();
+  }
+
+
 
   RetroRadioInput::checkAll();
   if (numLoops) {
@@ -3603,8 +3611,6 @@ void loopRR() {
     }
     DEBUG = deb;
   }
-  scanIRRR();
-  gnvsLoop();
   return;
   /*
     static bool statusWasNeverPublished = true;
@@ -3818,7 +3824,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else 
   {
     const char *ret = analyzeCmd ( param.c_str(), value.c_str() ) ;  
-    return "";
+    return ret;
   }
   return reply;
 }

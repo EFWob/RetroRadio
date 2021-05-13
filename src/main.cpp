@@ -1492,7 +1492,9 @@ char* dbgprint ( const char* format, ... )
 {
   static char sbuf[DEBUG_BUFFER_SIZE] ;                // For debug lines
   va_list varArgs ;                                    // For variable number of params
-
+#if defined(NOSERIAL)
+  sbuf[0] = 0;
+#else
   va_start ( varArgs, format ) ;                       // Prepare parameters
   vsnprintf ( sbuf, sizeof(sbuf), format, varArgs ) ;  // Format the message
   va_end ( varArgs ) ;                                 // End of using parameters
@@ -1501,6 +1503,7 @@ char* dbgprint ( const char* format, ... )
     Serial.print ( "D: " ) ;                           // Yes, print prefix
     Serial.println ( sbuf ) ;                          // and the info
   }
+#endif  
   return sbuf ;                                        // Return stored string
 }
 
@@ -3302,9 +3305,12 @@ void setup()
   const char*               dtyp = "Display type is %s" ;
   const char*               wvn = "Include file %s_html has the wrong version number! "
                                   "Replace header file." ;
-
+#if !defined(NOSERIAL)
   Serial.begin ( 115200 ) ;                              // For debug
   Serial.println() ;
+#else
+  DEBUG = 0;
+#endif
   // Version tests for some vital include files
   if ( about_html_version   < 170626 ) dbgprint ( wvn, "about" ) ;
   if ( config_html_version  < 180806 ) dbgprint ( wvn, "config" ) ;
@@ -3438,6 +3444,9 @@ void setup()
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
+#if defined(RETRORADIO)
+  if (false == NetworkFound) {                           // We have no (Ether-)Net yet...
+#endif
   mk_lsan() ;                                            // Make a list of acceptable networks
                                                          // in preferences.
   WiFi.disconnect() ;                                    // After restart router could still
@@ -3446,6 +3455,9 @@ void setup()
   delay ( 500 ) ;                                        // ??
   WiFi.persistent ( false ) ;                            // Do not save SSID and password
   listNetworks() ;                                       // Find WiFi networks
+#if defined(RETRORADIO)
+  }
+#endif
   readprefs ( false ) ;                                  // Read preferences
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                NAME ) ;
@@ -5360,7 +5372,9 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "debug" )                     // debug on/off request?
   {
+#if !defined(NOSERIAL)
     DEBUG = ivalue ;                                  // Yes, set flag accordingly
+#endif
   }
   else if ( argument == "getnetworks" )               // List all WiFi networks?
   {
