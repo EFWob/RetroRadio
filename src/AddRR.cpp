@@ -6,6 +6,8 @@
 #include <nvs.h>
 #include <map>
 #include <queue>
+#include <WiFi.h>
+#include <genre_html.h>
 
 #if !defined(WRAPPER)
 #define TIME_DEBOUNCE 0
@@ -129,7 +131,8 @@ static bool gverbose = true ;                        // Verbose output on any ge
 //static int gchannels = 0 ;                           // channels are active on genre
 uint8_t gmaintain = 0;                 // Genre-Maintenance-mode? (play is suspended)
 
-
+extern WiFiClient        cmdclient ;                        // An instance of the client for commands
+extern String httpheader ( String contentstype );           // get httpheader for OK response with contentstype
 
 #define KNOWN_SYSVARIABLES   (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
 
@@ -2815,8 +2818,12 @@ void doChannel(String value, int ivalue) {
     else if ((ivalue > 0) && (ivalue <= numChannels) && (ivalue != currentChannel))   // could be cannel = number
     {
       if (currentChannel < 0)
-        --curPreset;
-      else 
+      {
+        currentChannel = -1-currentChannel;
+        if (ivalue == currentChannel)
+          --curPreset;
+      }
+      if (curPreset == newPreset) 
       {
         int chanDistance = genrePresets / numChannels;
         if ( 0 == currentChannel )  
@@ -4223,6 +4230,21 @@ bool gnvssearchstr ( const char* key )
 }
 
 //**************************************************************************************************
+//                                    G N V S D E L K E Y                                          *
+//**************************************************************************************************
+// Deleta a keyname in nvs.                                                                        *
+//**************************************************************************************************
+void gnvsdelkey ( const char* k)
+{
+
+  if ( gnvssearchstr ( k ) )                                   // Key in gnvs?
+  {
+    nvs_erase_key ( gnvshandle, k ) ;                        // Remove key
+  }
+}
+
+
+//**************************************************************************************************
 //                                    G N V S S E A R C H S T R                                    *
 //**************************************************************************************************
 // Check if cache exists in gnvs.                                                                  *
@@ -4554,14 +4576,81 @@ void partGenre()
   esp_partition_iterator_release(_mypartiterator);
 }
 
-void dirGenre()
+bool doDelete(int idx, String genre, String& result)
 {
-  int idx = 0;
-  doprint("List known genres in gnvs");
-  gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
+  int lastId = 0;
+  int storedId = 0;
+  int tableIndex;
+  if ( gnvshandle == 0)
+    gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
+  else
+    lastId = gnvsTableCache.id;
   if (gnvshandle == 0)
   {
-    doprint("ERRPR: can not open gnvs!");
+    result = String("Error: can not open stoarage in GNVS.");
+    return false;
+  }
+  storedId = searchGenre(genre.c_str());
+  if (0 == storedId)
+  {
+    result = String("Error: genre not found in GNVS.");
+    if ( lastId != 0)
+      loadGnvsTableCache(lastId);
+    return false;
+  }
+  if (idx != storedId)
+  {
+    result = String("Error: genre id does not match in GNVS.");
+    if ( lastId != 0)
+      loadGnvsTableCache(lastId);
+    return false;
+  }
+  tableIndex = (idx - 1) % GENRE_TABLE_ENTRIES;
+  gnvsTableCache.entry[tableIndex].timeMode = GENRE_ENTRY_MODE_DELETE;
+  gnvsTableCache.entry[tableIndex].name[0] = 0; 
+  writeGnvsTableCache();
+  for(int i= gnvsTableCache.entry[tableIndex].presets;i > 0;)
+  {
+    char key[30];
+    --i;
+    sprintf(key, "%d_%d", idx, i);
+    gnvsdelkey(key);
+  }
+  gnvsTableCache.entry[tableIndex].timeMode = 0;
+  gnvsTableCache.entry[tableIndex].presets = 0; 
+  writeGnvsTableCache();
+  result = String ( "OK" );
+  if ( lastId != 0)
+      loadGnvsTableCache(lastId);
+  return true;
+}
+
+void dirGenre(Print *client, bool asJson)
+{
+  bool isSerial = (client == &Serial);
+  int idx = 0;
+  int lastId = 0;
+  bool haveJsonEntry = false;
+  if (isSerial)
+    doprint("List known genres in gnvs");
+  else 
+    if (asJson)
+      client->println("[");
+    else
+      client->println("List knonw genres in gnvs");
+  if ( gnvshandle == 0)
+    gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
+  else
+    lastId = gnvsTableCache.id;
+  if (gnvshandle == 0)
+  {
+    if (isSerial)
+      doprint("ERROR: can not open gnvs!");
+    else 
+      if (!asJson)
+        client->println("]");
+      else
+        client->println("ERROR: can not open gnvs!");
     return ;
   }
   if (!loadGnvsTableCache(1))
@@ -4571,11 +4660,16 @@ void dirGenre()
   }
   if (!loadGnvsTableCache(1))
   {
-    if (gverbose)
+    if (gverbose && isSerial)
       doprint("ERROR: Could not load/create table in gnvs");
+    if (asJson)
+      client->println("]") ;
     return ; 
   }     
-  doprint("ID: '%-30s' %8s %-20s", "Name", "Presets", "Mode");
+  if (isSerial)
+    doprint("ID: '%-30s' %8s %-20s", "Name", "Presets", "Mode");
+  else if (!asJson)
+    client->printf("ID: '%-30s' %8s %-20s\r\n", "Name", "Presets", "Mode");
   bool done;
   do
   {
@@ -4589,18 +4683,48 @@ void dirGenre()
         strcpy(mode, "<valid>");
       else
         strcpy(mode, "<invalid>");
-      doprint("%2d: '%-30s' %8d %-20s", idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
+      if (isSerial)
+        doprint("%2d: '%-30s' %8d %-20s", idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
                 gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
                 mode);
+      else
+        if (!asJson)  
+        {
+          client->printf("%2d: '%-30s' %8d %-20s\r\n", idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
+                gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
+                mode);
+        }
+        else //if (timeMode >= 100)
+        {
+
+          //if (haveJsonEntry)
+          if (idx > 0)
+            client->println(",") ;
+          haveJsonEntry = true;
+          client->printf("{\"id\": %d, \"name\":\"%s\", \"presets\": %d, \"mode\": \"%s\"}",
+                idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
+                gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
+                mode);
+        }
       idx++;
     } while ( 0 != (idx % GENRE_TABLE_ENTRIES)) ;
     done = !loadGnvsTableCache(gnvsTableCache.id + 1);
   } while ( !done );
   nvs_stats_t nvs_stats;
-  nvs_get_stats("presets", &nvs_stats);
-  doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
-              nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
-
+  if (isSerial || !asJson)
+  {
+    nvs_get_stats("presets", &nvs_stats);
+    if (isSerial)
+      doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
+                nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
+    else
+      client->printf ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)\r\n",
+                nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
+  }
+  if (asJson)
+    client->println("\r\n]") ;
+  if ( lastId != 0)
+    loadGnvsTableCache(lastId);
 }
 
 
@@ -4886,7 +5010,7 @@ void doGenre(String param, String value)
     if (param == "clearall")
       gnvsTaskList.push(new GnvsTask(GNVS_TASK_CLEAR));
     else if (param ==  "dir")
-      dirGenre();
+      dirGenre(&Serial, false);
     else if (param == "id")
     {
       if (isdigit(value.c_str()[0]))
@@ -5016,6 +5140,101 @@ void doGpreset(String param, String value)
     dbgprint("BUMMER: genrePreset is called but no genre is selected!");
   }
 
+}
+
+String urlDecode(String &SRC) {
+    String ret;
+    char ch;
+    int i, ii;
+    for (i=0; i<SRC.length(); i++) {
+        if (SRC.c_str()[i] == 37) {
+            sscanf(SRC.substring(i+1,i + 3).c_str(), "%x", &ii);
+            //ch=static_cast<char>(ii);
+            //doprint("urldecode %%%s to %d", SRC.substring(i+1,i + 3).c_str(), ii);
+            ret = ret + (char)ii;
+            i=i+2;
+        } else {
+            ret+=SRC.c_str()[i];
+        }
+    }
+    return (ret);
+}
+
+
+void httpHandleGenre ( String http_rqfile, String http_getcmd ) 
+{
+String sndstr = "";
+  http_getcmd = urlDecode (http_getcmd) ;
+  doprint("Handle HTTP for %s with ?%s...", http_rqfile.c_str(), http_getcmd.substring(0,100).c_str());
+  if (http_rqfile == "genre.html")
+  {
+    sndstr = httpheader ( String ("text/html") );
+    cmdclient.println(sndstr);
+    //cmdclient.println(genre_html);
+    const char *p = genre_html;
+    int l = strlen(p);
+    while ( l )                                       // Loop through the output page
+    {
+      if ( l <= 1024 )                              // Near the end?
+      {
+        cmdclient.write ( p, l ) ;                    // Yes, send last part
+        l = 0 ;
+      }
+      else
+      {
+        cmdclient.write ( p, 1024 ) ;         // Send part of the page
+        p += 1024 ;                           // Update startpoint and rest of bytes
+        l -= 1024 ;
+      }
+    }
+    cmdclient.println("\r\n");                        // Double empty to end the send body
+  }
+  else if (http_rqfile == "genredir")
+  {
+    doprint("Sending directory of loaded genres to client");
+    sndstr = httpheader ( String ("text/json") ) ;
+    cmdclient.println(sndstr);
+    dirGenre (&cmdclient, true) ;
+    cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
+  }
+  else if (http_rqfile == "genreaction")
+  {
+    sndstr = httpheader ( String ("text/text")) ;
+    cmdclient.println(sndstr);
+    String command = getStringPart(http_getcmd, '|');
+    String genre, idStr;
+    int idx = command.indexOf("genre=");
+    if (idx >= 0) 
+    {
+      String dummy = command.substring(idx + 6);
+      genre = getStringPart(dummy, ',');
+    }
+    if (command.startsWith("del="))
+    {
+      String dummy = command.substring(4);
+      idStr = getStringPart(dummy, ',');
+      doprint("HTTP is about to delete genre '%s' with id %d", genre.c_str(), idStr.toInt());
+      doDelete(idStr.toInt(), genre, sndstr);
+      //delay(2000);
+      doprint("Delete done, result is: %s", sndstr.c_str());
+      sndstr = "OK\r\n\r\n";
+      cmdclient.println(sndstr);
+    }
+    else 
+    {
+      sndstr = "OK\r\n\r\n";
+    }
+    if (sndstr.length() > 0)
+        cmdclient.println(sndstr);
+  }
+  else
+  {
+    sndstr = httpheader ( String ("text/text") );
+    cmdclient.println(sndstr);
+    cmdclient.printf("Unknown file?command request with %s?%s.\r\n\r\n\r\n", 
+                        http_rqfile.c_str(), http_getcmd.c_str());                        // Double empty to end the send body
+  }
+  cmdclient.stop();
 }
 
 

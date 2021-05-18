@@ -7,6 +7,8 @@ extern void setupRR(uint8_t setupLevel);
 extern void loopRR();
 //extern const char* analyzeCmdsRR ( const char* commands );
 extern const char* analyzeCmdsRR ( String commands );
+extern void httpHandleGenre ( String http_rqfile, String http_getcmd );
+
 #if defined(NORETRORADIO)
 #warning "NORETRORADIO IS DEFINED!"
 #endif

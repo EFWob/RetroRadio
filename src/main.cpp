@@ -3724,6 +3724,14 @@ void handlehttpreply()
       }
       else
       {
+#if defined(RETRORADIO)
+        if ( http_rqfile.startsWith("genre" ))
+        {
+          dbgprint("Running GENRE(%s) with command: %s", http_rqfile.c_str(), http_getcmd.c_str());
+          httpHandleGenre ( http_rqfile, http_getcmd ) ;
+        }
+        else
+#endif
         if ( http_getcmd.length() )                         // Command to analyze?
         {
           dbgprint ( "Send reply for %s", http_getcmd.c_str() ) ;

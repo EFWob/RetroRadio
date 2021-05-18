@@ -46,6 +46,8 @@ $volmin = 50
 :genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
 :genrestop = genre=--stop;in.tune=onchange={.channel=?}
 #
+:presetforce=channel=-1;preset=-1;preset=?
+#
 :user1 = call=:genrestop;channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
 :user2 = call=:genrestop;channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.eq_idx=1;in.vol=on0=:volchan_any
 :user3 = in.tune=onchange={call(?)=:genre},start
@@ -77,16 +79,16 @@ ir_5AA5 = ram.channel = 6 # (6)
 ir_5AA5r4 = call(6)=:genre # (6) longpressed
 ir_629D = call = :chan_any    #(CH)
 ir_629DR22 = call = :chan_any #(CH) longpressed
-ir_6897 = channel=-1;.preset=1      # (0)
+ir_6897 = call(1)=:presetforce # (0)
 ir_7A85 = ram.channel = 3 # (3)
 ir_7A85r4 = call(3)=:genre # (3) longpressed
 ir_906F = call = :eq_upwrap      #(EQ)
 ir_906FR10 = call = :eq_upwrap   #(EQ) (longpressed)
-ir_9867 = channel=-1;.preset = 11      #(100+)
+ir_9867 = call(11)=:presetforce      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
 ir_A857r = upvolume = 1     #(+) repeat
-ir_B04F = channel=-1;.preset=7      # (200+) Radio Paradise
+ir_B04F = call(7)=:presetforce      # (200+) Radio Paradise
 ir_C23D = mute              #(>||)
 ir_E01F = downvolume = 2    #(-)
 ir_E01Fr = downvolume = 1   #(-) repeat
@@ -161,7 +163,7 @@ volume = 88
 #
 wifi_00 = ssid/passwd
 )=====" ;
-#else           // from if defined(Olimex PoE)
+#else           // from if defined(Olimex PoE) within BATHRADIO
 R"=====(
 $channels_am = 1,2,10,11,12,13,14,15,16
 $channels_fm = 0,1,2,3,4,5,6,7,10
@@ -204,6 +206,8 @@ $volmin = 50
 :genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
 :genrestop = stop;genre=--stop;in.tune=onchange={.channel=?}
 #
+:presetforce=channel=-1;preset=-1;preset=?
+#
 :user1 = call=:genrestop;channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
 :user2 = call=:genrestop;channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.eq_idx=1;#in.vol=on0=:volchan_any
 :user3 = in.tune=onchange={call(?)=:genre},start
@@ -232,16 +236,16 @@ ir_5AA5 = ram.channel = 6 # (6)
 ir_5AA5r4 = call(6)=:genre # (6) longpressed
 ir_629D = call = :chan_any    #(CH)
 ir_629DR22 = call = :chan_any #(CH) longpressed
-ir_6897 = channel=-1;.preset=1      # (0)
+ir_6897 = call(1)=:presetforce # (0)
 ir_7A85 = ram.channel = 3 # (3)
 ir_7A85r4 = call(3)=:genre # (3) longpressed
 ir_906F = call = :eq_upwrap      #(EQ)
 ir_906FR10 = call = :eq_upwrap   #(EQ) (longpressed)
-ir_9867 = channel=-1;.preset = 11      #(100+)
+ir_9867 = call(11)=:presetforce      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
 ir_A857r = upvolume = 1     #(+) repeat
-ir_B04F = channel=-1;.preset=7      # (200+) Radio Paradise
+ir_B04F = call(7)=:presetforce      # (200+) Radio Paradise
 ir_C23D = mute              #(>||)
 ir_E01F = downvolume = 2    #(-)
 ir_E01Fr = downvolume = 1   #(-) repeat
@@ -317,8 +321,8 @@ volume = 68
 R"=====(
 wifi_00 = SSID/passwd
 )=====" ;
-#endif              // (of if defined(Olimex PoE))
-#else               // (of if defined BadRadio)
+#endif              // (of if defined(Olimex PoE) within Badradio)
+#else               // (of if defined BadRadio) (i. e. generic from here...)
 R"=====(
 $channels_am = 1,2,10,11,12,13,14,15,16
 $channels_fm = 0,1,2,3,4,5,6,7,10
@@ -360,6 +364,8 @@ $volmin = 50
 :genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
 :genrestop = genre=--stop;in.tune=onchange={.channel=?}
 #
+:presetforce=channel=-1;preset=-1;preset=?
+#
 :user1 = call=:genrestop;channels=@$channels_fm;.channel=1;.vol=70;.eq_idx=0;in.vol=on0=
 :user2 = call=:genrestop;channels=@$channels_am;.channel=0;in.vol=start;in.tune=start;.eq_idx=1;in.vol=on0=:volchan_any
 :user3 = in.tune=onchange={call(?)=:genre},start
@@ -393,16 +399,16 @@ ir_5AA5 = ram.channel = 6 # (6)
 ir_5AA5r4 = call(6)=:genre # (6) longpressed
 ir_629D = call = :chan_any    #(CH)
 ir_629DR22 = call = :chan_any #(CH) longpressed
-ir_6897 = channel=-1;.preset=1      # (0)
+ir_6897 = call(1)=:presetforce # (0)
 ir_7A85 = ram.channel = 3 # (3)
 ir_7A85r4 = call(3)=:genre # (3) longpressed
 ir_906F = call = :eq_upwrap      #(EQ)
 ir_906FR10 = call = :eq_upwrap   #(EQ) (longpressed)
-ir_9867 = channel=-1;.preset = 11      #(100+)
+ir_9867 = call(11)=:presetforce      #(100+)
 ir_A25D = channel = down    #(CH-)
 ir_A857 = upvolume = 2      #(+)
 ir_A857r = upvolume = 1     #(+) repeat
-ir_B04F = channel=-1;.preset=7      # (200+) Radio Paradise
+ir_B04F = call(7)=:presetforce      # (200+) Radio Paradise
 ir_C23D = mute              #(>||)
 ir_E01F = downvolume = 2    #(-)
 ir_E01Fr = downvolume = 1   #(-) repeat
@@ -418,7 +424,7 @@ pin_vs_cs = 13         # GPIO Pin number for VS1053 "CS"
 pin_vs_dcs = 16       # GPIO Pin number for VS1053 "DCS" (war 32)
 pin_vs_dreq = 4       # GPIO Pin number for VS1053 "DREQ"
 #
-preset = 0
+preset = 6
 preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
 preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
 preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
