@@ -4609,13 +4609,16 @@ bool doDelete(int idx, String genre, String& result)
   gnvsTableCache.entry[tableIndex].timeMode = GENRE_ENTRY_MODE_DELETE;
   gnvsTableCache.entry[tableIndex].name[0] = 0; 
   writeGnvsTableCache();
+  char key[30];
   for(int i= gnvsTableCache.entry[tableIndex].presets;i > 0;)
   {
-    char key[30];
     --i;
     sprintf(key, "%d_%d", idx, i);
     gnvsdelkey(key);
   }
+  sprintf(key, "%d_x", idx);
+  gnvsdelkey(key);
+
   gnvsTableCache.entry[tableIndex].timeMode = 0;
   gnvsTableCache.entry[tableIndex].presets = 0; 
   writeGnvsTableCache();
@@ -5020,6 +5023,10 @@ void doGenre(String param, String value)
         playGenre(value.toInt());
       dbgprint("Current genre id is: %d", genreId);
     }
+    else if (param == "preset")
+    {    
+      doGpreset ( param, value );
+    }
     else if (param.startsWith("verb"))
     {
       if (isdigit(value.c_str()[0]))
@@ -5163,7 +5170,7 @@ String urlDecode(String &SRC) {
     return (ret);
 }
 
-int createEmptyGenre(const char* name)
+int createEmptyGenre(const char* name, const char* firstLink)
 {
   gnvsopen();
   if (!gnvshandle)
@@ -5171,6 +5178,7 @@ int createEmptyGenre(const char* name)
   bool done = false;
   int tableId = 0;
   int idx;
+  char key[30];
   do
   {
     if (done = !loadGnvsTableCache(++tableId))
@@ -5187,9 +5195,38 @@ int createEmptyGenre(const char* name)
   strncpy(gnvsTableCache.entry[(idx - 1)].name, name, GENRE_IDENTIFIER_LEN);
   gnvsTableCache.entry[(idx - 1)].name[GENRE_IDENTIFIER_LEN] = 0;
   writeGnvsTableCache();
-  return idx + GENRE_TABLE_ENTRIES * (gnvsTableCache.id - 1);
+  idx = idx + GENRE_TABLE_ENTRIES * (gnvsTableCache.id - 1);
+  String linkEntry;
+  if (firstLink)
+    if (0 == strcmp(name, firstLink))
+      firstLink = NULL;
+  if (firstLink)
+    linkEntry = String(firstLink);
+  linkEntry.trim();
+  sprintf(key, "%d_x", idx);
+  doprint("Generating genre link key %s='%s'", key, linkEntry.c_str());
+  gnvssetstr (key, linkEntry);
+  return idx;
 }
 
+bool canAddGenreToGenreId(String idStr, int genreId)
+{
+  char key[30];
+  sprintf(key, "%d_x", genreId);
+  idStr.trim();
+  String knownLinks = gnvsgetstr(key);
+  if (knownLinks.length() == 0)
+  {
+    gnvssetstr(key, idStr);
+    return true;
+  }
+  do {
+    if (idStr == getStringPart(knownLinks, ','))
+      return false;
+  } while (knownLinks.length() > 0);
+  gnvssetstr(key, gnvsgetstr(key) + ","+idStr);
+  return true;
+}
 
 void httpHandleGenre ( String http_rqfile, String http_getcmd ) 
 {
@@ -5238,22 +5275,26 @@ String sndstr = "";
     {
       String dummy = command.substring(idx + 6);
       genre = getStringPart(dummy, ',');
+      genre.trim();
     }
     if (command.startsWith("del="))
     {
       String dummy = command.substring(4);
       idStr = getStringPart(dummy, ',');
+      idStr.trim();
       doprint("HTTP is about to delete genre '%s' with id %d", genre.c_str(), idStr.toInt());
       doDelete(idStr.toInt(), genre, sndstr);
       //delay(2000);
       doprint("Delete done, result is: %s", sndstr.c_str());
       sndstr = "OK\r\n\r\n";
     }
-    else if (command.startsWith("save="))
+    else if (command.startsWith("save=") || (command.startsWith("add=")))
     {
+      bool isAdd = command.startsWith("add=");
       const char *s;
-      String dummy = command.substring(5);
+      String dummy = command.substring(isAdd?4:5);
       idStr = getStringPart(dummy, ',');
+      idStr.trim();
       int count=-1;int idx = -1;
       s = strstr(command.c_str(), "count=");
       if (s)
@@ -5270,13 +5311,30 @@ String sndstr = "";
         {
           if (genreId != 0)
           {
-            doprint("Error: genre is alread known. Use refresh to reload");
-            sndstr="ER\r\n\r\n";
-            genreId = 0;
+            if (!isAdd)
+            {
+              sndstr = String(doprint("Genre '%s' is alread known. Use refresh to reload.", genre.c_str())) 
+                + "\r\n\r\n";
+              genreId = 0;
+            }
+            else 
+            {
+              if (genre == idStr)
+              {
+                sndstr = String(doprint("Huh? Can not add genre '%s' to itself.", genre.c_str())) + "\r\n\r\n";
+                genreId = 0;
+              }
+              else if (!canAddGenreToGenreId(idStr, genreId))
+              {
+                char *s = doprint("Error: can not add genre '%s' to '%s' twice.", idStr.c_str(), genre.c_str());
+                sndstr = String(s) + "\r\n\r\n";
+                genreId = 0;
+              }
+            }
           }
           else
           {
-            genreId = createEmptyGenre(genre.c_str());
+            genreId = createEmptyGenre(genre.c_str(), isAdd?idStr.c_str():NULL);
             doprint("Creating empty genre for %s:%d", genre.c_str(), genreId);
           }
         }
@@ -5294,10 +5352,9 @@ String sndstr = "";
             gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets = presets;
             writeGnvsTableCache();
           }
-        else
+        else if (sndstr.startsWith("OK"))
           {
-            doprint("Could not load or create genre '%s' to add to...", genre.c_str());
-            sndstr = "ER\r\n\r\n";
+            sndstr =  String ( doprint("Could not load or create genre '%s' to add to...", genre.c_str()) ) + "\r\n\r\n";
           }
       }
       else
@@ -5308,7 +5365,7 @@ String sndstr = "";
     }
     else
     {
-      sndstr = "OK\r\n\r\n";
+      sndstr = "Unknown genre action '" + command + "'\r\n\r\n";
     }
     if (sndstr.length() > 0)
         cmdclient.println(sndstr);

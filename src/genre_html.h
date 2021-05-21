@@ -164,7 +164,21 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
 
 var lastInGenres;
 var lastInPresets;
+var lastAdd = "favorites";
 var genreArr = [];
+
+function setAddGenre()
+{
+  var i;
+  lastAdd = document.getElementById("inputAdd").value;
+  for (i = 0;i < genreArr.length;i++)
+  {
+    var x = document.getElementById("add" + i);
+    x.innerHTML = lastAdd;
+  }
+}
+
+
 function drawFilterTable()
 {
     var table =  document.getElementById("filterTable");
@@ -173,18 +187,23 @@ function drawFilterTable()
       var cell1 = row.insertCell(0) ;
       var cell2 = row.insertCell(1) ;
       var cell3 = row.insertCell(2) ;
+      var cell4 = row.insertCell(3) ;
       cell1.innerHTML = "Genre" ;
       cell2.innerHTML = "Presets" ;
       cell3.innerHTML = "Action" ;
+      cell4.innerHTML = "Add to:"
 
       var row = table.insertRow() ;
       row.id="applyGenreFilter" ;
-      var cell1 = row.insertCell(0) ;
-      var cell2 = row.insertCell(1) ;
-      var cell3 = row.insertCell(2) ;
+      cell1 = row.insertCell(0) ;
+      cell2 = row.insertCell(1) ;
+      cell3 = row.insertCell(2) ;
+      cell4 = row.insertCell(3) ;
+
       cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="Enter substring here">' ;
       cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="Minimum">' ;
       cell3.innerHTML = '<button class="button" onclick=loadGenres()>Apply Filter</button>' ;
+      cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" onchange="setAddGenre()">' ;
       var idx;
       for (idx = 0; idx < genreArr.length;idx++)
       {
@@ -201,15 +220,29 @@ function drawFilterTable()
         var cell1 = row.insertCell(0) ;
         var cell2 = row.insertCell(1) ;
         var cell3 = row.insertCell(2) ;
+        var cell4 = row.insertCell(3) ;
+        var x = document.createElement("DIV");
+        x.id = "add" + idx;
+        x.hidden = true;
+        x.innerHTML = lastAdd;
+        cell4.appendChild(x);
         cell1.innerHTML = genreArr[idx].name ;
         cell2.innerHTML = genreArr[idx].stationcount ;
-        var select=getAction("load"+idx, ["None", "Load"]);
+        var select=getAction("load"+idx, ["None", "Load", "Add to:"]);
         genreArr[idx].action = "None" ;
         select.onchange=function() 
         {
             var idx = this.id.substring(4);
  //               alert("Change for " + idx + " to: " + this.value);
             genreArr[idx].action = this.value;
+            if (this.value == "Add to:")
+            {
+              document.getElementById("add"+idx).hidden = false;
+            }
+            else
+            {
+              document.getElementById("add"+idx).hidden = true;
+            }
         }
         cell3.appendChild(select);
       }
@@ -225,7 +258,6 @@ function drawFilterTable()
         cell1.innerHTML = 
              'Press  <button class="button" onclick="runActions(genreArr)">HERE</button> to perform the Actions!' ;
       }
-    
     if (!(typeof lastInGenres === 'undefined'))
       document.getElementById("inputGenre").value = lastInGenres;
     document.getElementById("inputPresets").value = lastInPresets;
@@ -233,12 +265,15 @@ function drawFilterTable()
 
 function loadGenres()
 {
+  lastAdd = document.getElementById("inputAdd").value;
   lastInGenres = document.getElementById("inputGenre").value;
+  
   if (typeof lastInGenres === 'undefined')
     lastInGenres = "";
   lastInPresets = document.getElementById("inputPresets").value;
   if (typeof lastInPresets === 'undefined')
     lastInPresets = "";
+  
   document.getElementById("applyGenreFilter").innerHTML = "Please wait!";
   loadGenresFromRDBS(lastInGenres, lastInPresets);
 }
@@ -311,21 +346,35 @@ function loadGenresFromRDBS(genreMatch, presets)
    }
    else
    {
-     var delta = 20;
-     var stations = "";
-     var l = stationArr.length - actionArray[id].subIdx;
-     if (l > delta)
-      l = delta;
-     for(i = 0;i < l;i++)
-      stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
-     stations = stations.replaceAll("&", "%26");
-     //alert(stations); 
-     runActionRequest(id, "save=" + actionArray[id].id + 
+      var delta = 20;
+      var stations = "";
+      var l = stationArr.length - actionArray[id].subIdx;
+      if (l > delta)
+        l = delta;
+      for(i = 0;i < l;i++)
+        stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
+      stations = stations.replaceAll("&", "%26");
+      if (actionArray[id].action == "Add to:" )
+      {
+        //alert("Hier kommt jetzt ein Add to: " + lastAdd + " für genre: " + actionArray[id].name);
+        runActionRequest(id, "add=" + actionArray[id].name + 
+                          ",genre=" + lastAdd +
+                          ",count=" + l +
+                          ",idx=" + actionArray[id].subIdx +
+                            stations,
+                            3000, uploadStatChunkCB);
+
+      }
+      else
+      {
+        //alert(stations); 
+        runActionRequest(id, "save=" + actionArray[id].id + 
                           ",genre=" + actionArray[id].name +
                           ",count=" + l +
                           ",idx=" + actionArray[id].subIdx +
                           stations,
                           3000, uploadStatChunkCB);
+      }
     actionArray[id].subIdx += l;
    }
  }
@@ -386,6 +435,7 @@ function loadGenresFromRDBS(genreMatch, presets)
       actionDone(id, "Connect to RDBS timed out.");
     }
  }
+
 
 function runActionRequest (id, theUrl, timeout, callback)
 {   
@@ -449,7 +499,12 @@ function runActionRequest (id, theUrl, timeout, callback)
          }
          else if ( actionArray[idx].action == "Load")
          {
-            showAction(`Reload genre '${actionArray[idx].name}'`);
+            showAction(`Load genre '${actionArray[idx].name}'`);
+            listStats(idx, actionArray[idx].name, 5000, listStatsCB, false) ;
+         }
+         else if ( actionArray[idx].action == "Add to:" )
+         {
+            showAction(`Adding presets from genre '${actionArray[idx].name}' to genre '${lastAdd}'.`);
             listStats(idx, actionArray[idx].name, 5000, listStatsCB, false) ;
          }
          else
