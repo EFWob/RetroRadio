@@ -182,8 +182,8 @@ function drawFilterTable()
       var cell1 = row.insertCell(0) ;
       var cell2 = row.insertCell(1) ;
       var cell3 = row.insertCell(2) ;
-      cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="substr">' ;
-      cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="substr">' ;
+      cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="Enter substring here">' ;
+      cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="Minimum">' ;
       cell3.innerHTML = '<button class="button" onclick=loadGenres()>Apply Filter</button>' ;
       var idx;
       for (idx = 0; idx < genreArr.length;idx++)
@@ -255,37 +255,15 @@ function loadGenresFromRDBS(genreMatch, presets)
    if ( this.readyState == XMLHttpRequest.DONE )
    {
     genreArr = JSON.parse ( this.responseText ) ;
-  //  alert(this.responseText);
-
+    clearTimeout ( resultTimeout );resultTimeout = null;
     drawFilterTable();
-
-
-/*    
-    var i ;
-    var snam ;
-    var oldsnam = "" ;
-    for ( i = 0 ; i < stationArr.length ; i++ )
-    {
-      snam = stationArr[i].name ;
-      if ( stationArr[i].url_resolved.startsWith ( "http:") &&            // https: not supported yet
-           snam != oldsnam )
-      {
-        oldsnam = snam ;
-      }
-      else
-      {
-        stationArr.splice(i, 1);
-        i--;
-      }
-    }
-    //alert ("RDBS done for genre " + genre + " with presets: " + stationArr.length);
-    callback(id, genre, true);
-*/
    }
   }
-  // alert(theUrl);
   xhr.open ( "GET", theUrl ) ;
-  //resultTimeout = setTimeout(callback, timeout, id, genre, false);
+  resultTimeout = setTimeout(function() {
+      alert("Error: connect to RDBS failed!");
+      drawFilterTable();
+    } , 5000);
   xhr.send() ;
 
 }
@@ -379,21 +357,25 @@ function loadGenresFromRDBS(genreMatch, presets)
       actionDone(id, "Radio reports error on deleting genre " + actionArray[id].name);
  }
 
- function listStatsCB ( id, genre, loaded)
+ function listStatsCB ( id, genre, loaded, deleteFirst)
  {
     clearTimeout ( resultTimeout );resultTimeout = null;
     if (loaded && (stationArr.length > 0))
     {
       resultContainer.innerHTML = stationArr.length + " presets";
-      showAction(`First deleting genre '${genre}'`); 
-      runActionRequest( id, "del=" + actionArray[id].id + ",genre=" + 
+      if (deleteFirst)
+      {
+        showAction(`First deleting genre '${genre}'`); 
+        runActionRequest( id, "del=" + actionArray[id].id + ",genre=" + 
               actionArray[id].name, 0, listStatsDelCB) ;
-/*              
-      showAction ("Uploading " + stationArr.length + " presets to radio.");
-      resultContainer.innerHTML = "0 presets";
-      actionArray[id].subIdx = 0;
-      uploadStatChunk(id);
-      */
+      }
+      else
+      {         
+        showAction ("Uploading " + stationArr.length + " presets to radio.");
+        resultContainer.innerHTML = "0 presets";
+        actionArray[id].subIdx = 0;
+        uploadStatChunk(id);
+      }
     } 
     else if (loaded)
     {
@@ -463,13 +445,17 @@ function runActionRequest (id, theUrl, timeout, callback)
          else if ( actionArray[idx].action == "Refresh")
          {
             showAction(`Reload genre '${actionArray[idx].name}'`);
-            listStats(idx, actionArray[idx].name, 5000, listStatsCB) ;
+            listStats(idx, actionArray[idx].name, 5000, listStatsCB, true) ;
+         }
+         else if ( actionArray[idx].action == "Load")
+         {
+            showAction(`Reload genre '${actionArray[idx].name}'`);
+            listStats(idx, actionArray[idx].name, 5000, listStatsCB, false) ;
          }
          else
          {
             resultContainer = null;
-            alert(`Unexpected: unknown action "${actionArray[idx].action}" for genre '${actionArray[idx].name}'`);
-            actionDone(idx, "This is not nice!") ;
+            actionDone(idx, `Error: unknown action "${actionArray[idx].action}" for genre '${actionArray[idx].name}'`);
         }
      }
  }
@@ -517,9 +503,9 @@ function runActionRequest (id, theUrl, timeout, callback)
  // genre: genre to load
  // timeout: in ms for response from RDBS
  // callback: to be called on either timeout (empty stationArr) or success (filled stationArr)
- function listStats ( id, genre, timeout, callback )
+ function listStats ( id, genre, timeout, callback, deleteFirst )
  {
-  var theUrl = "https://nl1.api.radio-browser.info/json/stations/bytag/" +
+  var theUrl = "https://nl1.api.radio-browser.info/json/stations/bytagexact/" +
                genre +
                "?hidebroken=true" ;
   xhr = new XMLHttpRequest() ;
@@ -549,11 +535,11 @@ function runActionRequest (id, theUrl, timeout, callback)
       }
     }
     //alert ("RDBS done for genre " + genre + " with presets: " + stationArr.length);
-    callback(id, genre, true);
+    callback(id, genre, true, deleteFirst);
    }
   }
   xhr.open ( "GET", theUrl ) ;
-  resultTimeout = setTimeout(callback, timeout, id, genre, false);
+  resultTimeout = setTimeout(callback, timeout, id, genre, false, deleteFirst);
   xhr.send() ;
  }
 

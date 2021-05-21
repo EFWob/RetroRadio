@@ -180,13 +180,13 @@ $volmin = 50
 ::loop1 = if(.vol >= 0) = {ifnot(@hmilock & 2) = {volume=.vol}};.vol=-1
 ::loop2 = if(.channel)={if(~channels < 2)={.-=channel;return;};if(@hmilock&1)={.-=channel;return};if ( .channel > ~channels) = {.-=channel;return};channel=.channel;.-=channel}
 ::loop3 = if(.preset < 0)={return}; if(.preset==~preset)={return.preset=-1};ifnot(@hmilock&1)={preset=.preset};.preset=-1
-::setup0 = in.switch=mode=0,src=a35,map=(0..500=3)(1500..2500=2)(3900..4095=1)(=0),start,onchange={call=:user?}
-::setup1 = in.vol = src=a33,map=@$volmap,delta=2,start,onchange={.vol=?}
-::setup2 = .preset=-1;in.tune = src=t6,map=@$tunemap,start,onchange={.channel=?}
+::setup0 = #in.switch=mode=0,src=a35,map=(0..500=3)(1500..2500=2)(3900..4095=1)(=0),start,onchange={call=:user?}
+::setup1 = #in.vol = src=a33,map=@$volmap,delta=2,start,onchange={.vol=?}
+::setup2 = .preset=-1;#in.tune = src=t6,map=@$tunemap,start,onchange={.channel=?}
 ::setup3 = .eq_idx = 1;in.equalizer=src=.eq_idx,start,onchange={call=:equalizer?}
 ::setup4 = call=:user1
 ::setup5 = in.volobserver= src=~volume,map=(@$volmin..100=2)(0=1)(=0),onchange=:vol_adjust,start
-::setup6 = in.tspkr=src=t5,map=(0..250=0)(=1),on1click=:chan_any,onlong={downvolume=1},on1long={upvolume=1},t-repeat=150,t-click=450,start
+::setup6 = #in.tspkr=src=t5,map=(0..250=0)(=1),on1click=:chan_any,onlong={downvolume=1},on1long={upvolume=1},t-repeat=150,t-click=450,start
 #
 :chan_any = if(~genre)={call=:chan_anyg;return};if(~channels > 1)={.x=~channel;while(.x == ~channel)={calc.x(1..~channels)};.channel=@x}
 :chan_anyg = ifnot(@hmilock & 1) = {channel = any ;}
