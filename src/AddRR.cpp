@@ -4954,6 +4954,9 @@ void gnvsTaskLoop()
 }
 
 
+
+
+
 void gnvsLoop() 
 {
   gnvsTaskLoop();
@@ -5160,6 +5163,33 @@ String urlDecode(String &SRC) {
     return (ret);
 }
 
+int createEmptyGenre(const char* name)
+{
+  gnvsopen();
+  if (!gnvshandle)
+    return 0;
+  bool done = false;
+  int tableId = 0;
+  int idx;
+  do
+  {
+    if (done = !loadGnvsTableCache(++tableId))
+    {
+      createGnvsTableCache();
+      idx = 1;
+    }
+    else
+      for (idx = 0;!done && (idx <= GENRE_TABLE_ENTRIES);)
+      done = (0 == gnvsTableCache.entry[idx++ % GENRE_TABLE_ENTRIES].timeMode);
+  } while ( !done );
+  gnvsTableCache.entry[(idx - 1)].timeMode = 2021;
+  gnvsTableCache.entry[(idx - 1)].presets = 0;
+  strncpy(gnvsTableCache.entry[(idx - 1)].name, name, GENRE_IDENTIFIER_LEN);
+  gnvsTableCache.entry[(idx - 1)].name[GENRE_IDENTIFIER_LEN] = 0;
+  writeGnvsTableCache();
+  return idx + GENRE_TABLE_ENTRIES * (gnvsTableCache.id - 1);
+}
+
 
 void httpHandleGenre ( String http_rqfile, String http_getcmd ) 
 {
@@ -5218,9 +5248,65 @@ String sndstr = "";
       //delay(2000);
       doprint("Delete done, result is: %s", sndstr.c_str());
       sndstr = "OK\r\n\r\n";
-      cmdclient.println(sndstr);
     }
-    else 
+    else if (command.startsWith("save="))
+    {
+      const char *s;
+      String dummy = command.substring(5);
+      idStr = getStringPart(dummy, ',');
+      int count=-1;int idx = -1;
+      s = strstr(command.c_str(), "count=");
+      if (s)
+        count = atoi(s + 6);
+      s = strstr(command.c_str(), "idx=");
+      if (s)
+        idx = atoi(s + 4);
+      if ((idx >= 0) && (count > 0))
+      {
+        int genreId = searchGenre(genre.c_str());
+        doprint("Add %d presets to genre '%s' starting at index %d.", count, genre.c_str(), idx);
+        sndstr="OK\r\n\r\n";        
+        if (idx == 0)
+        {
+          if (genreId != 0)
+          {
+            doprint("Error: genre is alread known. Use refresh to reload");
+            sndstr="ER\r\n\r\n";
+            genreId = 0;
+          }
+          else
+          {
+            genreId = createEmptyGenre(genre.c_str());
+            doprint("Creating empty genre for %s:%d", genre.c_str(), genreId);
+          }
+        }
+        if (0 != genreId)
+          {
+            int presets = gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets;
+            for (int i = 0;i < count;i++, presets++)
+            {
+              char key[30];
+              String preset = getStringPart(http_getcmd, '|');
+              sprintf(key, "%d_%d", genreId, presets);
+              gnvssetstr(key, preset);
+              doprint("%3d: %5s=%s", presets, key, preset.c_str());
+            }
+            gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets = presets;
+            writeGnvsTableCache();
+          }
+        else
+          {
+            doprint("Could not load or create genre '%s' to add to...", genre.c_str());
+            sndstr = "ER\r\n\r\n";
+          }
+      }
+      else
+      {
+        doprint("Error: nothing to add to genre '%s' (idx==%d, count==%d)", genre.c_str(), idx, count);
+        sndstr = "ER\r\n\r\n";
+      }
+    }
+    else
     {
       sndstr = "OK\r\n\r\n";
     }

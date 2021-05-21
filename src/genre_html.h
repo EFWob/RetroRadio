@@ -28,7 +28,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
    </table>
    <div id="apply">
    </div>
-   <table class="table2" id="stationsTable" width="450">
+   <table class="table2" id="filterTable" width="450">
    </table>
   </center>
  </body>
@@ -159,11 +159,136 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   }
   xhr.open ( "GET", theUrl ) ;
   xhr.send() ;
+  drawFilterTable();
  }
 
+var lastInGenres;
+var lastInPresets;
+var genreArr = [];
+function drawFilterTable()
+{
+    var table =  document.getElementById("filterTable");
+      table.innerHTML = ""; 
+      var row = table.insertRow() ;
+      var cell1 = row.insertCell(0) ;
+      var cell2 = row.insertCell(1) ;
+      var cell3 = row.insertCell(2) ;
+      cell1.innerHTML = "Genre" ;
+      cell2.innerHTML = "Presets" ;
+      cell3.innerHTML = "Action" ;
+
+      var row = table.insertRow() ;
+      row.id="applyGenreFilter" ;
+      var cell1 = row.insertCell(0) ;
+      var cell2 = row.insertCell(1) ;
+      var cell3 = row.insertCell(2) ;
+      cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="substr">' ;
+      cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="substr">' ;
+      cell3.innerHTML = '<button class="button" onclick=loadGenres()>Apply Filter</button>' ;
+      var idx;
+      for (idx = 0; idx < genreArr.length;idx++)
+      {
+        if (genreArr[idx].stationcount < lastInPresets)
+          break;
+        var row = table.insertRow() ;
+        if (0 == idx)
+        {
+          var cell1 = row.insertCell(0);
+          cell1.colSpan = 3;
+          cell1.innerHTML = "<HR>" ;
+          row = table.insertRow() ;
+        }
+        var cell1 = row.insertCell(0) ;
+        var cell2 = row.insertCell(1) ;
+        var cell3 = row.insertCell(2) ;
+        cell1.innerHTML = genreArr[idx].name ;
+        cell2.innerHTML = genreArr[idx].stationcount ;
+        var select=getAction("load"+idx, ["None", "Load"]);
+        genreArr[idx].action = "None" ;
+        select.onchange=function() 
+        {
+            var idx = this.id.substring(4);
+ //               alert("Change for " + idx + " to: " + this.value);
+            genreArr[idx].action = this.value;
+        }
+        cell3.appendChild(select);
+      }
+      if (idx > 0)  
+      {
+        var row = table.insertRow() ;
+        var cell1 = row.insertCell(0);
+        cell1.colSpan = 3;
+        cell1.innerHTML = "<HR>" ;
+        var row = table.insertRow() ;
+        var cell1 = row.insertCell();
+        cell1.colSpan = 3;
+        cell1.innerHTML = 
+             'Press  <button class="button" onclick="runActions(genreArr)">HERE</button> to perform the Actions!' ;
+      }
+    
+    if (!(typeof lastInGenres === 'undefined'))
+      document.getElementById("inputGenre").value = lastInGenres;
+    document.getElementById("inputPresets").value = lastInPresets;
+}
+
+function loadGenres()
+{
+  lastInGenres = document.getElementById("inputGenre").value;
+  if (typeof lastInGenres === 'undefined')
+    lastInGenres = "";
+  lastInPresets = document.getElementById("inputPresets").value;
+  if (typeof lastInPresets === 'undefined')
+    lastInPresets = "";
+  document.getElementById("applyGenreFilter").innerHTML = "Please wait!";
+  loadGenresFromRDBS(lastInGenres, lastInPresets);
+}
+
+function loadGenresFromRDBS(genreMatch, presets)
+{
+  var theUrl = "https://nl1.api.radio-browser.info/json/tags/" +
+               genreMatch +
+               "?hidebroken=true&order=stationcount&reverse=true" ;
+  xhr = new XMLHttpRequest() ;
+  stationArr = [];
+  xhr.onreadystatechange = function() 
+  {
+   if ( this.readyState == XMLHttpRequest.DONE )
+   {
+    genreArr = JSON.parse ( this.responseText ) ;
+  //  alert(this.responseText);
+
+    drawFilterTable();
 
 
+/*    
+    var i ;
+    var snam ;
+    var oldsnam = "" ;
+    for ( i = 0 ; i < stationArr.length ; i++ )
+    {
+      snam = stationArr[i].name ;
+      if ( stationArr[i].url_resolved.startsWith ( "http:") &&            // https: not supported yet
+           snam != oldsnam )
+      {
+        oldsnam = snam ;
+      }
+      else
+      {
+        stationArr.splice(i, 1);
+        i--;
+      }
+    }
+    //alert ("RDBS done for genre " + genre + " with presets: " + stationArr.length);
+    callback(id, genre, true);
+*/
+   }
+  }
+  // alert(theUrl);
+  xhr.open ( "GET", theUrl ) ;
+  //resultTimeout = setTimeout(callback, timeout, id, genre, false);
+  xhr.send() ;
 
+}
 
  var resultContainer = null;
  var resultTimeout = null; 
@@ -214,7 +339,9 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
      if (l > delta)
       l = delta;
      for(i = 0;i < l;i++)
-      stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved; 
+      stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
+     stations = stations.replaceAll("&", "%26");
+     //alert(stations); 
      runActionRequest(id, "save=" + actionArray[id].id + 
                           ",genre=" + actionArray[id].name +
                           ",count=" + l +
@@ -242,6 +369,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  {
    if (result.substring(0, 2) == "OK")
    {
+      resultContainer.innerHTML = "OK"
       showAction ("Uploading " + stationArr.length + " presets to radio.");
       resultContainer.innerHTML = "0 presets";
       actionArray[id].subIdx = 0;
@@ -257,15 +385,15 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
     if (loaded && (stationArr.length > 0))
     {
       resultContainer.innerHTML = stationArr.length + " presets";
-/*
       showAction(`First deleting genre '${genre}'`); 
       runActionRequest( id, "del=" + actionArray[id].id + ",genre=" + 
               actionArray[id].name, 0, listStatsDelCB) ;
-*/              
+/*              
       showAction ("Uploading " + stationArr.length + " presets to radio.");
       resultContainer.innerHTML = "0 presets";
       actionArray[id].subIdx = 0;
       uploadStatChunk(id);
+      */
     } 
     else if (loaded)
     {
@@ -359,7 +487,7 @@ function runActionRequest (id, theUrl, timeout, callback)
       return;
     }  
     actionArray = newActions;
-    alert("ActionArray length= " + actionArray.length);
+    //alert("ActionArray length= " + actionArray.length);
     var table = document.getElementById('genreDir') ;
     table.innerHTML = "" ;
     var row = table.insertRow() ;
