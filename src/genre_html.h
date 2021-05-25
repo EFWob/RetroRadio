@@ -21,14 +21,14 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   <br><br><br>
   <center>
    <h1>** ESP32 Radio Genre Manager **</h1>
-   <table id="genreDir" width="450" class="pull-left">
+   <table id="genreDir" width="800" class="pull-left">
    <tr>
     <td>Loading...</td>
    </tr>
    </table>
    <div id="apply">
    </div>
-   <table class="table2" id="filterTable" width="450">
+   <table class="table2" id="filterTable" width="800">
    </table>
   </center>
  </body>
@@ -39,11 +39,17 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  var dirArr = [];
  var actionArray = [];
  var stationArr = [];
+ var genreLoadArr = [];
+ var genreLinkList = "";
+ var actionRunErrorFlag = false;
 
  var validGenres = 0;
- var validPresets = 0;
+ var validStations = 0;
  var xhr ;
  var requestId = 0; 
+
+
+
   function getAction ( actionId, actions )
   {
 //    var actions = ["none", "refresh", "delete"];
@@ -60,6 +66,39 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
     return select;
   }
 
+  function playGenre(id)
+  {
+    var xhr = new XMLHttpRequest() ;
+    xhr.open ( "GET", "genre?" + id + "&version=" + Math.random() ) ;
+    xhr.send() ;
+  }
+
+  function showLinksCB (idx, result)
+  {
+    clearTimeout ( resultTimeout );resultTimeout = null;
+    var txt ="The " + dirArr[idx].presets + " stations are from genre '" + dirArr[idx].name+"'"; 
+    result = atob(result);
+    result = result.trim();
+    if (result.length > 0)
+    {
+      var resultArr = result.split(",");
+      if (resultArr.length > 0) 
+      {
+        txt = txt +" and from the following genres:\n\n";
+        var i;
+        for (i = 0;i < resultArr.length;i++)
+          txt = txt + i + ":" +resultArr[i] + "\n";
+      }
+    }
+    alert (txt);
+  }
+
+  function showLinks(idx)
+  {
+    var theUrl = "link64,genre=" + dirArr[idx].name ; 
+    runActionRequest ( idx, theUrl, 3000, showLinksCB);
+  }
+
  function listDir ( )
  {
   var table = document.getElementById('genreDir') ;
@@ -73,13 +112,13 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
       var table = document.getElementById('genreDir') ;
       table.innerHTML = "" ;
       validGenres = 0;
-      validPresets = 0;
+      validStations = 0;
       var row = table.insertRow() ;
       var cell1 = row.insertCell(0) ;
       var cell2 = row.insertCell(1) ;
       var cell3 = row.insertCell(2) ;
-      cell1.innerHTML = "Genre" ;
-      cell2.innerHTML = "Presets" ;
+      cell1.innerHTML = "Genre (click to play)" ;
+      cell2.innerHTML = "Stations" ;
       cell3.innerHTML = "Action" ;
       dirArr = JSON.parse ( this.responseText ) ;
       var i ;
@@ -97,7 +136,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
             var cell2 = row.insertCell(1) ;
             var cell3 = row.insertCell(2) ;
             cell1.innerHTML = "Total:";
-            cell2.innerHTML = validPresets ;
+            cell2.innerHTML = validStations ;
             var select = getAction("totaldir", ["None", "Refresh"]);
             select.onchange=function() 
             {
@@ -126,10 +165,10 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
             var cell1 = row.insertCell(0) ;
             var cell2 = row.insertCell(1) ;
             var cell3 = row.insertCell(2) ;
-            cell1.innerHTML = dirArr[i].id + ": " + dirArr[i].name;
-            cell2.innerHTML = dirArr[i].presets ;
+            cell1.innerHTML = '<a onClick="playGenre(' + dirArr[i].id + ')">'+ dirArr[i].id + ": " + dirArr[i].name+'</a>';
+            cell2.innerHTML = '<a onClick="showLinks(' + i + ')">'+dirArr[i].presets +'</a>';
             validGenres++ ;
-            validPresets = validPresets + dirArr[i].presets ;
+            validStations = validStations + dirArr[i].presets ;
             var select=getAction("action"+i, ["None", "Refresh", "Delete"]);
             dirArr[i].action = "None" ;
             select.onchange=function() 
@@ -178,6 +217,61 @@ function setAddGenre()
   }
 }
 
+var defaultGenreArr = [];
+
+function loadDefaultGenreArr()
+{
+
+  if (defaultGenreArr.length == 0)
+    drawFilterTable();
+  else
+  {
+    var genre = defaultGenreArr.shift().trim();
+    stationArr = [];
+    listStats(0, genre, 5000, loadDefaultGenreArrCB, false);
+  }
+}
+
+
+function loadDefaultGenreArrCB(id, genre, loaded, deleteFirst)
+{
+  clearTimeout ( resultTimeout );resultTimeout = null;
+  if (loaded)
+  {
+    var newEntry = {
+      "name" : genre,
+      "stationcount" : stationArr.length,
+      "action": "None"
+    };
+    genreArr.push(newEntry);
+  }
+  loadDefaultGenreArr();
+}
+
+function loadDefaultGenresCB(idx, result)
+{
+  clearTimeout ( resultTimeout );resultTimeout = null;
+  result.trim();
+  result = atob(result);
+  alert(result);
+  result = result.trim();
+  defaultGenreArr = result.split(",");
+  if (defaultGenreArr.length > 0)
+  {
+    alert ("Entries: " + defaultGenreArr.length + "= " + result);
+    genreArr = [] ;
+    loadDefaultGenreArr();
+  }
+}
+
+function loadDefaultGenres()
+{
+  if (confirm("Load default '$$genres' from preferences?"))
+  {
+    var theUrl = "nvsgenres" ; 
+    runActionRequest ( 0, theUrl, 3000, loadDefaultGenresCB);
+  }
+}
 
 function drawFilterTable()
 {
@@ -188,8 +282,8 @@ function drawFilterTable()
       var cell2 = row.insertCell(1) ;
       var cell3 = row.insertCell(2) ;
       var cell4 = row.insertCell(3) ;
-      cell1.innerHTML = "Genre" ;
-      cell2.innerHTML = "Presets" ;
+      cell1.innerHTML = '<a onClick="loadDefaultGenres()">Genre</a>' ;
+      cell2.innerHTML = "Stations" ;
       cell3.innerHTML = "Action" ;
       cell4.innerHTML = "Add to:"
 
@@ -248,6 +342,37 @@ function drawFilterTable()
       }
       if (idx > 0)  
       {
+        if (idx > 1)
+        {
+        var row = table.insertRow() ;
+        var cell1 = row.insertCell(0);
+        cell1.colSpan = 2;
+        cell1.innerHTML="Select action for all";
+        cell1 = row.insertCell(1);
+        var select=getAction("loadall", ["None", "Load", "Add to:"]);
+        select.onchange=function() 
+            {
+                var i;
+                for (i = 0;i < genreArr.length;i++)
+                {
+                    var selector = document.getElementById("load" + i);
+                    if (selector != null)
+                    {
+                      selector.value = this.value;
+                      genreArr[i].action = this.value;
+                      if (this.value == "Add to:")
+                      {
+                        document.getElementById("add"+i).hidden = false;
+                      }
+                      else
+                      {
+                        document.getElementById("add"+i).hidden = true;
+                      }
+                    }
+                }
+            }
+        cell1.appendChild(select);
+        }
         var row = table.insertRow() ;
         var cell1 = row.insertCell(0);
         cell1.colSpan = 3;
@@ -278,7 +403,7 @@ function loadGenres()
   loadGenresFromRDBS(lastInGenres, lastInPresets);
 }
 
-function loadGenresFromRDBS(genreMatch, presets)
+function loadGenresFromRDBS(genreMatch, stations)
 {
   var theUrl = "https://nl1.api.radio-browser.info/json/tags/" +
                genreMatch +
@@ -322,7 +447,7 @@ function loadGenresFromRDBS(genreMatch, presets)
         if (resultContainer != null)
             resultContainer.innerHTML = "ERROR!" ;
          alert("Action for " + id + " failed with result: " + result + ". Action run will be stopped!");
-         runAction(dirArr.length);
+         runAction(actionArray.length);
      }
  }   
 
@@ -337,12 +462,49 @@ function loadGenresFromRDBS(genreMatch, presets)
     cell2.innerHTML = "..busy..";
  }
  
+ function uploadStatLinkListCB(id, result)
+ {
+    if (genreLoadArr.length == 0)
+      actionDone(id, "OK");
+    else
+    {
+      var i;
+      var links = "";
+      var l = genreLoadArr.length;
+      if (l > 10)
+        l = 10;
+      for (i = 0;i < l;)
+      {
+        links = links + genreLoadArr.shift();
+        i++;
+        if (i < l)
+          links = links + ",";
+      }
+      runActionRequest(id, "link=+" + actionArray[id].id + 
+                        ",genre=" + actionArray[id].name +
+                         ",list=" + links, 
+                        3000, uploadStatLinkListCB);
+
+    }
+ }
+
  function uploadStatChunk(id)
  {
-   resultContainer.innerHTML = actionArray[id].subIdx + " presets";
+   resultContainer.innerHTML = actionArray[id].subIdx + " stations";
    if (actionArray[id].subIdx >= stationArr.length)
    {
-     actionDone(id, "OK=" + actionArray[id].subIdx + " presets");
+     if (genreLinkList.length == 0) 
+      actionDone(id, "OK") ;//=" + actionArray[id].subIdx + " stations");
+     else
+     {
+        genreLoadArr = genreLinkList.split(",");
+        //Workaround: Following call will result in an empty link list..
+        runActionRequest(id, "link=" + actionArray[id].id + 
+                          ",genre=" + actionArray[id].name +
+                           ",list=", 
+                          3000, uploadStatLinkListCB);
+        genreLinkList = "";
+     }
    }
    else
    {
@@ -352,8 +514,10 @@ function loadGenresFromRDBS(genreMatch, presets)
       if (l > delta)
         l = delta;
       for(i = 0;i < l;i++)
-        stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
-      stations = stations.replaceAll("&", "%26");
+        //stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
+        stations=stations + "|" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
+      //stations = stations.replaceAll("&", "%26");
+      //showAction("Next chunk, idx=" + actionArray[id].subIdx + ", l=" + l);
       if (actionArray[id].action == "Add to:" )
       {
         //alert("Hier kommt jetzt ein Add to: " + lastAdd + " für genre: " + actionArray[id].name);
@@ -362,7 +526,7 @@ function loadGenresFromRDBS(genreMatch, presets)
                           ",count=" + l +
                           ",idx=" + actionArray[id].subIdx +
                             stations,
-                            3000, uploadStatChunkCB);
+                            10000, uploadStatChunkCB);
 
       }
       else
@@ -373,7 +537,7 @@ function loadGenresFromRDBS(genreMatch, presets)
                           ",count=" + l +
                           ",idx=" + actionArray[id].subIdx +
                           stations,
-                          3000, uploadStatChunkCB);
+                          10000, uploadStatChunkCB);
       }
     actionArray[id].subIdx += l;
    }
@@ -388,17 +552,22 @@ function loadGenresFromRDBS(genreMatch, presets)
    }
    else
    {
-     actionDone (id, "Upload failed, Radio returned: " + result ) ;
+     resultContainer.innerHTML = "ERROR" ;
+     showAction(result);
+     resultContainer.innerHTML = "skip" ;
+     actionRunErrorFlag = true;
+     actionDone (id, "OK" ) ;
    }
  }
 
  function listStatsDelCB ( id, result)
  {
+   clearTimeout ( resultTimeout );resultTimeout = null;
    if (result.substring(0, 2) == "OK")
    {
       resultContainer.innerHTML = "OK"
-      showAction ("Uploading " + stationArr.length + " presets to radio.");
-      resultContainer.innerHTML = "0 presets";
+      showAction ("Uploading " + stationArr.length + " stations to radio.");
+      resultContainer.innerHTML = "0 stations";
       actionArray[id].subIdx = 0;
       uploadStatChunk(id);
     }
@@ -411,7 +580,7 @@ function loadGenresFromRDBS(genreMatch, presets)
     clearTimeout ( resultTimeout );resultTimeout = null;
     if (loaded && (stationArr.length > 0))
     {
-      resultContainer.innerHTML = stationArr.length + " presets";
+      resultContainer.innerHTML = stationArr.length + " stations";
       if (deleteFirst)
       {
         showAction(`First deleting genre '${genre}'`); 
@@ -420,15 +589,18 @@ function loadGenresFromRDBS(genreMatch, presets)
       }
       else
       {         
-        showAction ("Uploading " + stationArr.length + " presets to radio.");
-        resultContainer.innerHTML = "0 presets";
+        showAction ("Uploading " + stationArr.length + " stations to radio.");
+        resultContainer.innerHTML = "0 stations";
         actionArray[id].subIdx = 0;
         uploadStatChunk(id);
       }
     } 
     else if (loaded)
     {
-      actionDone(id, "RDBS returned 0 presets for genre '" + genre + "'.");
+      resultContainer = "ERROR";
+      showAction ("RDBS returned 0 stations for genre '" + genre + "'.");
+      actionRunErrorFlag = true ;
+      actionDone(id, "OK");
     }
     else
     {
@@ -442,8 +614,7 @@ function runActionRequest (id, theUrl, timeout, callback)
   xhr = new XMLHttpRequest() ;
   //xhr.setRequestHeader("Cache-Control", "no-cache, no-store, max-age=0");
  // xhr.setRequestHeader("Cache-Control",  "no-cache, no-store, must-revalidate");
-  theUrl="genreaction?" + theUrl + "&version=" + Math.random();
-
+  theUrl="genreaction?" + btoa(theUrl) + "&version=" + Math.random();
   xhr.onreadystatechange = function() 
 
   {
@@ -454,7 +625,10 @@ function runActionRequest (id, theUrl, timeout, callback)
   }  
   clearTimeout(resultTimeout);resultTimeout = null;
   if (timeout)
-    resultTimeout = setTimeout(actionDone, timeout, id, `Timeout for URL: ${theUrl}`);
+    if (id > 0)
+      resultTimeout = setTimeout(actionDone, timeout, id, `ERR: Timeout for URL: ${theUrl}`);
+    else 
+      resultTimeout = setTimeout(callback, id, `ERR: Timeout for URL: ${theUrl}`);
   xhr.open ( "GET", theUrl ) ;
   xhr.send() ;
   
@@ -465,6 +639,64 @@ function runActionRequest (id, theUrl, timeout, callback)
  {
      resultTimeout = setTimeout( actionDone, 2000, idx, "OK: Delete but Timeout!") ;
  }
+
+  function reloadOneGenre(idx)
+  {
+    if (genreLoadArr.length == 0)
+    {
+      //alert("Das wars von der GenreListe!");
+      if (stationArr.length > 0)
+        listStatsCB(idx, actionArray[idx].name, true, true);
+      else
+        actionDone(idx, "OK");
+    }
+    else
+    {
+      var loadGenre = genreLoadArr.shift();
+      if (loadGenre == actionArray[idx].name)
+      {
+        stationArr = [];    
+      }
+      showAction(`Reload stations from genre '${loadGenre}'`)
+      listStats(idx, loadGenre, 5000, reloadOneGenreCB, false);
+    }
+  }
+
+  function reloadOneGenreCB(idx, genre, loaded, deleteFirst)
+  {
+    clearTimeout ( resultTimeout );resultTimeout = null;
+    resultContainer.innerHTML = stationArr.length ;
+    reloadOneGenre(idx);
+  }
+
+  function reloadPresetsLinkCB(idx, result)            
+  {
+    clearTimeout ( resultTimeout );resultTimeout = null;
+    resultContainer.innerHTML = "started";
+    result = atob(result);
+    if (result.startsWith("ERR"))
+    {
+      resultContainer.innerHTML = "OK";
+      showAction(`Error getting linked genres for '${actionArray[idx].name}'`); 
+      resultContainer.innerHTML = "skipping";
+      result = "";
+    }
+    result = result.trim();
+    genreLinkList = result; 
+    if (result.length > 0)
+      result = actionArray[idx].name + "," + result;
+    else
+      result = actionArray[idx].name;
+    genreLoadArr = result.split(",");
+    //alert(genreLinkList + "Length of genreLoadArr: " + genreLoadArr.length);
+    reloadOneGenre(idx);
+  }
+
+  function reloadPresets(idx)
+  {
+    var theUrl = "link64,genre=" + actionArray[idx].name ; 
+    runActionRequest ( idx, theUrl, 3000, reloadPresetsLinkCB);
+  }
 
  function runAction( idx )
  {
@@ -478,10 +710,16 @@ function runActionRequest (id, theUrl, timeout, callback)
             idx++;
      if ( idx >= actionArray.length)
      {
+        if (actionRunErrorFlag)
+          alert("There have been errors while running the actions!");
+        else
+          ;//alert("ActionRunComplete");
         location.reload();
      }
      else
      {
+        stationArr = [] ;     //Workaround
+
          //alert(idx + ":" + actionArray[idx].action + "(" + actionArray[idx].name + ")");
          if ( actionArray[idx].action == "Delete")
          {
@@ -495,7 +733,7 @@ function runActionRequest (id, theUrl, timeout, callback)
          else if ( actionArray[idx].action == "Refresh")
          {
             showAction(`Reload genre '${actionArray[idx].name}'`);
-            listStats(idx, actionArray[idx].name, 5000, listStatsCB, true) ;
+            reloadPresets(idx);
          }
          else if ( actionArray[idx].action == "Load")
          {
@@ -504,7 +742,7 @@ function runActionRequest (id, theUrl, timeout, callback)
          }
          else if ( actionArray[idx].action == "Add to:" )
          {
-            showAction(`Adding presets from genre '${actionArray[idx].name}' to genre '${lastAdd}'.`);
+            showAction(`Adding stations from genre '${actionArray[idx].name}' to genre '${lastAdd}'.`);
             listStats(idx, actionArray[idx].name, 5000, listStatsCB, false) ;
          }
          else
@@ -528,6 +766,7 @@ function runActionRequest (id, theUrl, timeout, callback)
       return;
     }  
     actionArray = newActions;
+    actionRunErrorFlag = false;
     //alert("ActionArray length= " + actionArray.length);
     var table = document.getElementById('genreDir') ;
     table.innerHTML = "" ;
@@ -564,32 +803,33 @@ function runActionRequest (id, theUrl, timeout, callback)
                genre +
                "?hidebroken=true" ;
   xhr = new XMLHttpRequest() ;
-  stationArr = [];
+  //stationArr = [];
   xhr.onreadystatechange = function() 
   {
    if ( this.readyState == XMLHttpRequest.DONE )
    {
     //var table = document.getElementById('stationsTable') ;
     //table.innerHTML = "" ;
-    stationArr = JSON.parse ( this.responseText ) ;
+    var thisStationArr = JSON.parse ( this.responseText ) ;
     var i ;
     var snam ;
     var oldsnam = "" ;
-    for ( i = 0 ; i < stationArr.length ; i++ )
+    for ( i = 0 ; i < thisStationArr.length ; i++ )
     {
-      snam = stationArr[i].name ;
-      if ( stationArr[i].url_resolved.startsWith ( "http:") &&            // https: not supported yet
+      snam = thisStationArr[i].name ;
+      if ( thisStationArr[i].url_resolved.startsWith ( "http:") &&            // https: not supported yet
            snam != oldsnam )
       {
         oldsnam = snam ;
       }
       else
       {
-        stationArr.splice(i, 1);
+        thisStationArr.splice(i, 1);
         i--;
       }
     }
-    //alert ("RDBS done for genre " + genre + " with presets: " + stationArr.length);
+    stationArr = stationArr.concat(thisStationArr);
+    //alert ("RDBS done for genre " + genre + " nb. stations found: " + stationArr.length);
     callback(id, genre, true, deleteFirst);
    }
   }
@@ -597,6 +837,8 @@ function runActionRequest (id, theUrl, timeout, callback)
   resultTimeout = setTimeout(callback, timeout, id, genre, false, deleteFirst);
   xhr.send() ;
  }
+
+ 
 
  function setStation ( inx )
  {

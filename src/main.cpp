@@ -2113,7 +2113,7 @@ bool connecttohost()
     mp3client.print ( getreq ) ;                            // Send get request
 #if defined(RETRORADIO)
     dbgprint("CONNECTTOHOST connectDelay: %d", connectDelay );
-    if ( connectDelay )
+    if (connectDelay)
 #endif
     vTaskDelay ( 1000 / portTICK_PERIOD_MS ) ;              // Give some time to react
     return true ;                                           // Send is probably okay

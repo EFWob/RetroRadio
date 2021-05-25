@@ -10,7 +10,7 @@ $channels_fm = 0,1,2,3,4,5,6,7,10
 #
 $equalizermax = 3
 #
-$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
+$$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
 #
 $tunemap = (0..95=1)(103..114=2)(123..136=3)(146..166=4)(185..209=5)(219..240=6)(254..264=7)(274..445=8)
 #
@@ -42,8 +42,8 @@ $volmin = 50
 :equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
 :equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
 #
-:genre = idx(?,@$genres)={genre=?};preset=-1
-:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
+:genre = idx(?,@$$genres)={genre=?};preset=-1
+:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
 :genrestop = genre=--stop;in.tune=onchange={.channel=?}
 #
 :presetforce=channel=-1;preset=-1;preset=?
@@ -170,7 +170,7 @@ $channels_fm = 0,1,2,3,4,5,6,7,10
 #
 $equalizermax = 3
 #
-$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
+$$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
 #
 $tunemap = (0..95=1)(103..114=2)(123..136=3)(146..166=4)(185..209=5)(219..240=6)(254..264=7)(274..445=8)
 #
@@ -202,9 +202,9 @@ $volmin = 50
 :equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
 :equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
 #
-:genre = idx(?,@$genres)={genre=?};preset=-1
-:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
-:genrestop = stop;genre=--stop;in.tune=onchange={.channel=?}
+:genre = idx(?,@$$genres)={genre=?};preset=-1
+:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
+:genrestop = genre=--stop;in.tune=onchange={.channel=?}
 #
 :presetforce=channel=-1;preset=-1;preset=?
 #
@@ -329,7 +329,7 @@ $channels_fm = 0,1,2,3,4,5,6,7,10
 #
 $equalizermax = 3
 #
-$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
+$$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco                         #
 #
 $tunemap = (100..115=1)(120..130=2)(135..150=3)(160..185=4)(205..250=5)(285..330=6)(350..400=7)(410..445=8) (460..590=9)
 #
@@ -360,8 +360,8 @@ $volmin = 50
 :equalizer2 = toneha=7; tonehf=4; tonela=15; tonelf=15
 :equalizer3 = toneha=0; tonehf=3; tonela=0; tonelf=13
 #
-:genre = idx(?,@$genres)={genre=?};preset=-1;
-:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
+:genre = idx(?,@$$genres)={genre=?};preset=-1;
+:genreload = genre=--maintain 1;genre=--clearall;genre=--load @$$genres;genre=--pushback --maintain 0;genre=--pushback --cmd reset
 :genrestop = genre=--stop;in.tune=onchange={.channel=?}
 #
 :presetforce=channel=-1;preset=-1;preset=?

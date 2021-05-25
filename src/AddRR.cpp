@@ -1,4 +1,5 @@
 #include "AddRR.h"
+#include <Base64.h>
 #if defined(RETRORADIO)
 #define sv DRAM_ATTR static volatile
 #include <freertos/task.h>
@@ -398,7 +399,7 @@ String getStringPart(String& value, char delim) {
     value = value.substring(idx + 1);
   }
   chomp(ret);
-  ret.toLowerCase();
+//  ret.toLowerCase();
   return ret;
 }
 
@@ -4576,7 +4577,7 @@ void partGenre()
   esp_partition_iterator_release(_mypartiterator);
 }
 
-bool doDelete(int idx, String genre, String& result)
+bool doDelete(int idx, String genre, bool keepLinks, String& result)
 {
   int lastId = 0;
   int storedId = 0;
@@ -4616,8 +4617,11 @@ bool doDelete(int idx, String genre, String& result)
     sprintf(key, "%d_%d", idx, i);
     gnvsdelkey(key);
   }
-  sprintf(key, "%d_x", idx);
-  gnvsdelkey(key);
+  if (!keepLinks)
+  {
+    sprintf(key, "%d_x", idx);
+    gnvsdelkey(key);
+  }
 
   gnvsTableCache.entry[tableIndex].timeMode = 0;
   gnvsTableCache.entry[tableIndex].presets = 0; 
@@ -5129,8 +5133,11 @@ void doGpreset(String param, String value)
         doprint("Switch to GenreUrl: %s", s.c_str());
       if (s.length() > 0)
       {
-        host = s;
-        connecttohost();
+        char cmd[s.length() + 10];
+        sprintf(cmd, "station=%s", s.c_str());
+        analyzeCmd(cmd);
+//        host = s;
+//        connecttohost();
       }
       else
       {
@@ -5264,10 +5271,30 @@ String sndstr = "";
     dirGenre (&cmdclient, true) ;
     cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
   }
+  else if (http_rqfile == "genre")
+  {
+    int genreId = http_getcmd.toInt();
+    bool dummy;
+    http_rqfile = String("--id ") + genreId;
+    doprint("Genre switch by http:...%s (id: %d)", http_rqfile.c_str(), genreId);
+    if (genreId > 0)
+      doGenre("genre", http_rqfile);
+    sndstr = httpheader("text/html") + "OK\r\n\r\n";
+    cmdclient.println(sndstr);
+  }
   else if (http_rqfile == "genreaction")
   {
     sndstr = httpheader ( String ("text/text")) ;
     cmdclient.println(sndstr);
+    
+    int decodedLength = Base64.decodedLength((char *)http_getcmd.c_str(), http_getcmd.length());
+    char decodedString[decodedLength];
+    Base64.decode(decodedString, (char *)http_getcmd.c_str(), http_getcmd.length());
+    Serial.print("Decoded string is:\t");
+    Serial.println(decodedString);    
+    
+    http_getcmd = String(decodedString);
+
     String command = getStringPart(http_getcmd, '|');
     String genre, idStr;
     int idx = command.indexOf("genre=");
@@ -5277,13 +5304,69 @@ String sndstr = "";
       genre = getStringPart(dummy, ',');
       genre.trim();
     }
-    if (command.startsWith("del="))
+    if (command.startsWith("link="))
+    {
+      String dummy = command.substring(5);
+      idStr = getStringPart(dummy, ',');
+      idStr.trim();
+      bool addFlag = idStr.c_str()[0] == '+';
+      int genreId = searchGenre(genre.c_str());
+      if ((0 == genreId) || (genreId != idStr.toInt()))
+        sndstr =  String ( doprint("ERR: Could not load genre '%s' to get links...", genre.c_str()) ) + "\r\n\r\n";
+      else
+      {
+        char key[30];
+        sprintf(key, "%d_x", genreId);
+        dummy = command.substring(command.indexOf("list=") + 5);
+        if (addFlag)
+        {
+          String soFar = gnvsgetstr(key);
+          soFar.trim();
+          if (soFar.length() > 0)
+            dummy = soFar + String(",") + dummy;
+        }
+        gnvssetstr(key, dummy);
+        doprint("GNVS %s: %s", key, dummy.substring(0, 100).c_str());
+        sndstr = "OK\r\n\r\n";
+      }  
+
+    }
+    else if (command.startsWith("link") || command.startsWith("link64"))
+    {
+      int genreId = searchGenre(genre.c_str());
+      if (0 == genreId)
+        sndstr =  String ( doprint("ERR: Could not load genre '%s' to get links...", genre.c_str()) ) + "\r\n\r\n";
+      else
+      {
+        char key[30];
+        sprintf(key, "%d_x", genreId);
+        sndstr = gnvsgetstr(key) + "\r\n\r\n";
+      }
+      if (command.startsWith("link64"))
+      {
+        int encodedLength = Base64.encodedLength(sndstr.length() + 1);        
+        char encodedString[encodedLength];
+        Base64.encode(encodedString, (char *)sndstr.c_str(), sndstr.length());
+        sndstr = String(encodedString) + "\r\n\r\n";
+      }  
+    }
+    else if (command.startsWith("nvsgenres"))
+    {
+      sndstr = nvsgetstr("$$genres");
+      chomp(sndstr);
+      int encodedLength = Base64.encodedLength(sndstr.length() + 1);        
+      char encodedString[encodedLength];
+      Base64.encode(encodedString, (char *)sndstr.c_str(), sndstr.length());
+      sndstr = String(encodedString) + "\r\n\r\n";
+    }
+    else if (command.startsWith("del=") || (command.startsWith("clr=")))
     {
       String dummy = command.substring(4);
       idStr = getStringPart(dummy, ',');
       idStr.trim();
+      bool keepLinks = command.c_str() [0] == 'c' ;
       doprint("HTTP is about to delete genre '%s' with id %d", genre.c_str(), idStr.toInt());
-      doDelete(idStr.toInt(), genre, sndstr);
+      doDelete(idStr.toInt(), genre, keepLinks, sndstr);
       //delay(2000);
       doprint("Delete done, result is: %s", sndstr.c_str());
       sndstr = "OK\r\n\r\n";
@@ -5367,8 +5450,11 @@ String sndstr = "";
     {
       sndstr = "Unknown genre action '" + command + "'\r\n\r\n";
     }
-    if (sndstr.length() > 0)
+    if (sndstr.length() > 0) 
+    {
+        doprint("CMDCLIENT>>%s", sndstr.c_str());
         cmdclient.println(sndstr);
+    }
   }
   else
   {
