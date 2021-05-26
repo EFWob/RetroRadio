@@ -5,6 +5,8 @@
 #include <freertos/task.h>
 #include <nvs_flash.h>
 #include <nvs.h>
+#include "esp_system.h"
+#include "esp_spi_flash.h"
 #include <map>
 #include <queue>
 #include <WiFi.h>
@@ -3597,6 +3599,19 @@ void setupRR(uint8_t setupLevel) {
       i++;
     } while (i < 11);
     retroRadioLoops[numLoops] = NULL;
+
+    esp_chip_info_t chip_info;
+    esp_chip_info(&chip_info);
+    doprint("This is ESP32 chip with %d CPU cores, WiFi%s%s, ",
+            chip_info.cores,
+            (chip_info.features & CHIP_FEATURE_BT) ? "/BT" : "",
+            (chip_info.features & CHIP_FEATURE_BLE) ? "/BLE" : "");
+
+    doprint("silicon revision %d, ", chip_info.revision);
+
+    doprint("%dMB %s flash\n", spi_flash_get_chip_size() / (1024 * 1024),
+            (chip_info.features & CHIP_FEATURE_EMB_FLASH) ? "embedded" : "external");
+  
   }
 }
 

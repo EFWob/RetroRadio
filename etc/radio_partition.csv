@@ -1,8 +1,0 @@
-# muss nach:
-# ~/.platformio/packages/framework-arduinoespressif32/tools/partitions
-# Name,   Type, SubType, Offset,  Size, Flags
-otadata,  data, ota,     0x9000,  0x2000,
-app0,     app,  ota_0,   , 0x150000,
-app1,     app,  ota_1,    ,0x150000,
-presets,   data, nvs,      ,0x100000,
-nvs,      data, nvs,       ,0x10000,
