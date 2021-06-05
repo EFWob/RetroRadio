@@ -508,7 +508,7 @@ function loadGenresFromRDBS(genreMatch, stations)
    }
    else
    {
-      var delta = 20;
+      var delta = 10;
       var stations = "";
       var l = stationArr.length - actionArray[id].subIdx;
       if (l > delta)

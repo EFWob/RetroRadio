@@ -1263,13 +1263,14 @@ Idx-Command:
 	idx[.result-key](list-index, list) [= {idx-command-sequence}]
 ```
 - this command does also not influences the control flow (_idx-command-sequence_ will always be executed, if given). - _list-index_ is expected to be an integer. If the integer is greater or equal to 1 (so 'n') the _n_-th element of the following (comma-delimited) _list_ beginning from the leftmost _list_-element. 
-- if _list-index_ is 0 or bigger than the number of elements, the empty string "" is returned.
+- _list_index_  must be either a literal or can be dereferenced (by @, &, . or ~)
+- if _list-index_ is the literal "0", the _idx-command_ will return the number of elements in the list
+- if _list-index_ is bigger than the number of elements (or below 0), the empty string "" is returned.
 - if the optional _result-key_ is given, the result will be stored into RAM using _result-key_.  
 - the result can be used for '?'-substitution within the _idx-command-sequence_
 - list element can be any type of string (not only numbers) but must not contain ',' or ')'.
 - each list element can be dereferenced to RAM/NVS using the usual _@key_-notation. Every dereferenced value can be either a single value or a (sub-) list in itself.
 - _idxv()_ for verbose version can be used.
-- _list_index_  must be a number, either as literal or dereferenced (by @, &, . or ~)
 
 ```
 .list=(@list1, @list2)      # define list in RAM holding a list with two entries @list1, @list2 (references to list1 and list2)
@@ -1278,6 +1279,12 @@ Idx-Command:
 .list12=entry3             
 .list2=entry4              # list2 holds just entry4
 ```
+For convenience, here all of the above as command sequence in one line to copy it to Serial input direct:
+```
+.list=(@list1, @list2);.list1=(@list11, @list12);.list11=entry1, entry2;.list12=entry3;.list2=entry4
+```
+
+
 so if evaluated in _idx_-command, @list will finally expand to ((Entry 1, Entry 2), Entry 3), Entry 4 (Paranthesis are just for clarification to indicate the bounderies of each key in RAM).
 
 For example, you can load a random element of that list into RAM key _entry_ by using

@@ -835,35 +835,43 @@ void doCalc(String expression, String value, bool show, String ramKey, bool& ret
   }
 }
 
-String searchElement(String input, int& idx, bool show)
+String searchElement(String input, int& idx, bool show, bool justCount, int& elements)
 {
   String result;
   chomp(input);
-  if (show) doprint("Search idx(%d) in %s", idx, input.c_str());
+  if (show) 
+    if (!justCount)
+      doprint("Search idx(%d) in %s", idx, input.c_str());
   if (strchr(input.c_str(), ','))
     do
     {
       String left = getStringPart(input, ',');
       if (show) doprint("Searching deeper with %s (idx is still %d)", left.c_str(), idx);
-      result = searchElement(left, idx, show);
+      result = searchElement(left, idx, show, justCount, elements);
     }
-    while ((input.length() > 0) && (idx > 0));
+    while ((input.length() > 0) && (justCount || (idx > 0)));
   else if (input.c_str()[0] == '@')
   {
     if (show) doprint ("resolving (and analyzing) key %s", input.c_str()) ;
     chomp_nvs(input);
-    result = searchElement (input, idx, show);
+    result = searchElement (input, idx, show, justCount, elements);
   }
   else
   {
-    if (idx == 1)
+    if ((idx == 1) && !justCount)
       result = input;
     idx--;
+    if (justCount)
+      //if (elements || (input.length() > 0))
+        elements++;
   }
   return result;
 }
 
 void doIdx(String expression, String value, bool show, String ramKey, bool& returnFlag) {
+  bool justCount, hasAnyEntry;
+  int idx = 0;
+  int elements = 0;
   String idxCommand;
   String left, right;
   String result;
@@ -871,22 +879,35 @@ void doIdx(String expression, String value, bool show, String ramKey, bool& retu
  
   
   parseGroup(value, idxCommand, right);
+  hasAnyEntry = strchr(expression.c_str(), ',') != NULL;
   left = getStringPart(expression, ',');
   chomp_nvs(left);
-  int idx = left.toInt();
-  if (show) doprint("Searching for element %d in %s", idx, expression.c_str());
-  do {
-    left = getStringPart(expression, ',');
-    chomp_nvs(left);
-    if(show) doprint("Search %s, idx==%d", left.c_str(), idx);
-    result = searchElement(left, idx, show);
+  if (!(justCount = (left == "0")))
+    idx = left.toInt();
+  if (show) 
+    if (justCount)
+      doprint("Counting elements in list '%s'", expression.c_str());
+    else
+      doprint("Searching for element %d in list '%s'", idx, expression.c_str());
+  if (hasAnyEntry)
+    do {
+      hasAnyEntry = strchr(expression.c_str(), ',');
+      left = getStringPart(expression, ',');
+      chomp_nvs(left);
+      if(show) doprint("Search %s, idx==%d", left.c_str(), idx);
+      result = searchElement(left, idx, show, justCount, elements);
 //    if (idx == 1) 
 //      result = left;
 //    if (idx > 1)
 //      idx = idx - 1;
-  } while ((idx > 0) && (expression.length() > 0));
-
-  if (show) doprint("Result = '%s' (found: %d)", result, idx == 0);
+    } while (((idx > 0) || justCount) && (hasAnyEntry/*expression.length() > 0*/));
+  if (justCount)
+    result = elements;
+  if (show) 
+    if (justCount)
+      doprint("Looks like the list has %s entries", result.c_str());
+    else
+      doprint("Result = '%s' (found: %d)", result, idx == 0);
   if (ramKey.length() > 0)
     ramsetstr(ramKey.c_str(), result);
 
@@ -3552,6 +3573,16 @@ void setupRR(uint8_t setupLevel) {
     //adc_power_on();
     readprogbuttonsRetroRadio();
     setupIR();
+    if (nvssearch("pin_reset"))
+    {
+      int resetPin = nvsgetstr("pin_reset").toInt();
+      if (resetPin >= 0)
+      {
+        digitalWrite(resetPin, HIGH);
+        pinMode(resetPin, OUTPUT);
+        dbgprint("VS-Reset pin is: %d.", resetPin);
+      }
+    }
 //  }
 //  else if (setupLevel == SETUP_NET)
 //  {
@@ -3564,6 +3595,10 @@ void setupRR(uint8_t setupLevel) {
   }
   else if (setupLevel == SETUP_DONE)
   {
+#if defined(RESET_ON_WIFI_FAIL)
+  if (!NetworkFound)
+    ESP.restart();
+#endif
     char s[20] = "::setup";
     int l = strlen(s);
     setupDone = true;
@@ -5098,14 +5133,14 @@ void doGenre(String param, String value)
           if (request)
           {
             vTaskSuspend( xplaytask );
-            vTaskSuspend ( xspftask );
+            //vTaskSuspend ( xspftask );
             gverbosestore = gverbose;
             gverbose = true;
           }
           else
           {
             vTaskResume( xplaytask );
-            vTaskResume ( xspftask );
+            //vTaskResume ( xspftask );
             gverbose = gverbosestore;
           }
         }
@@ -5150,6 +5185,7 @@ void doGpreset(String param, String value)
       {
         char cmd[s.length() + 10];
         sprintf(cmd, "station=%s", s.c_str());
+        ini_block.newpreset = currentpreset;
         analyzeCmd(cmd);
 //        host = s;
 //        connecttohost();
@@ -5445,7 +5481,7 @@ String sndstr = "";
               String preset = getStringPart(http_getcmd, '|');
               sprintf(key, "%d_%d", genreId, presets);
               gnvssetstr(key, preset);
-              doprint("%3d: %5s=%s", presets, key, preset.c_str());
+              //doprint("%3d: %5s=%s", presets, key, preset.c_str());
             }
             gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets = presets;
             writeGnvsTableCache();
