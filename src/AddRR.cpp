@@ -3658,7 +3658,7 @@ void loopRR() {
   {
     if (!--firstLoops)
     {
-//      gnvsopen();
+      gnvsopen();
     }
   }
   else
@@ -5475,7 +5475,7 @@ String sndstr = "";
         if (0 != genreId)
           {
             int presets = gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets;
-            for (int i = 0;i < count;i++, presets++)
+            for (int i = 0;i < count;i++,presets++)
             {
               char key[30];
               String preset = getStringPart(http_getcmd, '|');
@@ -5505,7 +5505,10 @@ String sndstr = "";
     {
         doprint("CMDCLIENT>>%s", sndstr.c_str());
         cmdclient.println(sndstr);
+        cmdclient.flush();
+        delay(20);
     }
+    nvs_commit(gnvshandle);
   }
   else
   {

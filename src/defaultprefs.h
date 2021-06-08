@@ -498,7 +498,7 @@ R"=====(
 ::setup1 = in.tspkr= src=t3,map=(0..300=0)(=1),start,on1click={channel=any},onlong={if(?)={call=:volchange}{calc.voldir(.voldir^1)}}
 ::setup2 = channels=0,1;channel=1;volume=85;.voldir=1
 ::setup3 = in.tspkr = t-click=0,t-repeat=200
-::setup4 = in.tcase = src=t3,map=(420..470=0)(=1),start,onlong={if(?==1)={genre=--stop;preset=0;channel=1,volume=85}},on2long={if(?==1)={genre=jazz}},t-click=2000,t-long=2000,t-repeat=50000
+::setup4 = in.tcase = src=t3,map=(420..470=0)(=1),start,onlong={if(?)={genre=--stop;preset=0;channel=1,volume=85}},on2long={if(?)={genre=jazz}},t-click=2000,t-long=2000,t-repeat=50000
 #
 :volchange = if(.voldir)={call=:voldown}{call=:volup}
 :voldown = if(~volume > 90)={downvolume = 1;return};if(~volume > 60)={downvolume = 2}{volume = 60}
