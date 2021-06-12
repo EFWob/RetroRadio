@@ -510,8 +510,13 @@ progpin_struct   progpin[] =                             // Input pins and progr
   { 13, false, false,  "", false },
   { 14, false, false,  "", false },
   { 15, false, false,  "", false },
+ #if defined(BOARD_HAS_PSRAM) 
+  //{ 16, true, false,  "", false },                     // Reserved for PSRAM
+  //{ 17, true, false,  "", false },                     // Reserved for PSRAM
+ #else
   { 16, false, false,  "", false },                      // May be UART 2 RX for Nextion
   { 17, false, false,  "", false },                      // May be UART 2 TX for Nextion
+ #endif
   { 18, false, false,  "", false },                      // Default for SPI CLK
   { 19, false, false,  "", false },                      // Default for SPI MISO
   //{ 20, true,  false,  "", false },                    // Not exposed on DEV board
@@ -5325,6 +5330,8 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "scaniocount is %d", scaniocount ) ;
     dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
     dbgprint ( "%d IR interrupts seen", ir_intcount ) ;
+    dbgprint ( "Total PSRAM: %d", ESP.getPsramSize());
+    dbgprint ( "Free PSRAM: %d", ESP.getFreePsram());    
     dbgprint ( reply );
     max_mp3loop_time = 0 ;                            // Start new check
   }

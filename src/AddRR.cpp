@@ -11,6 +11,7 @@
 #include <queue>
 #include <WiFi.h>
 #include <genre_html.h>
+#include <genres.h>
 
 #if !defined(WRAPPER)
 #define TIME_DEBOUNCE 0
@@ -3602,6 +3603,9 @@ void setupRR(uint8_t setupLevel) {
     char s[20] = "::setup";
     int l = strlen(s);
     setupDone = true;
+    doprint("Try to open Genres on LITTLEFS!");
+    if (genres.begin())
+      doprint("SPIFFS open for genres was a success!");
     doprint("Running commands from NVS '%s'", s);
     analyzeCmdsRR ( nvsgetstr(s) );
     s[l + 1] = 0;
