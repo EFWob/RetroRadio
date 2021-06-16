@@ -946,6 +946,7 @@ void doWhile(String conditionOriginal, String valueOriginal, bool show, String r
       if (show) doprint("Running \"while\" with (substituted) command \"%s\"", whileCommand.c_str());
       analyzeCmdsRR ( whileCommand, returnFlag );
     }
+    yield();
   } while (!done);
 }
 
@@ -4183,6 +4184,8 @@ bool loadGnvsTableCache(int id)
 //**************************************************************************************************
 void gnvsopen()
 {
+  gnvshandle = 0; return;   // Make always fail...
+
   if ( ! gnvshandle )                                         // Opened already?
   {
     clearGnvsTableCache();
@@ -5114,6 +5117,59 @@ void doGenre(String param, String value)
       if (value.length() > 0) 
         analyzeCmd(value.c_str());
     }
+    else if (param == "create")
+    {
+      genres.createGenre(value.c_str());
+    }
+    else if (param == "find")
+    {
+      int id = genres.findGenre(value.c_str());
+      doprint("Genre '%s'=%d", value.c_str(), id);
+    }
+    else if (param == "format")
+    {
+      genres.format();
+    }
+    else if (param == "add")
+    {
+      char *s = strchr(value.c_str(), ',');
+      if (s)
+        s = s+1;
+      genres.add(value.toInt(), s);
+    }
+    else if (param == "count")
+    {
+      int ivalue = value.toInt();
+      doprint("Number urls in Genre with id=%d is: %d", ivalue, genres.count(ivalue));
+    }
+    else if (param == "fill")
+    {
+      for (int i = 0;i < 1000;i++)
+      {
+        char key[50];
+        sprintf(key, "genre%d", i);
+        genres.createGenre(key);
+      }
+    }
+    else if (param == "url")
+    {
+      uint16_t nb;
+      char *s = strchr(value.c_str(), ',');
+      if (s)
+        nb = atoi(s+1);
+      else
+        nb = 0;
+      doprint("URL[%d] of genre with id=%d is '%s'", nb, value.toInt(), genres.getUrl(value.toInt(), nb).c_str());
+    }
+    else if (param == "ls")
+    {
+      genres.ls();
+    }
+    else if (param == "test")
+    {
+      genres.test();
+    }
+
 /*    else if (param == "show")
     {
       nvs_iterator_t it = nvs_entry_find("presets", "presets", NVS_TYPE_ANY);
