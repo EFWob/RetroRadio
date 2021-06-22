@@ -2693,6 +2693,9 @@ String readprefs ( bool output )
   i = 0 ;
   while ( *( key = nvskeys[i] ) )                           // Loop trough all available keys
   {
+
+    dbgprint("NVSKEY[%d]='%s'", i, key);
+
     val = nvsgetstr ( key ) ;                               // Read value of this key
     cmd = String ( key ) +                                  // Yes, form command
           String ( " = " ) +
@@ -2737,6 +2740,7 @@ String readprefs ( bool output )
     outstr = String ( "No preferences found.\n"
                       "Use defaults or run Esp32_radio_init first.\n" ) ;
   }
+  dbgprint("READPREFS RESULT = '%s', i=%d", outstr.c_str(), i);
   return outstr ;
 }
 
@@ -3732,7 +3736,7 @@ void handlehttpreply()
 #if defined(RETRORADIO)
         if ( http_rqfile.startsWith("genre" ))
         {
-          dbgprint("Running GENRE(%s) with command: %s", http_rqfile.c_str(), http_getcmd.c_str());
+          //dbgprint("Running GENRE(%s) with command: %s", http_rqfile.c_str(), http_getcmd.c_str());
           httpHandleGenre ( http_rqfile, http_getcmd ) ;
         }
         else

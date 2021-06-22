@@ -48,6 +48,8 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  var xhr ;
  var requestId = 0; 
 
+ var loadIdx = 0;
+
 
 
   function getAction ( actionId, actions )
@@ -76,7 +78,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   function showLinksCB (idx, result)
   {
     clearTimeout ( resultTimeout );resultTimeout = null;
-    var txt ="The " + dirArr[idx].presets + " stations are from genre '" + dirArr[idx].name+"'"; 
+    var txt ="The " + dirArr[idx].presets + " stations are from ";
     result = atob(result);
     result = result.trim();
     if (result.length > 0)
@@ -84,18 +86,20 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
       var resultArr = result.split(",");
       if (resultArr.length > 0) 
       {
-        txt = txt +" and from the following genres:\n\n";
+        txt = txt +" the following genres:\n\n";
         var i;
-        for (i = 0;i < resultArr.length;i++)
-          txt = txt + i + ":" +resultArr[i] + "\n";
+        for (i = 1;i <= resultArr.length;i++)
+          txt = txt + i + ":" +resultArr[i-1] + "\n";
       }
     }
+    else
+      txt = txt +"genre '" + dirArr[idx].name+"'"; 
     alert (txt);
   }
 
   function showLinks(idx)
   {
-    var theUrl = "link64,genre=" + dirArr[idx].name ; 
+    var theUrl = "link64=" + dirArr[idx].id; // + ",genre=" + dirArr[idx].name ; 
     runActionRequest ( idx, theUrl, 3000, showLinksCB);
   }
 
@@ -203,17 +207,32 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
 
 var lastInGenres;
 var lastInPresets;
-var lastAdd = "favorites";
+var lastAdd = "Favorites";
 var genreArr = [];
 
 function setAddGenre()
 {
   var i;
-  lastAdd = document.getElementById("inputAdd").value;
-  for (i = 0;i < genreArr.length;i++)
+  var newAdd = document.getElementById("inputAdd").value.trim().toLowerCase();
+  if (newAdd[0] === newAdd[0].toUpperCase())
   {
-    var x = document.getElementById("add" + i);
-    x.innerHTML = lastAdd;
+    alert("First character must be a letter, reset to " + lastAdd + "!");
+    document.getElementById("inputAdd").value = lastAdd;
+  }
+  else
+  {
+    newAdd = newAdd.charAt(0).toUpperCase() + newAdd.slice(1);
+    document.getElementById("inputAdd").value = newAdd;
+  }
+  //if (newAdd[0] === newAdd[0].toUpperCase())
+  {
+    lastAdd = document.getElementById("inputAdd").value;
+
+    for (i = 0;i < genreArr.length;i++)
+    {
+      var x = document.getElementById("add" + i);
+      x.innerHTML = lastAdd;
+    }
   }
 }
 
@@ -256,6 +275,7 @@ function loadDefaultGenresCB(idx, result)
   alert(result);
   result = result.trim();
   defaultGenreArr = result.split(",");
+  
   if (defaultGenreArr.length > 0)
   {
     alert ("Entries: " + defaultGenreArr.length + "= " + result);
@@ -518,6 +538,10 @@ function loadGenresFromRDBS(genreMatch, stations)
         stations=stations + "|" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
       //stations = stations.replaceAll("&", "%26");
       //showAction("Next chunk, idx=" + actionArray[id].subIdx + ", l=" + l);
+      if (loadIdx > 0)
+        delta = 0;
+      else
+        delta = 1;
       if (actionArray[id].action == "Add to:" )
       {
         //alert("Hier kommt jetzt ein Add to: " + lastAdd + " für genre: " + actionArray[id].name);
@@ -525,9 +549,9 @@ function loadGenresFromRDBS(genreMatch, stations)
                           ",genre=" + lastAdd +
                           ",count=" + l +
                           ",idx=" + actionArray[id].subIdx +
+                          ",start=" + delta +
                             stations,
                             10000, uploadStatChunkCB);
-
       }
       else
       {
@@ -536,10 +560,12 @@ function loadGenresFromRDBS(genreMatch, stations)
                           ",genre=" + actionArray[id].name +
                           ",count=" + l +
                           ",idx=" + actionArray[id].subIdx +
+                          ",start=" + delta +
                           stations,
                           10000, uploadStatChunkCB);
       }
     actionArray[id].subIdx += l;
+    loadIdx += l;
    }
  }
 
@@ -581,6 +607,7 @@ function loadGenresFromRDBS(genreMatch, stations)
     if (loaded && (stationArr.length > 0))
     {
       resultContainer.innerHTML = stationArr.length + " stations";
+      /*
       if (deleteFirst)
       {
         showAction(`First deleting genre '${genre}'`); 
@@ -588,6 +615,7 @@ function loadGenresFromRDBS(genreMatch, stations)
               actionArray[id].name, 0, listStatsDelCB) ;
       }
       else
+      */
       {         
         showAction ("Uploading " + stationArr.length + " stations to radio.");
         resultContainer.innerHTML = "0 stations";
@@ -646,7 +674,7 @@ function runActionRequest (id, theUrl, timeout, callback)
     {
       //alert("Das wars von der GenreListe!");
       if (stationArr.length > 0)
-        listStatsCB(idx, actionArray[idx].name, true, true);
+        listStatsCB(idx, actionArray[idx].name, true, false);
       else
         actionDone(idx, "OK");
     }
@@ -683,9 +711,10 @@ function runActionRequest (id, theUrl, timeout, callback)
     }
     result = result.trim();
     genreLinkList = result; 
-    if (result.length > 0)
-      result = actionArray[idx].name + "," + result;
-    else
+//    if (result.length > 0)
+//      result = actionArray[idx].name + "," + result;
+//    else
+    if (result.length == 0)
       result = actionArray[idx].name;
     genreLoadArr = result.split(",");
     //alert(genreLinkList + "Length of genreLoadArr: " + genreLoadArr.length);
@@ -694,7 +723,7 @@ function runActionRequest (id, theUrl, timeout, callback)
 
   function reloadPresets(idx)
   {
-    var theUrl = "link64,genre=" + actionArray[idx].name ; 
+    var theUrl = "link64=" + actionArray[idx].id +",genre=" + actionArray[idx].name ; 
     runActionRequest ( idx, theUrl, 3000, reloadPresetsLinkCB);
   }
 
@@ -733,11 +762,13 @@ function runActionRequest (id, theUrl, timeout, callback)
          else if ( actionArray[idx].action == "Refresh")
          {
             showAction(`Reload genre '${actionArray[idx].name}'`);
+            loadIdx = 0;
             reloadPresets(idx);
          }
          else if ( actionArray[idx].action == "Load")
          {
             showAction(`Load genre '${actionArray[idx].name}'`);
+            loadIdx = 0;
             listStats(idx, actionArray[idx].name, 5000, listStatsCB, false) ;
          }
          else if ( actionArray[idx].action == "Add to:" )
@@ -774,19 +805,8 @@ function runActionRequest (id, theUrl, timeout, callback)
     var cell1 = row.insertCell(0) ;
     cell1.colSpan = 2;
     cell1.innerHTML = "Please wait for page to reload. Do not load any other page now!"; 
+    loadIdx = 0;
     runAction (0) ;
-/*
-    for (i = 0; i < dirArr.length; i++)
-      if (dirArr[i].mode != "None")
-        {
-        var action = dirArr[i].action;    
-        var genre = dirArr[i].name;
-        var id = dirArr[i].id;
-        if ((action == "Refresh") || (action == "Delete"))
-            deleteGenre ( genre, id ) ;
-        }
-    location.reload();      
-*/    
  }
 
 

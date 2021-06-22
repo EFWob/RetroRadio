@@ -108,13 +108,13 @@ class RetroRadioInput {
 
 void doGenre ( String param, String value );
 void doGpreset ( String param, String value );
-void gnvsLoop ();
-void        gnvsopen   ( ) ;
-esp_err_t   gnvsclear  ( ) ;
-String      gnvsgetstr ( const char* key ) ;
-bool        gnvssearchstr ( const char* key ) ;
-bool        gnvssearchcache ( int id ) ;
-esp_err_t   gnvssetstr ( const char* key, String val ) ;
+//void gnvsLoop ();
+//void        gnvsopen   ( ) ;
+//esp_err_t   gnvsclear  ( ) ;
+//String      gnvsgetstr ( const char* key ) ;
+//bool        gnvssearchstr ( const char* key ) ;
+//bool        gnvssearchcache ( int id ) ;
+//esp_err_t   gnvssetstr ( const char* key, String val ) ;
 
 
 
@@ -129,8 +129,8 @@ int readVolume(void *);                // Returns current volume setting from VS
 int readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
 static int genreId = 0 ;                             // ID of active genre
-static int genrePresets = 0 ;                        // Nb of presets in active genre
-static int genrePreset;                              // Nb of current preset in active genre (only valid if genreId > 0)
+static uint16_t genrePresets = 0 ;                        // Nb of presets in active genre
+static uint16_t genrePreset;                              // Nb of current preset in active genre (only valid if genreId > 0)
 static bool gverbose = true ;                        // Verbose output on any genre related activity
 //static int gchannels = 0 ;                           // channels are active on genre
 uint8_t gmaintain = 0;                 // Genre-Maintenance-mode? (play is suspended)
@@ -2824,7 +2824,7 @@ void doChannel(String value, int ivalue) {
   }
   else if ((genreId > 0) && (genrePresets > 1))                             // Are we in genre playmode?
   {
-    int16_t curPreset, newPreset;
+    int32_t curPreset, newPreset;
     curPreset  = newPreset = genrePreset;
     if (value == "up")  
     {
@@ -3589,8 +3589,8 @@ void setupRR(uint8_t setupLevel) {
 //  else if (setupLevel == SETUP_NET)
 //  {
 #if (ETHERNET==1)
-    //adc_power_on();                                      // Workaround to allow GPIO36/39 as IR-Input
-    NetworkFound = connecteth();                           // Try ethernet
+    //adc_power_on();                                     // Workaround to allow GPIO36/39 as IR-Input
+    NetworkFound = connecteth();                          // Try ethernet
     if (NetworkFound)                                     // Ethernet success??
       WiFi.mode(WIFI_OFF);
 #endif
@@ -3658,6 +3658,7 @@ void setupRR(uint8_t setupLevel) {
 
 
 void loopRR() {
+  /*
   static int8_t firstLoops = 0xff;
   if (firstLoops)
   {
@@ -3668,11 +3669,11 @@ void loopRR() {
   }
   else
   {
-    scanIRRR();
-    gnvsLoop();
+    //gnvsLoop();
   }
 
-
+*/
+  scanIRRR();
 
   RetroRadioInput::checkAll();
   if (numLoops) {
@@ -4013,6 +4014,7 @@ WiFiClientSecure rdbsClient;
 const char *rdbsHost = "de1.api.radio-browser.info";
 const int rdbsPort = 443;
 
+/*
 
 #define MAX_GENRE_PRESETS   500
 #define GENRE_LOOP_READ_NONE     0
@@ -4548,11 +4550,21 @@ int rdbsReadLoop(int nb)
     }    //rdbsClient.stop();
   return 0;     // not yet finished
 }
-
+*/
 
 int searchGenre(const char * name)
 {
-  int ret = 0;
+  int ret = genres.findGenre(name);
+  if (ret > 0)
+  {
+    if (genres.count(ret) == 0)
+      ret = 0;
+  }
+  else
+    ret = 0;
+  return ret;
+
+/*
   if (gverbose)
     doprint("Start searching for genre: '%s'", name) ;
   gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
@@ -4576,7 +4588,6 @@ int searchGenre(const char * name)
   bool found, done;
   do
   {
-    /* code */
     if (gverbose)
       doprint("Scanning genre table %d", 1 + ret / GENRE_TABLE_ENTRIES);
     do {                // search current table (start with 1)
@@ -4601,8 +4612,10 @@ int searchGenre(const char * name)
   else
     doprint("Error: Genre '%s' not found in gnvs.", name); 
   return ret;
+*/
 }
 
+/*
 void partGenre() 
 {
   size_t ul;
@@ -4633,12 +4646,34 @@ void partGenre()
   }
   esp_partition_iterator_release(_mypartiterator);
 }
+*/
 
-bool doDelete(int idx, String genre, bool keepLinks, String& result)
-{
+bool doDelete(int idx, String genre, bool deleteLinks, String& result)
+{  
   int lastId = 0;
   int storedId = 0;
   int tableIndex;
+  bool ret = false;
+
+  storedId = searchGenre(genre.c_str());
+  if (0 == storedId)
+  {
+    result = String("Error: genre not found on file.");
+  }
+  else if (idx != storedId)
+  {
+    result = String("Error: genre id does not match any on file.");
+  }
+  else
+  {
+    genres.createGenre(genre.c_str(), deleteLinks);
+    //ToDo: Keep Links????
+    result = String("OK");
+    ret = true;
+  }
+  
+  return ret;
+/*
   if ( gnvshandle == 0)
     gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
   else
@@ -4674,7 +4709,7 @@ bool doDelete(int idx, String genre, bool keepLinks, String& result)
     sprintf(key, "%d_%d", idx, i);
     gnvsdelkey(key);
   }
-  if (!keepLinks)
+  if (deleteLinks)
   {
     sprintf(key, "%d_x", idx);
     gnvsdelkey(key);
@@ -4687,8 +4722,10 @@ bool doDelete(int idx, String genre, bool keepLinks, String& result)
   if ( lastId != 0)
       loadGnvsTableCache(lastId);
   return true;
+*/
 }
 
+/*
 void dirGenre(Print *client, bool asJson)
 {
   bool isSerial = (client == &Serial);
@@ -4737,7 +4774,6 @@ void dirGenre(Print *client, bool asJson)
   bool done;
   do
   {
-    /* code */
     do {                // search current table (start with 1)
       char mode[30];
       uint32_t timeMode = gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].timeMode;
@@ -4790,6 +4826,7 @@ void dirGenre(Print *client, bool asJson)
   if ( lastId != 0)
     loadGnvsTableCache(lastId);
 }
+*/
 
 
 bool playGenre(int id)
@@ -4801,6 +4838,24 @@ bool playGenre(int id)
       doprint("Genre playmode is stopped");
     return true;
   }
+
+  int numStations = genres.count(id);
+  char cmd[50];
+  if (numStations == 0)
+    return false;
+  
+  genreId = id;
+  genrePresets = numStations ;
+  genrePreset = random(genrePresets) ;
+  if (gverbose)
+    doprint("Active genre is now: '%s' (id: %d), random start gpreset=%d (of %d)",
+        genres.getName(id).c_str(), id, genrePreset, genrePresets);
+  sprintf(cmd, "gpreset=%d", genrePreset);
+  analyzeCmd(cmd);
+  return true;
+}
+/*
+
   gnvsopen();
   if (gnvshandle == 0)
   {
@@ -4843,6 +4898,7 @@ bool playGenre(int id)
 #define GNVS_STATE_READFAIL     4         // Read failed
 #define GNVS_STATE_FOUND        5         // genre is found (or has been loaded) to gnvs
 #define GNVS_STATE_DONE         6         // current task has been handled, can be deleted from tasklist
+
 
 void gnvsTaskLoop()
 {
@@ -5017,10 +5073,11 @@ void gnvsTaskLoop()
   }
 }
 
+*/
 
 
 
-
+/*
 void gnvsLoop() 
 {
   gnvsTaskLoop();
@@ -5041,6 +5098,8 @@ void addToTaskList(int taskType, String value)
     chomp(value);
   } while (value.length() > 0);
 }      
+
+*/
 
 
 void doGenre(String param, String value)
@@ -5073,12 +5132,13 @@ void doGenre(String param, String value)
         gchannels = value.toInt();
       dbgprint("Genre channels are: %d", gchannels);
     }
-*/
     if (param == "clearall")
       gnvsTaskList.push(new GnvsTask(GNVS_TASK_CLEAR));
     else if (param ==  "dir")
       dirGenre(&Serial, false);
-    else if (param == "id")
+    else 
+    */
+    if (param == "id")
     {
       if (isdigit(value.c_str()[0]))
         playGenre(value.toInt());
@@ -5091,13 +5151,15 @@ void doGenre(String param, String value)
     else if (param.startsWith("verb"))
     {
       if (isdigit(value.c_str()[0]))
-        gverbose = value.toInt();
-      dbgprint("Genre actions are verbose: %d", gverbose);
+        genres.verbose(value.toInt());//gverbose = value.toInt();
+      genres.dbgprint("is in verbose-mode.");
     }
     else if (param == "stop")
     {
       playGenre(0);
+      genres.dbgprint("stop playing from genre requested.");
     }
+/*    
     else if (param == "load")
     {
       addToTaskList(GNVS_TASK_LOAD, value);
@@ -5117,9 +5179,14 @@ void doGenre(String param, String value)
       if (value.length() > 0) 
         analyzeCmd(value.c_str());
     }
+*/  
     else if (param == "create")
     {
       genres.createGenre(value.c_str());
+    }
+    else if (param == "delete")
+    {
+      genres.deleteGenre(value.toInt());
     }
     else if (param == "find")
     {
@@ -5161,9 +5228,29 @@ void doGenre(String param, String value)
         nb = 0;
       doprint("URL[%d] of genre with id=%d is '%s'", nb, value.toInt(), genres.getUrl(value.toInt(), nb).c_str());
     }
+    else if (param == "addchunk")
+    {
+      const char *s = value.c_str();
+      int id;
+      if (1 == sscanf(s, "%d", &id))
+      {
+        int idx = strspn(s, "1234567890");
+        if ((idx > 0) && (s[idx] != 0))
+        {
+            doprint("AddChunk '%s' to genre=%d, delimiter='%c'", s + idx + 1, id, s[idx]);
+            genres.addChunk(id, s + idx + 1, s[idx]);
+        }
+      }
+    }
     else if (param == "ls")
     {
       genres.ls();
+    }
+    else if (param == "lsjson")
+    {
+      const char *s = param.c_str() + 6;
+      genres.dbgprint("List genres as JSON, full=%d", value.toInt());
+      genres.lsJson(Serial, value.toInt());
     }
     else if (param == "test")
     {
@@ -5181,7 +5268,7 @@ void doGenre(String param, String value)
           it = nvs_entry_next(it);
           doprint("key '%s', type '%d' \n", info.key, info.type);
        }
-    } */
+    } 
     else if (param.startsWith("maint"))
     {
       if (isdigit(value.c_str()[0]))
@@ -5205,7 +5292,7 @@ void doGenre(String param, String value)
           }
         }
       }
-    }
+    }*/
   }
   else
   {
@@ -5214,7 +5301,7 @@ void doGenre(String param, String value)
       playGenre(id);
     else
     {
-      doprint ("Error: Genre '%s' is not known. Run \"genre=--load %s\" to load it from RDBS first!", value.c_str()) ;
+      doprint ("Error: Genre '%s' is not known.", value.c_str()) ;
     }
   }
   // else   gnvsTaskList.push(new GnvsTask(value.c_str(), GNVS_TASK_OPEN));
@@ -5238,7 +5325,8 @@ void doGpreset(String param, String value)
       String s;
       sprintf(key, "%d_%d", genreId, ivalue);
       genrePreset = ivalue;
-      s = gnvsgetstr(key);
+      //s = gnvsgetstr(key);
+      s = genres.getUrl(genreId, ivalue);
       if (gverbose)
         doprint("Switch to GenreUrl: %s", s.c_str());
       if (s.length() > 0)
@@ -5253,7 +5341,7 @@ void doGpreset(String param, String value)
       else
       {
       if (gverbose)
-        doprint("BUMMER: url not in gnvs");
+        doprint("BUMMER: url not on file");
 
       }
     }
@@ -5288,8 +5376,11 @@ String urlDecode(String &SRC) {
     return (ret);
 }
 
+/*
 int createEmptyGenre(const char* name, const char* firstLink)
 {
+  //ToDo: Link-Liste anlegen!?
+  return genres.createGenre(name);
   gnvsopen();
   if (!gnvshandle)
     return 0;
@@ -5326,9 +5417,22 @@ int createEmptyGenre(const char* name, const char* firstLink)
   gnvssetstr (key, linkEntry);
   return idx;
 }
+*/
 
 bool canAddGenreToGenreId(String idStr, int genreId)
 {
+  String knownLinks = genres.getLinks(genreId);
+  if (knownLinks.length() == 0)
+  {
+    genres.addLinks(genreId, idStr.c_str());
+    return true;
+  }  
+  do {
+    if (idStr == getStringPart(knownLinks, ','))
+      return false;
+  } while (knownLinks.length() > 0);
+  genres.addLinks(genreId, idStr.c_str());
+  /*
   char key[30];
   sprintf(key, "%d_x", genreId);
   idStr.trim();
@@ -5344,13 +5448,14 @@ bool canAddGenreToGenreId(String idStr, int genreId)
   } while (knownLinks.length() > 0);
   gnvssetstr(key, gnvsgetstr(key) + ","+idStr);
   return true;
+*/
 }
 
 void httpHandleGenre ( String http_rqfile, String http_getcmd ) 
 {
 String sndstr = "";
   http_getcmd = urlDecode (http_getcmd) ;
-  doprint("Handle HTTP for %s with ?%s...", http_rqfile.c_str(), http_getcmd.substring(0,100).c_str());
+  //doprint("Handle HTTP for %s with ?%s...", http_rqfile.c_str(), http_getcmd.substring(0,100).c_str());
   if (http_rqfile == "genre.html")
   {
     sndstr = httpheader ( String ("text/html") );
@@ -5379,7 +5484,8 @@ String sndstr = "";
     doprint("Sending directory of loaded genres to client");
     sndstr = httpheader ( String ("text/json") ) ;
     cmdclient.println(sndstr);
-    dirGenre (&cmdclient, true) ;
+    //dirGenre (&cmdclient, true) ;
+    genres.lsJson(cmdclient);
     cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
   }
   else if (http_rqfile == "genre")
@@ -5401,10 +5507,11 @@ String sndstr = "";
     int decodedLength = Base64.decodedLength((char *)http_getcmd.c_str(), http_getcmd.length());
     char decodedString[decodedLength];
     Base64.decode(decodedString, (char *)http_getcmd.c_str(), http_getcmd.length());
-    Serial.print("Decoded string is:\t");
-    Serial.println(decodedString);    
-    
     http_getcmd = String(decodedString);
+    genres.dbgprint("Running HTTP-genreaction with: '%s'%s", 
+      http_getcmd.substring(0, 100).c_str(), (http_getcmd.length() > 100?"...":""));
+    //Serial.print("Decoded string is:\t");Serial.println(decodedString);    
+    
 
     String command = getStringPart(http_getcmd, '|');
     String genre, idStr;
@@ -5417,13 +5524,16 @@ String sndstr = "";
     }
     if (command.startsWith("link="))
     {
+      sndstr = "OK";
+#ifdef OLDOLD      
       String dummy = command.substring(5);
       idStr = getStringPart(dummy, ',');
       idStr.trim();
       bool addFlag = idStr.c_str()[0] == '+';
-      int genreId = searchGenre(genre.c_str());
-      if ((0 == genreId) || (genreId != idStr.toInt()))
-        sndstr =  String ( doprint("ERR: Could not load genre '%s' to get links...", genre.c_str()) ) + "\r\n\r\n";
+//      int genreId = searchGenre(genre.c_str());
+      int genreId = idStr.toInt();// searchGenre(genre.c_str());
+      if ((0 == genreId))// || (genreId != idStr.toInt()))
+        sndstr =  "Error: Could not load genre with id'" + genreId + "' to get links...";
       else
       {
         char key[30];
@@ -5440,25 +5550,34 @@ String sndstr = "";
         doprint("GNVS %s: %s", key, dummy.substring(0, 100).c_str());
         sndstr = "OK\r\n\r\n";
       }  
-
+#endif
     }
-    else if (command.startsWith("link") || command.startsWith("link64"))
+    else if (/*command.startsWith("link") || */command.startsWith("link64="))
     {
-      int genreId = searchGenre(genre.c_str());
+      String dummy = command.substring(7);
+      idStr = getStringPart(dummy, ',');
+      idStr.trim();
+      int genreId = idStr.toInt();
+      //int genreId = searchGenre(genre.c_str());
       if (0 == genreId)
-        sndstr =  String ( doprint("ERR: Could not load genre '%s' to get links...", genre.c_str()) ) + "\r\n\r\n";
+      {
+        sndstr =  "ERR: Could not load genre '" + genre + "' to get links...";
+      }
       else
       {
+        /*
         char key[30];
         sprintf(key, "%d_x", genreId);
-        sndstr = gnvsgetstr(key) + "\r\n\r\n";
+        sndstr = gnvsgetstr(key) + "\r\n\r\n"; */
+        sndstr = genres.getLinks(genreId);// + "\r\n\r\n";
+        //doprint("GenreLinkResult: %s", sndstr.c_str());
       }
       if (command.startsWith("link64"))
       {
         int encodedLength = Base64.encodedLength(sndstr.length() + 1);        
         char encodedString[encodedLength];
         Base64.encode(encodedString, (char *)sndstr.c_str(), sndstr.length());
-        sndstr = String(encodedString) + "\r\n\r\n";
+        sndstr = String(encodedString);// + "\r\n\r\n";
       }  
     }
     else if (command.startsWith("nvsgenres"))
@@ -5468,23 +5587,27 @@ String sndstr = "";
       int encodedLength = Base64.encodedLength(sndstr.length() + 1);        
       char encodedString[encodedLength];
       Base64.encode(encodedString, (char *)sndstr.c_str(), sndstr.length());
-      sndstr = String(encodedString) + "\r\n\r\n";
+      sndstr = String(encodedString);// + "\r\n\r\n";
     }
-    else if (command.startsWith("del=") || (command.startsWith("clr=")))
+    else if (command.startsWith("del=") /*|| (command.startsWith("clr="))*/)
     {
       String dummy = command.substring(4);
       idStr = getStringPart(dummy, ',');
       idStr.trim();
-      bool keepLinks = command.c_str() [0] == 'c' ;
+      bool deleteLinks = command.c_str() [0] == 'd' ;
       doprint("HTTP is about to delete genre '%s' with id %d", genre.c_str(), idStr.toInt());
-      doDelete(idStr.toInt(), genre, keepLinks, sndstr);
+      //doDelete(idStr.toInt(), genre, deleteLinks, sndstr);
+      genres.deleteGenre(idStr.toInt());
       //delay(2000);
-      doprint("Delete done, result is: %s", sndstr.c_str());
-      sndstr = "OK\r\n\r\n";
+      sndstr = "Delete done, result is:"  + sndstr;
+      genres.dbgprint(sndstr.c_str());
+      sndstr = "OK";//\r\n\r\n";
     }
     else if (command.startsWith("save=") || (command.startsWith("add=")))
     {
+      int genreId;
       bool isAdd = command.startsWith("add=");
+      bool isStart = false;
       const char *s;
       String dummy = command.substring(isAdd?4:5);
       idStr = getStringPart(dummy, ',');
@@ -5496,9 +5619,65 @@ String sndstr = "";
       s = strstr(command.c_str(), "idx=");
       if (s)
         idx = atoi(s + 4);
+      s = strstr(command.c_str(), "start=");
+      if (s)
+        isStart = atoi(s + 6);
+      if (isStart)
+      {
+        if (0 < (genreId = genres.findGenre(genre.c_str())))
+        {
+            if (isAdd) 
+            {
+              if (genres.count(genreId) == 0)
+              {
+                genres.createGenre(genre.c_str(), true);
+                genres.dbgprint("First deleting genre: '%s' (also deleting links=%d)", genre.c_str(), 1);
+              }
+            }
+            else
+            {
+              genres.dbgprint("First deleting genre: '%s' (also deleting links=%d)", genre.c_str(), idStr == "undefined");
+              genres.createGenre(genre.c_str(), idStr == "undefined");
+            }
+        }
+        else
+        {
+            genres.dbgprint("Creating empty genre: '%s'.", genre.c_str());
+            genres.createGenre(genre.c_str());
+        }
+      }
+      genreId = genres.findGenre(genre.c_str());
+      sndstr = "OK";//\r\n\r\n";
+      if (genreId)
+      {
+        bool fail = false;
+        if (isAdd && (idx == 0))                  // possibly a new subgenre to add to the main genre?
+          if (!isStart || (genre != idStr))       // special case: genre name is identical to first subgenre
+            if (!canAddGenreToGenreId(idStr, genreId))
+            {
+              sndstr = "Error: can not add genre " + idStr + " to genre " + genre ;
+              genres.dbgprint(sndstr.c_str());
+              //sndstr = sndstr + "\r\n\r\n";
+              fail = true;
+            }
+        if (!fail)
+        {
+          genres.dbgprint("Adding %d presets to genre '%s'.", count, genre.c_str());
+          genres.addChunk(genreId, http_getcmd.c_str(), '|');
+        }  
+      } // if genreId
+      else
+      {
+        sndstr = "Error: genre " + genre + " not found in Flash!";
+        genres.dbgprint(sndstr.c_str());
+        //sndstr = sndstr + "\r\n\r\n";
+      }
+#ifdef OLDOLDOLD        
       if ((idx >= 0) && (count > 0))
       {
         int genreId = searchGenre(genre.c_str());
+        if (isAdd && (genreId > 0) && (idx == 0))
+          genreId = 0;
         doprint("Add %d presets to genre '%s' starting at index %d.", count, genre.c_str(), idx);
         sndstr="OK\r\n\r\n";        
         if (idx == 0)
@@ -5507,7 +5686,7 @@ String sndstr = "";
           {
             if (!isAdd)
             {
-              sndstr = String(doprint("Genre '%s' is alread known. Use refresh to reload.", genre.c_str())) 
+              sndstr = String(doprint("Genre '%s' is already known. Use refresh to reload.", genre.c_str())) 
                 + "\r\n\r\n";
               genreId = 0;
             }
@@ -5528,12 +5707,14 @@ String sndstr = "";
           }
           else
           {
-            genreId = createEmptyGenre(genre.c_str(), isAdd?idStr.c_str():NULL);
+            genreId = createEmptyGenre(genre.c_str(), false);//isAdd?idStr.c_str():NULL);
             doprint("Creating empty genre for %s:%d", genre.c_str(), genreId);
           }
         }
         if (0 != genreId)
           {
+            genres.addChunk(genreId, http_getcmd.c_str(), '|');
+            /*
             int presets = gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets;
             for (int i = 0;i < count;i++,presets++)
             {
@@ -5545,6 +5726,8 @@ String sndstr = "";
             }
             gnvsTableCache.entry[(genreId - 1) % GENRE_TABLE_ENTRIES].presets = presets;
             writeGnvsTableCache();
+            */
+        
           }
         else if (sndstr.startsWith("OK"))
           {
@@ -5556,19 +5739,33 @@ String sndstr = "";
         doprint("Error: nothing to add to genre '%s' (idx==%d, count==%d)", genre.c_str(), idx, count);
         sndstr = "ER\r\n\r\n";
       }
+#endif
     }
     else
     {
       sndstr = "Unknown genre action '" + command + "'\r\n\r\n";
     }
+    if (sndstr.lastIndexOf("\r\n\r\n") < 0)
+      sndstr += "\r\n\r\n";
     if (sndstr.length() > 0) 
     {
-        doprint("CMDCLIENT>>%s", sndstr.c_str());
+        genres.dbgprint("CMDCLIENT>>%s", sndstr.substring(0,500).c_str());
         cmdclient.println(sndstr);
         cmdclient.flush();
-        delay(20);
+        //delay(20);
     }
-    nvs_commit(gnvshandle);
+    //nvs_commit(gnvshandle);
+  }
+  else if (http_rqfile == "genreformat")
+  {
+    sndstr = httpheader ( String ("text/text") );
+    cmdclient.println(sndstr);
+    if (genres.format())
+      cmdclient.println("OK: LITTLEFS formatted for genre info");
+    else
+      cmdclient.println("Error: could not format LITTLEFS for genre info.");
+    cmdclient.println();
+    cmdclient.println();
   }
   else
   {

@@ -18,43 +18,45 @@ void Genres::dbgprint ( const char* format, ... ) {
         va_end ( varArgs ) ;                                 // End of using parameters
         if ( DEBUG )                                         // DEBUG on?
         {
-            Serial.print ( "GENRE: " ) ;                           // Yes, print prefix
+            Serial.print ( "D: GENRE: " ) ;                           // Yes, print prefix
         }
+        else    
+            Serial.print ("GENRE: ");
         Serial.println ( sbuf ) ;                            // always print the info
         Serial.flush();
     }
  #endif
 }
 
+void Genres::verbose ( int mode ) {
+#if !defined(NOSERIAL)
+    _verbose = mode;
+ #endif
+}
+
+
 bool Genres::begin() {
     if (_begun)                 // Already open?
         return true;
     if (!LITTLEFS.begin())
     {
-        dbgprint("LITTLEFS Mount failed: try to format, that will take some time!");
-        if (!LITTLEFS.format())
+        if (!(_begun = this->format()))
         {
             dbgprint("LITTLEFS formatting failed! Can not play from genres!");
             return false;
         }
-        if (!LITTLEFS.begin())
-        {
-            dbgprint("LITTLEFS formatting was OK, but begin() failed! Can not play from genres!");            
-            return false;
-        }
     }
-    _begun = openGenreIndex();
+    else
+        _begun = openGenreIndex();
     return _begun;
 }       
 
 
 bool Genres::openGenreIndex() {
 bool res = LITTLEFS.exists("/genres");
-#if defined(BOARD_HAS_PSRAM)
     if (NULL != _psramList)
         free(_psramList);
     _psramList = NULL;
-#endif
     memset(_idx, 0, sizeof(_idx));
     _knownGenres = 0;
     if (!res)
@@ -70,12 +72,16 @@ bool res = LITTLEFS.exists("/genres");
         {
 #if defined(BOARD_HAS_PSRAM)
             _psramList = (uint8_t *)ps_malloc(idxFile.size());
+#else
+            if (ESP.getFreeHeap() > idxFile.size())
+                if (ESP.getFreeHeap() - idxFile.size() > 80000)
+                    _psramList = (uint8_t *)ps_malloc(idxFile.size());
+#endif            
             if (_psramList != NULL)
             {
                 idxFile.read(_psramList, idxFile.size());
                 idxFile.seek(0);
             }
-#endif            
             size_t i = 0;
             int idx = 0;
             while (i < idxFile.size() && (idx < MAX_GENRES))
@@ -113,18 +119,24 @@ String Genres::getName(int id)
         {   
             l = _psramList[idx];
             if (l < 256)
+            {
                 memcpy(genreName, _psramList + idx + 1, l);
+                genreName[l] =  0;
+            }
+//            dbgprint("Got name from PSRAMLIST: %s", genreName);
         }
         else
         {
             File file = LITTLEFS.open("/genres/list", "r");
             file.seek(idx);
             l = file.read();
-            if (l < 256)
+            if (l < 256) {
                 file.read((uint8_t *)genreName, l);
+                genreName[l] =  0;
+            }
+//            dbgprint("Got name from File: %s", genreName);
+            file.close();
         }
-        if (l < 256)
-            genreName[l] = 0;
     }
     return String(genreName);
 }
@@ -175,13 +187,13 @@ int len = strlen(s);
     return res;
 }
 
-int Genres::createGenre(const char *s)
+int Genres::createGenre(const char *s, bool deleteLinks)
 {
 int res = findGenre(s);
     if (res < 0)
         res = 0;
     else if (res > 0)
-        cleanGenre(res);
+        cleanGenre(res, deleteLinks);
     else if (_knownGenres < MAX_GENRES)
     {
         File idxFile = LITTLEFS.open("/genres/list", "a");
@@ -204,7 +216,7 @@ int res = findGenre(s);
             if (openGenreIndex())
             {
                 res = findGenre(s);
-                cleanGenre(res);
+                cleanGenre(res, true);
             }
         }
     }
@@ -214,9 +226,70 @@ int res = findGenre(s);
 }
 
 
+bool Genres::deleteGenre(int id)
+{
+bool ret = false;
+    if ((id > 0) && (id < MAX_GENRES))
+    {
+        char path[30];
+        sprintf(path, "/genres/%d/idx", id);
+        if (ret = LITTLEFS.exists(path))
+        {
+            LITTLEFS.remove(path);
+            sprintf(path, "/genres/%d/urls", id);
+            LITTLEFS.remove(path);
+            sprintf(path, "/genres/%d/links", id);
+            LITTLEFS.remove(path);
+        }
+    }
+    return ret;
+}
+
+
+bool Genres::addChunk(int id, const char *s, char delimiter) {
+bool res = false;
+    if ((id > 0) && (id <= _knownGenres) && (s != NULL))
+        if (*s)
+        {
+        File urlFile, idxFile;
+        char path[30];
+            sprintf(path, "/genres/%d/idx", id);
+            idxFile = LITTLEFS.open(path, "a");
+            sprintf(path, "/genres/%d/urls", id);
+            urlFile = LITTLEFS.open(path, "a");
+            if (idxFile && urlFile)
+            {
+                res = true;
+                size_t idx = urlFile.size();
+                while(s)
+                {
+                    char *s1 = strchr(s, delimiter);
+                    int l = s1?(s1 - s):strlen(s);
+                    if (l > 0)
+                    {
+                        idxFile.write((uint8_t *)&idx, 4);
+                        idx = idx + l + 1;
+                        urlFile.write((uint8_t *)s, l);
+                        urlFile.write(0);
+                    }
+                    if (s1)
+                        s = s1 + 1;
+                    else
+                        s = NULL;
+                }
+            }
+            idxFile.close();
+            urlFile.close();
+        }
+}   
+
+
 bool Genres::add(int id, const char *s) {
     bool res = true;
-    dbgprint("Request to add URL '%s' to Genre with id=%d", (s?s:"<NULL>"), id);
+    if ((id > 0) && (id <= _knownGenres))
+    {
+        dbgprint("Request to add URL '%s' to Genre with id=%d", (s?s:"<NULL>"), id);
+/*
     if (id != _addGenre)
     {
         dbgprint("First stopping add to genre %d", _addGenre);
@@ -227,7 +300,7 @@ bool Genres::add(int id, const char *s) {
             res = false;
         }
     }
-    if (res)
+*/  
         if (!s)
         {
             dbgprint("Can not add NULL-String!");
@@ -238,20 +311,33 @@ bool Genres::add(int id, const char *s) {
             dbgprint("Can not add empty URL-String!");
             res = false;
         }
-    if (!res)
-        return false;
-    char path[50];
-    sprintf(path, "/genres/%d/urls", _addGenre);
-    File urlFile = LITTLEFS.open(path, "a");
-    if (!urlFile)
-    {
-        dbgprint("Can not open file '%s' to append URL '%s'", path, s);
-        return false;
-    }
-    _addIdx = _addIdx + strlen(s) + 1;
-    urlFile.write((const uint8_t *)s, strlen(s) + 1);
-    urlFile.close();
-    _addCount++;
+        if (!res)
+            return false;
+        char path[50];
+        sprintf(path, "/genres/%d/urls", id);
+        File urlFile = LITTLEFS.open(path, "a");
+        File idxFile;
+        if (!urlFile)
+        {
+            dbgprint("Can not open file '%s' to append URL '%s'", path, s);
+            return false;
+        }
+        sprintf(path, "/genres/%d/idx", id);
+        idxFile = LITTLEFS.open(path, "a");
+        if (!idxFile)
+        {
+            dbgprint("Can not open index-file '%s'.", path);
+            urlFile.close();
+            return false;
+        }
+        size_t idx = urlFile.size();
+//    _addIdx = _addIdx + strlen(s) + 1;
+        urlFile.write((const uint8_t *)s, strlen(s) + 1);
+        urlFile.close();
+        idxFile.write((uint8_t *)&idx, sizeof(idx));
+        idxFile.close();
+//    _addCount++;
+/*
     if ((_addCount % URL_CHUNKSIZE) == 0)
     {
         File idxFile;
@@ -261,10 +347,12 @@ bool Genres::add(int id, const char *s) {
         idxFile.write((const uint8_t *)&_addIdx, sizeof(_addIdx));
         idxFile.close();
         _addCount = 0;
+*/  
     }
     return true;
 }
 
+/*
 void Genres::stopAdd() {
     if (_addGenre)
     {
@@ -281,6 +369,8 @@ void Genres::stopAdd() {
         _addGenre = 0;
     }
 }
+*/
+
 
 void Genres::ls() {
     listDir("/genres");    
@@ -290,6 +380,8 @@ void Genres::test() {
     doprint("Genre Filesystem total bytes: %ld, used bytes: %ld (free=%ld)",
         LITTLEFS.totalBytes(), LITTLEFS.usedBytes(), LITTLEFS.totalBytes() - LITTLEFS.usedBytes());
 }
+
+
 
 void Genres::listDir(const char * dirname){
     doprint("Listing directory: %s", dirname);
@@ -316,7 +408,7 @@ void Genres::listDir(const char * dirname){
                 s = s + 8;
             else
                 s = "0";
-            doprint("  DIR : %s (GenreName[%s]: %s)", file.name(), s, getName(atoi(s)));
+            doprint("  DIR : %s (GenreName[%s]: %s)", file.name(), s, getName(atoi(s)).c_str());
             listDir(file.name());    
         } 
         else 
@@ -325,9 +417,33 @@ void Genres::listDir(const char * dirname){
         }
         file = root.openNextFile();
     }
-    doprint("Done listing directory: %s", dirname);
+    //doprint("Done listing directory: %s", dirname);
 }
 
+void Genres::lsJson(Print& client, bool full)
+{
+    client.print("[");
+    for(int id=1, total=0;id <= _knownGenres;id++)
+    {
+        char path[30];
+        sprintf(path, "/genres/%d/idx", id);
+        if (LITTLEFS.exists(path))
+        {
+            if (total++)
+                client.print(',');
+            client.println();
+            client.printf("{\"id\": %d, \"name\":\"%s\", \"mode\": \"<valid>\"", id, getName(id).c_str());
+            if (full)
+            {
+                uint16_t numUrls = count(id);
+                client.printf(", \"presets\": %d", numUrls);
+            }
+            client.print('}');
+        }
+    }
+    client.println();
+    client.println("]");
+}
 
 uint16_t Genres::count(int id) {
 uint32_t res = 0;
@@ -339,6 +455,8 @@ uint32_t res = 0;
         if (file)
         {
             size_t fSize = file.size();
+            res = fSize / 4;
+            /*
             res = ((fSize - 4) / 5 ) * URL_CHUNKSIZE;
             if (id == _addGenre)
             {
@@ -358,6 +476,7 @@ uint32_t res = 0;
                 }
                 else
                     res = 0;
+            */
             file.close();
         }
     }
@@ -380,20 +499,19 @@ String res = "";
         fileUrls = LITTLEFS.open(fileNameUrls, "r");
         if (fileIdx && fileUrls)
         {
-            size_t seekPosition = (number / URL_CHUNKSIZE) * 5;
+            size_t seekPosition = number * 4;
             size_t chunkStart;
             size_t chunkSize;
             fileIdx.seek(seekPosition);
             fileIdx.read((uint8_t *)&chunkStart, 4);
-            if (seekPosition + 5 < fileIdx.size())
+            if (seekPosition + 4 < fileIdx.size())
             {
-                fileIdx.seek(seekPosition + 5);
                 fileIdx.read((uint8_t *)&chunkSize, 4);
             }
             else
                 chunkSize = fileUrls.size();
             // chunkSize now contains the start index of next chunk, make it chunkSize with next expression
-            number = number % URL_CHUNKSIZE;
+            //number = number % URL_CHUNKSIZE;
             chunkSize = chunkSize - chunkStart;
             dbgprint("Ready to locate url in file, chunkStart=%ld, chunkSize=%ld, idx=%d", chunkStart, chunkSize, number);
             char *s = (char *)malloc(chunkSize);
@@ -401,13 +519,15 @@ String res = "";
             {
                 fileUrls.seek(chunkStart);
                 fileUrls.read((uint8_t *)s, chunkSize);
+/*
                 char *p = s;
                 while (number)
                 {
                     number--;
                     p = p + strlen(p) + 1;
                 }
-                res = String(p);
+*/
+                res = String(s);
                 free(s);
             }
         }
@@ -417,6 +537,7 @@ String res = "";
     return res;
 }
 
+/*
 bool Genres::startAdd(int id) {
 bool res = false;
     if ((id > 0) && (id <= _knownGenres))
@@ -467,40 +588,66 @@ bool res = false;
         }
         else 
             dbgprint("Error: could not start adding to genre with id: %d. Filesystem corrupt!?", id);    
-/*        
-        sprintf(path, "/genres/%d", _addGenre);
-        sprintf(fileName, "%s/idx", path);
-        if (!LITTLEFS.mkdir(path))
-        {
-            dbgprint("Could not create directory '%s'", path);
-            return false;
-        }
-        File idxFile = LITTLEFS.open(fileName, "w");
-        dbgprint("Creating index file '%s'=%d", fileName, (bool)idxFile);
-        if (idxFile)
-        {
-            idxFile.write((const uint8_t *)&_addIdx, sizeof(_addIdx));
-            idxFile.close();
-            if (_verbose)
-            {
-                idxFile = LITTLEFS.open(fileName, "r");
-                dbgprint("Created idxFile with first index entry(0), size is: %d", idxFile.size());
-                idxFile.close();
-            }
-            sprintf(fileName, "%s/urls", path);
-            File urlFile = LITTLEFS.open(fileName, "w");
-            dbgprint("Creating url file '%s'=%d", fileName, (bool)urlFile);
-            if (res = urlFile)
-                urlFile.close();
-        }
-*/
     }
     if (!res)
         _addGenre = 0;
     return res;
 }
+*/
 
-void Genres::cleanGenre(int id)
+void Genres::cleanLinks(int id){
+    if (_begun && (id > 0) && (id <=_knownGenres))
+    {
+        char path[30];
+        File linkFile;
+        sprintf(path, "/genres/%d/links", id);
+        linkFile = LITTLEFS.open(path, "w");
+        if (linkFile)
+            linkFile.close();
+    }
+}
+
+void Genres::addLinks(int id, const char* moreLinks){
+    if (_begun && (id > 0) && (id <=_knownGenres) && (strlen(moreLinks)))
+    {
+        char path[30];
+        File linkFile;
+        sprintf(path, "/genres/%d/links", id);
+        linkFile = LITTLEFS.open(path, "a");
+        if (linkFile)
+        {
+            dbgprint("Add link to genre[%d]=%s (len=%d) (filesize so far: %ld", 
+                    id, moreLinks, strlen(moreLinks), linkFile.size());
+            if (linkFile.size() > 0)
+                linkFile.write(',');
+            linkFile.write((uint8_t *)moreLinks, strlen(moreLinks));
+            linkFile.close();
+        }
+    }
+}
+
+String Genres::getLinks(int id) {
+String ret ="";
+    if (_begun && (id > 0) && (id <=_knownGenres))
+    {
+        char path[30];
+        File linkFile;
+        sprintf(path, "/genres/%d/links", id);
+        linkFile = LITTLEFS.open(path, "r");
+        if (linkFile)
+        {
+            char s[linkFile.size() + 1];
+            linkFile.read((uint8_t *)s, linkFile.size());
+            s[linkFile.size()] = 0;
+            linkFile.close();
+            ret = String(s);
+            dbgprint("Returning links for genre[%d]=%s", id, ret.c_str());
+        }
+    }
+    return ret;
+}
+
+void Genres::cleanGenre(int id, bool deleteLinks)
 {
     if (_begun)
     {
@@ -526,7 +673,8 @@ void Genres::cleanGenre(int id)
             {
                 char *s = strdup(file.name());
                 file = root.openNextFile();
-                dbgprint("Removing '%s'=%d", s, LITTLEFS.remove(s));
+                if (deleteLinks || (strstr(s, "links") == NULL))
+                    dbgprint("Removing '%s'=%d", s, LITTLEFS.remove(s));
                 free(s);
             }        
             //dbgprint("Removing directory '%s'=%d", s0, LITTLEFS.rmdir(s0));
@@ -540,9 +688,9 @@ void Genres::cleanGenre(int id)
             File file = LITTLEFS.open(s, "w");
             if (file)
             {
-                uint8_t buf[5];
-                memset(buf, 0, 5);
-                file.write(buf, 5);
+//                uint8_t buf[5];
+//                memset(buf, 0, 5);
+//                file.write(buf, 5);
                 file.close();
             }
             sprintf(s, "%s/urls", s0);
@@ -563,11 +711,12 @@ void Genres::cleanGenre(int id)
         dbgprint("LITTLEFS is not mounted (for deleting genre with id: %d", id);
 }
 
-void Genres::format()
+bool Genres::format()
 {
-    if (_begun)
-    {
-        LITTLEFS.format();
-        ESP.restart();
-    }
+bool ret = false;
+        dbgprint("Formatting LITTLEFS for genre, that might take some time!");
+        if (LITTLEFS.format())
+            if (LITTLEFS.begin())
+                _begun = ret = openGenreIndex();
+    return ret;
 }

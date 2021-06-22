@@ -534,7 +534,94 @@ volume = 85
 #
 wifi_00 = SSID/passwd
 )=====" ;
-#elif defined(ARDUINO_LOLIN32)                              // for #elif defined(OMARADIO)
+#elif defined (DEVKIT4MB)                                   // for #elif defined(OMARADIO)
+R"=====(
+$channels = 1,2,10,11,12,13,14,15,16
+::setup1 = in.tspkr= src=t3,map=(0..300=0)(=1),start,on1click={channel=any},onlong={if(?)={call=:volchange}{calc.voldir(.voldir^1)}}
+::setup2 = channels=@$channels;channel=1;volume=85;.voldir=1
+::setup3 = in.tspkr = t-click=0,t-repeat=200
+::setup4 = in.tcase = src=t3,map=(420..470=0)(=1),start,onlong={if(?)={genre=--stop;preset=0;channel=1,volume=85}},on2long={if(?)={genre=jazz}},t-click=2000,t-long=2000,t-repeat=50000
+#
+:volchange = if(.voldir)={call=:voldown}{call=:volup}
+:voldown = if(~volume > 90)={downvolume = 1;return};if(~volume > 60)={downvolume = 2}{volume = 60}
+:volup = if(~volume <= 90)={upvolume = 2}{upvolume=1}
+#
+mqttbroker = hcuc9yjisphkpbzs.myfritz.net
+mqttpasswd = 
+mqttport = 1883
+mqttprefix = opa/radio/oma
+mqttuser = opa
+#
+pin-ir_rc5 = -1       # GPIO Pin for IR receiver (RC5 only)
+pin_ir = -1    # GPIO Pin for IR receiver
+pin_reset = 25
+pin_sd_cs = -1        # GPIO Pin number for SD card "CS"
+pin_spi_miso = 12
+pin_spi_mosi = 14
+pin_spi_sck = 27
+pin_vs_cs = 26         # GPIO Pin number for VS1053 "CS"
+pin_vs_dcs = 33       # GPIO Pin number for VS1053 "DCS" (war 32)
+pin_vs_dreq = 32       # GPIO Pin number for VS1053 "DREQ"
+#
+preset = 0
+preset_00 = metafiles.gl-systemhaus.de/hr/hr1_2.m3u  #   HR1
+preset_01 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
+preset_02 = st02.dlf.de/dlf/02/128/mp3/stream.mp3 #  Deutschlandradio
+preset_03 = direct.fipradio.fr/live/fip-webradio4.mp3 #  FIP Latin
+preset_04 = avw.mdr.de/streams/284310-0_mp3_high.m3u #  MDR Kultur
+preset_05 = www.ndr.de/resources/metadaten/audio/m3u/ndr1niedersachsen.m3u #  NDR1 Niedersachsen
+preset_06 = mp3channels.webradio.antenne.de/80er-kulthits # Antenne Bayern 80er
+preset_07 = stream.radioparadise.com/mp3-192         #   Radio Paradise
+preset_10 = www.ndr.de/resources/metadaten/audio/m3u/ndrinfo.m3u #  NDR Info
+preset_11 = br-brklassik-live.cast.addradio.de/br/brklassik/live/mp3/mid  #   BR Klassik
+preset_12 = avw.mdr.de/streams/284350-0_aac_high.m3u #  MDR Klassik
+preset_13 = www.ndr.de/resources/metadaten/audio/m3u/ndrkultur.m3u  #  NDR Kultur
+preset_14 = www.ndr.de/resources/metadaten/audio/aac/ndrblue.m3u # NDR Blue
+preset_15 = direct.fipradio.fr/live/fip-midfi.mp3    #   FIP
+preset_16 = live.helsinki.at:8088/live160.ogg # Radio Helsinki (Graz)
+preset_17 = 92.27.224.83:8000/ # Legacy 90.1
+preset_18 = sc-60s.1.fm:8015 # 20 - 1fm 50s/60s
+preset_19 = mp3stream1.apasf.apa.at:8000/ # ORF FM4
+preset_199 = st01.dlf.de/dlf/01/128/mp3/stream.mp3 #  Deutschlandfunk
+preset_20 = streams.harmonyfm.de/harmonyfm/mp3/hqlivestream.m3u # Harmony FM
+preset_21 = www.memoryradio.de:4000/                 #   Memoryradio 1
+preset_22 = www.memoryradio.de:5000/                 #   Memoryradio 2
+preset_23 = streamplus25.leonex.de:26116 # Radio Okerwelle
+preset_24 = live.radioart.com/fCello_works.mp3       #   Cello Works
+preset_25 = player.ffn.de/ffn.mp3 # Radio ffn
+preset_26 = www.ndr.de/resources/metadaten/audio/aac/ndr2.m3u # NDR 2
+preset_27 = sc2b-sjc.1.fm:10020                      #  1fm Samba Brasil
+preset_28 = rs27.stream24.net/radio38.mp3 # Radio 38
+preset_29 = stream.radio21.de/radio21_wolfsburg.mp3 # Radio 21
+preset_30 = stream.rockland-digital.de/rockland/mp3-128/liveradio/ # Rockland Magdeburg
+preset_31 = stream.saw-musikwelt.de/saw/mp3-128/listenliveeu/stream.m3u # Radio SAW
+preset_32 = stream.saw-musikwelt.de/saw-deutsch/mp3-128/listenliveeu/stream.m3u # Radio SAW Deutsch
+preset_33 = stream.saw-musikwelt.de/saw-rock/mp3-128/listenliveeu/stream.m3u # Radio SAW Rock
+preset_34 = stream.saw-musikwelt.de/saw-80er/mp3-128/listenliveeu/stream.m3u # Radio SAW 80er
+preset_35 = 1a-entspannt.radionetz.de:8000/1a-entspannt.mp3      #   Entspannt
+preset_36 = streams.rsa-sachsen.de/rsa-ostrock/aac-64/listenlive/play.m3u # OstRock
+preset_37 = stream.sunshine-live.de/live/aac-64/listenlive/play.m3u # Sunshine live
+preset_38 = www.listenlive.eu/streams/uk/jazzfm.m3u # Jazz FM
+preset_39 = broadcast.infomaniak.ch/jazzradio-high.mp3 # Jazz Radio Premium
+preset_40 = www.fro.at:8008/fro-128.ogg # Radio FRO
+preset_41 = fc.macjingle.net:8200/ # Radio Technikum
+preset_42 = 205.164.62.15:10032                      #   1.FM - GAIA, 64k
+preset_43 = cast1.citrus3.com:8866                   #   Irish Radio
+preset_44 = stream1.virtualisan.net/6140/live.mp3    #   Folkradio.HU
+preset_45 = relay.publicdomainproject.org:80/jazz_swing.mp3 #  Swissradio Jazz & Swing
+preset_46 = 212.77.178.166:80                        #  Radio Heimatmelodie
+preset_47 = stream.srg-ssr.ch/m/drsmw/mp3_128        #   SRF Musikwelle
+#
+toneha = 4
+tonehf = 3
+tonela = 2
+tonelf = 12
+#
+volume = 85
+#
+wifi_00 = SSID/passwd
+)=====" ;
+#elif defined(ARDUINO_LOLIN32)                              // for #elif defined(DEVKIT4MB)
 R"=====(
 $$genres = brazilian music, 80s, oldies, japanese, eclectic, world music, classical, jazz, disco          
 ::setup1 = #in.tspkr= src=t3,map=(0..300=0)(=1),start,on0={channel=any}
