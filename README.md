@@ -307,7 +307,11 @@ Once you have one radio up and running with the playlists to your liking, you ca
 ### Using genre playlists
 A playlist can be selected by the command interface by using the command
 _genre=Rock_
-to play one genre. If that genre exists (as a cluster in this example, but could also be a native genre name from a direct download). 
+to play one genre playlist. If that genre exists (as a cluster in this example, but could also be a native genre name from a direct download). 
+**Remeber that genre playlist names are case sensitive.** Genres loaded from database direct will always have 
+lowercase letters only, while cluster names start with an uppercase letter (followed by only lowercase letters).
+So, _Rock_ is a valid name for a cluster, _rock_ is a valid name for a genre tag from the internet radio database,
+but constucts like _ROCK_ or _rOcK_ are invalid. When in doubt, copy the name from the web API.
 
 If that genre exists, the radio will start to play a random station from that genre. If the same command is issued again (with the same name), another (random) station from that genre will play.
 
