@@ -22,7 +22,7 @@ String GenreConfig::asJson() {
 
 void Genres::dbgprint ( const char* format, ... ) {
 #if !defined(NOSERIAL)
-    if (_verbose)
+    if (config.verbose())
     {
         static char sbuf[2 * DEBUG_BUFFER_SIZE] ;                // For debug lines
         va_list varArgs ;                                    // For variable number of params
@@ -42,12 +42,13 @@ void Genres::dbgprint ( const char* format, ... ) {
  #endif
 }
 
+/*
 void Genres::verbose ( int mode ) {
 #if !defined(NOSERIAL)
     _verbose = mode;
  #endif
 }
-
+*/
 
 bool Genres::begin() {
     if (_begun)                 // Already open?

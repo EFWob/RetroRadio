@@ -4,6 +4,10 @@ This project is based on the ESP32-Radio by Edzelf.
 
 This project extends the capabilities of the ESP32-Radio, so you will need to familiarise with this project first.
 
+The current state is WorkInProgress. This README is up to date, but the source code documentation is not. Some
+refactoring is needed, and also some rework. The plan is however, to keep the functionality described here as is.  
+I also try to commit only working versions to the master branch.
+
 The project called Retroradio, because the basic idea was to use an existing "retro radio" as 
 amplifier and front-end for the ESP32-radio.
 
@@ -12,6 +16,7 @@ These type of radio usally have:
   - a switch for selecting AM/FM/AUX
   - a volume knob (variable resistor)
   - a tuning knob (variable capacitor) 
+
   
 In the original version that type of inputs and outputs are not supported directly. This
 project now supports:
@@ -39,7 +44,7 @@ and use your standard preference settings as before you should notice no differe
 There are also some enhancements which are not necessarily associated with the extended input capabilities. Those are found
 in the section Generic enhancements below.
 
-## Generic considerations for migration
+## Considerations for migration
 
 If you have the ESP32 radio installed and preferences set up, so it is up and running, the RetroRadio software should run out of the box
 with a few things to notice:
@@ -50,6 +55,23 @@ with a few things to notice:
   you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
   out of NVS-space.
 - for 4MB (standard) flash sizes I use the partion-table _radio4MB_default.csv_ that can be found at the _/etc_ folder in this repository. This layout is not compatible to the _default_ partition, notably for the NVS section. That means you must reload the default preferences (and edit the wifi credentials) if you flash using this partition table.
+- Currently it is tested in platformio-environment only. The platformio.ini file has already some entries. Mainly to maintain different radios (with differen MCUs and pinouts). For starters, you can try the environment _plain devkit_, which uses the default partition table and thus should keep your NVS-settings.
+
+# Generic additions
+## Summary
+Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section [Extended
+Input Handling](#extended-input-handling) if you are not interested to use the following features for now:
+ - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
+ - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
+ - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
+ - Radio can now play from [genre playlists](#genre-playlist) that can be downloaded from a internet radio database server.
+ - [IR remote handling](#added-support-for-longpress-and-release-on-ir-remotes) has been extended to recognise longpress and release events
+ - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
+	  can execute not only a single command, but command sequences also. A command sequence is a list of commands
+	  separated by _;_
+ - when a value for a command is evaluated, you can dereference to a RAM/NVS entry by _@key_. Simple 
+	  example: if the command _volume = @def_volume_ is encountered, then RAM/NVS are searched for key _def_volume_ 
+	  which will be used as paramter (if not found, will be substituted by empty string)
 
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
@@ -106,23 +128,6 @@ This is called frequently (directly from main _loop()_ of the program). Activiti
 For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be used in addition.
 
 More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
-
-
-
-# Generic additions
-## Summary
-Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section [Extended
-Input Handling](#extended-input-handling) if you are not interested to use the following features for now:
- - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
- - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
- - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
- - [IR remote handling](#added-support-for-longpress-and-release-on-ir-remotes) has been extended to recognise longpress and release events
- - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
-	  can execute not only a single command, but command sequences also. A command sequence is a list of commands
-	  separated by _;_
- - when a value for a command is evaluated, you can dereference to a RAM/NVS entry by _@key_. Simple 
-	  example: if the command _volume = @def_volume_ is encountered, then RAM/NVS are searched for key _def_volume_ 
-	  which will be used as paramter (if not found, will be substituted by empty string)
  
 
 ## Ethernet support
@@ -133,6 +138,8 @@ I have not tested it for any other hardware configurations, but it should work w
 on the native ethernet implementation of the Esp32 chip. 
 
 **USE AT YOUR OWN RISK!**
+
+Note that the initial setup (of the preferences) must be done through the access point as usual. Please do not connect the ethernet to the LAN as then the access point will not show and you cannot run the initial configuration.
 
 ### Compile time settings for Ethernet
 There is a define in ***addRR.h*** that reads `#define ETHERNET 2`
@@ -283,11 +290,61 @@ If you click on a genre name on the left side in this list, the radio will play 
 (If you press again, another random station from that list will be played).
 That is currently the only way to play from a genre using the web-interface.
 
+Some details:
+Each genre name (either if coming direct from the database or a user defined clustername) must be unique. From the database that is guaranteed. The API does not allow to download the same genre twice. Clusternames are different 
+from loaded genre names because they always start with an uppercase letter. You can use the same cluster name again in further database requests to add more genres into it. You cannot add the same genre twice to the same cluster, but you can add the same genre to more than one cluster.
+You cannot edit the resulting playlist any further. You can not add single station URLs "by hand", you can not delete a genre from a cluster. You can only delete the full cluster (or a whole genre).
+
+With the default partition the file system is big enough to support (estimate) between 10,000 and 12,000 stations in total. (With the radio4MB_default partition it is still somewhat in between 8,000 and 10,000). For instance the radio that I just use for debugging has a total of 3182 stations stored which consumes 360,448 of 1,114,112 bytes of the flash file system leaving more than 66 per cent free for further playlists.
+
+
 The interface can hande extended unicode characters. The only thing thats not working currently is if the genre name of the database contains the '/'-character. That I have seen on one genre so far and already forgotten again what it was, so it is currently no priority...
 
 ![Web API for genre](pics/genreunicode.jpg?raw=true "Unicode is fine")
 
+Once you have one radio up and running with the playlists to your liking, you can simply transfer that settings to a new radio by opening http://NEWRADIO-IP/genre.html and entering the OLDRADIO-IP in the input field in the middle section and press the button Synchronize. If that connection was successfull, a dialog will pop up to verify you really want to transfer the settings. If you press OK you can just wait to see the magic unfold.
 
+### Using genre playlists
+A playlist can be selected by the command interface by using the command
+_genre=Rock_
+to play one genre. If that genre exists (as a cluster in this example, but could also be a native genre name from a direct download). 
+
+If that genre exists, the radio will start to play a random station from that genre. If the same command is issued again (with the same name), another (random) station from that genre will play.
+
+You can switch to a station direct using the command 
+_gpreset=number_  
+where Number can be any number. If this number (lets call it n) is between 0 and 'number of stations in that genre' - 1, the n-th entry of that list is selected. N can also be greater than the number of stations (or even below zero), modulo function is used in that case to map n always between 0 and 'number of stations in that genre' - 1.
+
+If no genre has been set by the _genre=XXXX_ command above, _gpreset=n_ has no effect.
+
+So selecting a station is still "fishing in the dark", but it is at least reproducible (if you find that favorite station of yours at index 4711).
+
+If you issue command _genre=Anothername_ with another genre name, the radio will switch to that genre.
+
+If you issue command with no name (empty), the genre playmode will be stopped. The current station will continue to
+play (until another preset or channel is selected). _gpreset=n_ however will have no effect. You can also issue the command _genre_ with parameter _genre=--stop_ to achieve that.
+
+You can also switch stations within a genre using the _channel_ command from above. To do so, a channel-list must be defined.
+The preset-numbers assigned to the channel entries are ignored, just the size of the channel list is important.
+In the channel example above we defined a channel list with 9 channels. If you switch to genre-playmode, that channel
+list can be used to change stations within that genre by the following algorithm:
+- each channel has a random number between 0 and 'number of channels in that genre' assigned.
+- one of the channel entries is the current channel (the one last selected by _channel=n_)
+- the distance between two channel stations is the same for all neighbors (and wrapped around between channel 9 and 1) in our example. So if in our case we would have a genre list with 90 stations, the distance between two channels would be 10.
+- example list in that case could be Channel 1: 72, Channel 2: 82, Channel 3: 2, Channel 4: 12 .... Channel 9: 62
+- that assignment stays stable until:
+  - a new random station is forced by the command _genre = Xxxxxx_, this will result in a completely different list.
+  - a new station is forced by the command _gpreset = n_
+  - the command _channe=up_ is issued. The numbers associated to the channels are increased by one (as well as the currently playing station from the genre will be switched to next in list)
+  - the command _channel=down_ is issued. The numbers in the channellist are decreased by 1 (also for the current station)
+  - the command _channel=any_ is issued. This will result in playing another (random) station and will also result in
+    a completely different list.
+
+
+Some fine detail (ToDo): if the radio stream stalls, the radio has a fallback strategy to switch to another preset. If that happens when playing from a genre playlist, the radio would fall back to a preset from the preset list in preferences.
+You will notice that in genre playlist mode this can happen (for remote stations with a bad connection). In a next step, this fallback needs to be recoded to use another station from the current genre playlist. If you want to avoid the fallback to a preset from NVS, use the command _preset=--stop_. This will block fallback to a station from presets until a station from presets is requested (for instance by _preset=n_  or _channel=m_ if genre play mode has stopped).
+
+When in genre play mode, you can still issue a _preset=n_ command and the radio will play the according preset from the preferences. However, genre playlist mode will not be stopped: the command _gpreset=n_ as well as _channel=m_ (if channellist is defined) will still operate on the current genre playlist.
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)

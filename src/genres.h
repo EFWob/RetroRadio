@@ -13,11 +13,14 @@ class GenreConfig {
         void noNames(bool noNames) {_noNames = noNames;};
         void showId(bool showId) {_showId = showId;};
         void rdbs(const char* s) {if (_rdbs) free(_rdbs);_rdbs = NULL; if (s) _rdbs = strdup(s);};
+        void verbose(bool mode) { _verbose = mode;};
+        bool verbose() { return _verbose;};
         String asJson();
     protected:
         char *_rdbs = NULL;
         bool _noNames = false;
         bool _showId = false;
+        bool _verbose = true;
 };
 
 class Genres {
@@ -39,7 +42,7 @@ class Genres {
         void lsJson(Print& client, uint8_t lsmode = LSMODE_DEFAULT);
         void test();
         void dbgprint ( const char* format, ... );
-        void verbose ( int mode);
+        //void verbose ( int mode);
         GenreConfig config;
     protected:
         bool _begun = false;
@@ -53,7 +56,7 @@ class Genres {
 //        bool startAdd(int id);
         void listDir(const char* dirname);
         uint8_t *_psramList = NULL;
-        bool _verbose = true;
+//        bool _verbose = true;
 //        uint16_t _addCount = 0;
 //        size_t _addIdx = 0;
 //        int _addGenre = 0;

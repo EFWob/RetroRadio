@@ -5160,7 +5160,7 @@ void doGenre(String param, String value)
     else if (param.startsWith("verb"))
     {
       if (isdigit(value.c_str()[0]))
-        genres.verbose(value.toInt());//gverbose = value.toInt();
+        genres.config.verbose(value.toInt());//gverbose = value.toInt();
       genres.dbgprint("is in verbose-mode.");
     }
     else if (param == "stop")
