@@ -12,6 +12,12 @@ h1 {
    font-size: 150%
 }
 
+h3 {
+   color: navy;
+   margin-left: 20px;
+   font-size: 110%
+}
+
 ul {
    list-style-type: none;
    margin: 0;

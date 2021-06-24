@@ -107,7 +107,7 @@ class RetroRadioInput {
 
 
 void doGenre ( String param, String value );
-void doGpreset ( String param, String value );
+void doGpreset ( String value );
 //void gnvsLoop ();
 //void        gnvsopen   ( ) ;
 //esp_err_t   gnvsclear  ( ) ;
@@ -2811,6 +2811,8 @@ void doChannels(String value) {
   channelList.clear();
   currentChannel = 0;
   value.trim();
+  if (value == "0")
+    value = "";
   if (value.length() > 0)
     readDataList(channelList, value);
   numChannels = channelList.size();
@@ -3819,7 +3821,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if ( ret = (param == "gpreset")  ) 
   {
-    doGpreset ( param, value );
+    doGpreset ( value );
   }
 
   else if (ret = param.startsWith("ifnot")) 
@@ -3881,7 +3883,14 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
 //    else
 //      doRam ( ".return", value );
   }
-  else if ((param == "preset") && (value.toInt() == -1))
+/*
+  else if ((param == "preset") && (genreId > 0))
+  {
+    doGpreset(value);
+    ret = true;
+  }
+*/
+  else if ((param == "preset") && ((value == "--stop") || (value.toInt() == -1)))
   {
     currentpreset = ini_block.newpreset = -1;
     ret = true;
@@ -5146,7 +5155,7 @@ void doGenre(String param, String value)
     }
     else if (param == "preset")
     {    
-      doGpreset ( param, value );
+      doGpreset ( value );
     }
     else if (param.startsWith("verb"))
     {
@@ -5296,12 +5305,19 @@ void doGenre(String param, String value)
   }
   else
   {
-    int id = searchGenre(value.c_str());
-    if (id)
-      playGenre(id);
+    if (value.length() == 0) 
+    {
+      doGenre("genre", "--stop");
+    }
     else
     {
-      doprint ("Error: Genre '%s' is not known.", value.c_str()) ;
+      int id = searchGenre(value.c_str());
+      if (id)
+        playGenre(id);
+      else
+      {
+        doprint ("Error: Genre '%s' is not known.", value.c_str()) ;
+      }
     }
   }
   // else   gnvsTaskList.push(new GnvsTask(value.c_str(), GNVS_TASK_OPEN));
@@ -5309,7 +5325,7 @@ void doGenre(String param, String value)
 
 }
 
-void doGpreset(String param, String value)
+void doGpreset(String value)
 {
   int ivalue = value.toInt();
   if (genreId != 0) 
@@ -5322,13 +5338,28 @@ void doGpreset(String param, String value)
     if (ivalue < genrePresets) 
     {
       char key[20];
-      String s;
+      String s, s1;
+      int idx;
       sprintf(key, "%d_%d", genreId, ivalue);
       genrePreset = ivalue;
       //s = gnvsgetstr(key);
-      s = genres.getUrl(genreId, ivalue);
-      if (gverbose)
-        doprint("Switch to GenreUrl: %s", s.c_str());
+      s = genres.getUrl(genreId, ivalue, false);
+      idx = s.indexOf('#');
+      if (idx >= 0)
+      {
+        s1 = s.substring(idx + 1);
+        s = s.substring(0, idx);
+      }
+      if (gverbose) 
+      {
+        if (idx >= 0)
+        {
+          doprint("Switch to GenreUrl: '%s', Station name is: '%s'", s.c_str(), s1.c_str());
+        }
+        else
+          doprint("Switch to GenreUrl: '%s', Station name is not on file!", s.c_str());
+
+      }
       if (s.length() > 0)
       {
         char cmd[s.length() + 10];
@@ -5355,7 +5386,6 @@ void doGpreset(String param, String value)
   {
     dbgprint("BUMMER: genrePreset is called but no genre is selected!");
   }
-
 }
 
 String urlDecode(String &SRC) {
@@ -5451,6 +5481,51 @@ bool canAddGenreToGenreId(String idStr, int genreId)
 */
 }
 
+
+
+#define BASE64PRINTER_BUFSIZE       1500        // multiple of 3!!!!
+
+class Base64Printer: public Print {
+public:  
+  Base64Printer(Print& myPrinter) : _myPrinter(myPrinter), _step(0) {
+  };
+
+  ~Base64Printer() {
+    done();
+  }
+
+  void done() {
+    if (_step !=0 )
+    {
+      size_t l = Base64.encodedLength(_step);
+      uint8_t encodedString[l];
+      Base64.encode((char *)encodedString, (char *)_buf, _step);
+      _myPrinter.write(encodedString, l);
+      _step=0;
+    }
+  };
+
+  size_t write(uint8_t byte) {
+    //Serial.write(byte);
+    _buf[_step++] = byte;
+    if (_step == BASE64PRINTER_BUFSIZE) {
+      size_t l = Base64.encodedLength(BASE64PRINTER_BUFSIZE);
+      uint8_t encodedString[l];
+      Base64.encode((char *)encodedString, (char *)_buf, BASE64PRINTER_BUFSIZE);
+      _myPrinter.write(encodedString, l);
+      _step = 0;
+    }
+    return 1;
+  };
+
+protected:
+  Print& _myPrinter;  
+  static const int bufsize;
+  uint8_t _buf[BASE64PRINTER_BUFSIZE];
+  uint16_t _step;
+};
+
+
 void httpHandleGenre ( String http_rqfile, String http_getcmd ) 
 {
 String sndstr = "";
@@ -5481,11 +5556,14 @@ String sndstr = "";
   }
   else if (http_rqfile == "genredir")
   {
+    Base64Printer base64Stream(cmdclient);
     doprint("Sending directory of loaded genres to client");
     sndstr = httpheader ( String ("text/json") ) ;
-    cmdclient.println(sndstr);
+    cmdclient.print(sndstr);
     //dirGenre (&cmdclient, true) ;
-    genres.lsJson(cmdclient);
+    //genres.lsJson(cmdclient);
+    genres.lsJson(base64Stream);
+    base64Stream.done();
     cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
   }
   else if (http_rqfile == "genre")
@@ -5525,33 +5603,7 @@ String sndstr = "";
     if (command.startsWith("link="))
     {
       sndstr = "OK";
-#ifdef OLDOLD      
-      String dummy = command.substring(5);
-      idStr = getStringPart(dummy, ',');
-      idStr.trim();
-      bool addFlag = idStr.c_str()[0] == '+';
-//      int genreId = searchGenre(genre.c_str());
-      int genreId = idStr.toInt();// searchGenre(genre.c_str());
-      if ((0 == genreId))// || (genreId != idStr.toInt()))
-        sndstr =  "Error: Could not load genre with id'" + genreId + "' to get links...";
-      else
-      {
-        char key[30];
-        sprintf(key, "%d_x", genreId);
-        dummy = command.substring(command.indexOf("list=") + 5);
-        if (addFlag)
-        {
-          String soFar = gnvsgetstr(key);
-          soFar.trim();
-          if (soFar.length() > 0)
-            dummy = soFar + String(",") + dummy;
-        }
-        gnvssetstr(key, dummy);
-        doprint("GNVS %s: %s", key, dummy.substring(0, 100).c_str());
-        sndstr = "OK\r\n\r\n";
-      }  
-#endif
-    }
+    }    
     else if (/*command.startsWith("link") || */command.startsWith("link64="))
     {
       String dummy = command.substring(7);
@@ -5579,6 +5631,18 @@ String sndstr = "";
         Base64.encode(encodedString, (char *)sndstr.c_str(), sndstr.length());
         sndstr = String(encodedString);// + "\r\n\r\n";
       }  
+    }
+    else if (command.startsWith("createwithlinks"))
+    {
+      int genreId;
+      if (genreId =genres.createGenre(genre.c_str()))
+      {
+        genres.dbgprint("Created genre '%s', Id=%d, links given with len=%d (%s)",
+                genre.c_str(), genreId, http_getcmd.length(), http_getcmd.c_str());
+        genres.addLinks(genreId, http_getcmd.c_str());
+      }
+      else
+        genres.dbgprint("Error: could not create genre '%s' (HTTP: createwithlinks", genre.c_str());
     }
     else if (command.startsWith("nvsgenres"))
     {
@@ -5756,10 +5820,43 @@ String sndstr = "";
     }
     //nvs_commit(gnvshandle);
   }
+  else if (http_rqfile == "genrelist" )
+  {
+    Base64Printer base64Stream(cmdclient);
+    doprint("Sending directory of loaded genres to (remote) client");
+    sndstr = httpheader ( String ("application/json") ) ;
+    cmdclient.print(sndstr);
+    //dirGenre (&cmdclient, true) ;
+    //genres.lsJson(cmdclient);
+    genres.lsJson(base64Stream, LSMODE_SHORT|LSMODE_WITHLINKS);
+    base64Stream.done();
+    cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
+  }
+  else if (http_rqfile == "genreconfig")
+  {
+    sndstr = httpheader ( String ("application/json") ) ;
+    cmdclient.print(sndstr);
+    sndstr = genres.config.asJson();
+    /*
+    String host = nvsgetstr("gcfg.rdbs");
+    if (host == "")
+      host = "de";
+    if ((host == "de") || (host == "nl") || (host == "fr"))
+      host = host + "1.api.radio-browser.info";
+    sndstr = "{\"rdbs\": \"" + host + "\"" +
+              ",\"noname\": " + nvsgetstr("gcfg.noname").toInt()
+             + "}";
+    */
+    genres.dbgprint("Sending config: '%s'", sndstr.c_str());
+    cmdclient.println(sndstr);
+    cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
+  }
   else if (http_rqfile == "genreformat")
   {
     sndstr = httpheader ( String ("text/text") );
     cmdclient.println(sndstr);
+
+    cmdclient.println("OK\r\n");
     if (genres.format())
       cmdclient.println("OK: LITTLEFS formatted for genre info");
     else

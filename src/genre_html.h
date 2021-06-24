@@ -21,15 +21,32 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   <br><br><br>
   <center>
    <h1>** ESP32 Radio Genre Manager **</h1>
-   <table id="genreDir" width="800" class="pull-left">
-   <tr>
-    <td>Loading...</td>
-   </tr>
-   </table>
-   <div id="apply">
+   <h3> Maintain loaded Genres </h3>
+   <div id="genreArea">
+      <table id="genreDir" width="800" class="pull-left">
+        <tr>
+          <td>Loading...</td>
+        </tr>
+      </table>
    </div>
-   <table class="table2" id="filterTable" width="800">
-   </table>
+   <div id="southArea">
+      <hr>
+      <div id="syncInput">
+          Or <button class="button" onclick=loadExternalGenres()>Synchronize</button>  
+          genres with that other radio with the IP: 
+          <input type="text" id="inputOtherRadio" placeholder="192.168.x.y">
+      </div>
+      <div id="syncRunning" hidden=true>
+          Sync is running....
+      </div>
+      <hr>
+      <h3> Load stations from Radio Database </h3>
+      <div id="apply">
+   
+      </div>
+      <table class="table2" id="filterTable" width="800">
+      </table>
+   </div>
   </center>
  </body>
 </html>
@@ -42,6 +59,8 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  var genreLoadArr = [];
  var genreLinkList = "";
  var actionRunErrorFlag = false;
+ 
+ var config;
 
  var validGenres = 0;
  var validStations = 0;
@@ -49,7 +68,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  var requestId = 0; 
 
  var loadIdx = 0;
-
+ var progressAlert;
 
 
   function getAction ( actionId, actions )
@@ -78,22 +97,23 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   function showLinksCB (idx, result)
   {
     clearTimeout ( resultTimeout );resultTimeout = null;
-    var txt ="The " + dirArr[idx].presets + " stations are from ";
-    result = atob(result);
+    var txt ="The " + dirArr[idx].presets + " stations ";
+    //result = atob(result);
+    result = decodeUnicode(result);
     result = result.trim();
     if (result.length > 0)
     {
       var resultArr = result.split(",");
       if (resultArr.length > 0) 
       {
-        txt = txt +" the following genres:\n\n";
+        txt = txt +"in cluster '" + dirArr[idx].name + "' are from the following genres:\n\n";
         var i;
         for (i = 1;i <= resultArr.length;i++)
           txt = txt + i + ":" +resultArr[i-1] + "\n";
       }
     }
     else
-      txt = txt +"genre '" + dirArr[idx].name+"'"; 
+      txt = txt +"are from genre '" + dirArr[idx].name+"'"; 
     alert (txt);
   }
 
@@ -103,11 +123,155 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
     runActionRequest ( idx, theUrl, 3000, showLinksCB);
   }
 
- function listDir ( )
+ 
+  function transferExternalGenre(id, newGenres)
+  {
+    var xhr = new XMLHttpRequest() ;
+    var theUrl1 = "createwithlinks,genre=" + newGenres[id - 1].name + '|' + newGenres[id - 1].links;
+    newGenres[id - 1].id = id;
+    newGenres[id - 1].action = "Refresh";
+    document.getElementById("syncRunning").innerHTML = "genreaction?" + theUrl1 + "&version=" + Math.random();
+    var theUrl="genreaction?" + 
+    //btoa(theUrl1) 
+    encodeUnicode(theUrl1)
+    + "&version=" + Math.random();
+    xhr.onreadystatechange = function() 
+    {
+      if ( this.readyState == XMLHttpRequest.DONE )
+      {
+        if (id < newGenres.length)
+        { 
+          transferExternalGenre(id + 1, newGenres);
+        }
+        else
+        {  
+          document.getElementById("syncInput").hidden = false;
+          document.getElementById("genreArea").hidden = false;
+          document.getElementById("syncRunning").hidden = true;
+          dirArr = newGenres;
+          runActions(dirArr);
+          //listDir( null );
+        }   
+      }
+    }  
+  xhr.open ( "GET", theUrl ) ;
+  xhr.send() ;
+  }
+
+  function transferExternalLinks(id, newGenres)
+  {
+//    if (newGenres[id - 1].links.length > 0)
+    if (false)
+    {
+      var xhr = new XMLHttpRequest() ;
+      var theUrl1 = "createwithlinks,genre=" + newGenres[id - 1].name + '|' + newGenres[id - 1].links;
+      var theUrl="genreaction?" + theUrl1 + "&version=" + Math.random();
+      document.getElementById("syncRunning").innerHTML = theUrl;
+      theUrl="genreaction?" + 
+      //btoa(theUrl1) 
+      encodeUnicode(theUrl1)
+      + "&version=" + Math.random();
+      xhr.onreadystatechange = function() 
+      {
+        if ( this.readyState == XMLHttpRequest.DONE )
+        {
+          if (id < newGenres.length) 
+            transferExternalLinks(id, newGenres);
+          else
+          {  
+            document.getElementById("syncInput").hidden = false;
+            document.getElementById("syncRunning").hidden = true;
+          }   
+        }
+      }  
+      xhr.open ( "GET", theUrl ) ;
+      xhr.send() ;
+    }
+    else
+    {
+      transferExternalGenre(id + 1, newGenres);
+    }
+  }
+
+
+
+ function transferExternalGenresStep1(newGenres)
+ {
+
+   var theUrl = "/genreformat?version=" + Math.random();
+   var xhr = new XMLHttpRequest() ;
+   document.getElementById("genreArea").hidden = true;
+   document.getElementById("syncRunning").innerHTML = "Formatting Flash file system...";
+
+   xhr.onreadystatechange = function() 
+   {
+     if ( this.readyState == XMLHttpRequest.DONE )
+     {
+       transferExternalGenre(1, newGenres);
+     }
+    }
+  xhr.open ( "GET", theUrl ) ;
+  xhr.send() ;
+ } 
+
+
+ function loadExternalGenres() 
+ {
+   var host = document.getElementById("inputOtherRadio").value.trim();
+   document.getElementById("syncInput").hidden = true;
+   document.getElementById("syncRunning").innerHTML = "Try to load external Genres from host: " + host;
+   document.getElementById("syncRunning").hidden = false;
+   var theUrl = "http://" + host + "/genrelist?version=" + Math.random();
+   var xhr = new XMLHttpRequest() ;
+   xhr.onreadystatechange = function() 
+   {
+     if ( this.readyState == XMLHttpRequest.DONE )
+     {
+      //alert(this.responseText); 
+      var genreArr = JSON.parse ( 
+        //atob (this.responseText) 
+        decodeUnicode (this.responseText)
+        ) ;
+      if (genreArr.length == 0)
+      {
+        alert ("The host at IP:" + host + " did not return any valid genre information!");
+        document.getElementById("syncInput").hidden = false;
+        document.getElementById("syncRunning").hidden = true;
+      }
+      else 
+      {
+        var response = "The radio at IP:" + host + " has " + genreArr.length + " genres loaded.\n" + 
+                       "Do you want to transfer those to this radio?\n\n" +
+                       "!!WARNING!!\n\n" +
+                       "All genres and associated stations on this radio will be gone (replaced)!\n";
+        if (confirm( response )) {
+            genreArr = genreArr.sort(function(a, b) {
+            return b.name < a.name? 1
+                   : b.name > a.name? -1
+                   :0
+          });
+          transferExternalGenresStep1(genreArr);
+        }
+        else
+        {
+          document.getElementById("syncInput").hidden = false;
+          document.getElementById("syncRunning").hidden = true;
+        }
+      }
+     }
+    }
+  xhr.open ( "GET", theUrl ) ;
+  //xhr.setRequestHeader("Access-Control-Allow-Origin", "*");
+  //xhr.setRequestHeader("Access-Control-Allow-Headers", "*");
+  xhr.send() ;
+ } 
+
+ function listDir ( callback )
  {
   var table = document.getElementById('genreDir') ;
   table.innerHTML = "Please wait for the list of stored genres to load...";
-  var theUrl = "genredir";//?version=" + Math.random() ;
+  //var theUrl = "genredir";//?version=" + Math.random() ;
+  var theUrl = "genredir?version=" + Math.random() ;
   xhr = new XMLHttpRequest() ;
   xhr.onreadystatechange = function() 
   {
@@ -119,12 +283,26 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
       validStations = 0;
       var row = table.insertRow() ;
       var cell1 = row.insertCell(0) ;
-      var cell2 = row.insertCell(1) ;
-      var cell3 = row.insertCell(2) ;
-      cell1.innerHTML = "Genre (click to play)" ;
-      cell2.innerHTML = "Stations" ;
-      cell3.innerHTML = "Action" ;
-      dirArr = JSON.parse ( this.responseText ) ;
+      dirArr = JSON.parse ( 
+        decodeUnicode(this.responseText)
+        ) ;
+      if (dirArr.length > 0)
+      {
+        var cell2 = row.insertCell(1) ;
+        var cell3 = row.insertCell(2) ;
+        cell1.innerHTML = "Genre (click to play)" ;
+        cell2.innerHTML = "Stations" ;
+        cell3.innerHTML = "Action" ;
+      }
+      else
+      {
+        cell1.colSpan = 3 ;
+        cell1.style.textAlign = "center";
+        cell1.innerHTML = "There are no genre lists stored!";
+      }
+      //alert (this.responseText);
+      //alert (atob(this.responseText));
+
       var i ;
       dirArr = dirArr.sort(function(a, b) {
             return b.name < a.name? 1
@@ -169,7 +347,11 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
             var cell1 = row.insertCell(0) ;
             var cell2 = row.insertCell(1) ;
             var cell3 = row.insertCell(2) ;
-            cell1.innerHTML = '<a onClick="playGenre(' + dirArr[i].id + ')">'+ dirArr[i].id + ": " + dirArr[i].name+'</a>';
+            var txt = '<a onClick="playGenre(' + dirArr[i].id + ')">' + dirArr[i].name;
+            if (config.showid)
+              txt = txt + ' (id: ' + dirArr[i].id + ')';
+            txt = txt + '<a>';
+            cell1.innerHTML = txt;
             cell2.innerHTML = '<a onClick="showLinks(' + i + ')">'+dirArr[i].presets +'</a>';
             validGenres++ ;
             validStations = validStations + dirArr[i].presets ;
@@ -207,7 +389,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
 
 var lastInGenres;
 var lastInPresets;
-var lastAdd = "Favorites";
+var lastAdd = "";
 var genreArr = [];
 
 function setAddGenre()
@@ -271,7 +453,8 @@ function loadDefaultGenresCB(idx, result)
 {
   clearTimeout ( resultTimeout );resultTimeout = null;
   result.trim();
-  result = atob(result);
+  //result = atob(result);
+  result = decodeUnicode(result);
   alert(result);
   result = result.trim();
   defaultGenreArr = result.split(",");
@@ -302,7 +485,7 @@ function drawFilterTable()
       var cell2 = row.insertCell(1) ;
       var cell3 = row.insertCell(2) ;
       var cell4 = row.insertCell(3) ;
-      cell1.innerHTML = '<a onClick="loadDefaultGenres()">Genre</a>' ;
+      cell1.innerHTML = "Genre" ;
       cell2.innerHTML = "Stations" ;
       cell3.innerHTML = "Action" ;
       cell4.innerHTML = "Add to:"
@@ -317,7 +500,8 @@ function drawFilterTable()
       cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="Enter substring here">' ;
       cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="Minimum">' ;
       cell3.innerHTML = '<button class="button" onclick=loadGenres()>Apply Filter</button>' ;
-      cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" onchange="setAddGenre()">' ;
+//      cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" onchange="setAddGenre()">' ;
+      cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" placeholder="Clustername" onchange="setAddGenre()">' ;
       var idx;
       for (idx = 0; idx < genreArr.length;idx++)
       {
@@ -392,6 +576,8 @@ function drawFilterTable()
                 }
             }
         cell1.appendChild(select);
+        window.scrollTo(0,document.body.scrollHeight);
+
         }
         var row = table.insertRow() ;
         var cell1 = row.insertCell(0);
@@ -402,10 +588,12 @@ function drawFilterTable()
         cell1.colSpan = 3;
         cell1.innerHTML = 
              'Press  <button class="button" onclick="runActions(genreArr)">HERE</button> to perform the Actions!' ;
+      window.scrollTo(0,document.body.scrollHeight);
       }
     if (!(typeof lastInGenres === 'undefined'))
       document.getElementById("inputGenre").value = lastInGenres;
     document.getElementById("inputPresets").value = lastInPresets;
+
 }
 
 function loadGenres()
@@ -425,7 +613,7 @@ function loadGenres()
 
 function loadGenresFromRDBS(genreMatch, stations)
 {
-  var theUrl = "https://nl1.api.radio-browser.info/json/tags/" +
+  var theUrl = "https://" + config.rdbs + "/json/tags/" +
                genreMatch +
                "?hidebroken=true&order=stationcount&reverse=true" ;
   xhr = new XMLHttpRequest() ;
@@ -480,6 +668,7 @@ function loadGenresFromRDBS(genreMatch, stations)
     cell1.innerHTML = description;
     resultContainer = cell2;
     cell2.innerHTML = "..busy..";
+    window.scrollTo(0,document.body.scrollHeight);
  }
  
  function uploadStatLinkListCB(id, result)
@@ -533,9 +722,13 @@ function loadGenresFromRDBS(genreMatch, stations)
       var l = stationArr.length - actionArray[id].subIdx;
       if (l > delta)
         l = delta;
-      for(i = 0;i < l;i++)
+      for(i = 0;i < l;i++) 
+        {
         //stations=stations + "%7c" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
         stations=stations + "|" + stationArr[i + actionArray[id].subIdx].url_resolved.substring(7); 
+        if (!config.noname)
+          stations = stations + "#" + stationArr[i + actionArray[id].subIdx].name;
+        }
       //stations = stations.replaceAll("&", "%26");
       //showAction("Next chunk, idx=" + actionArray[id].subIdx + ", l=" + l);
       if (loadIdx > 0)
@@ -637,12 +830,16 @@ function loadGenresFromRDBS(genreMatch, stations)
  }
 
 
+
 function runActionRequest (id, theUrl, timeout, callback)
 {   
   xhr = new XMLHttpRequest() ;
   //xhr.setRequestHeader("Cache-Control", "no-cache, no-store, max-age=0");
  // xhr.setRequestHeader("Cache-Control",  "no-cache, no-store, must-revalidate");
-  theUrl="genreaction?" + btoa(theUrl) + "&version=" + Math.random();
+  theUrl="genreaction?" + 
+  //btoa(theUrl)
+  encodeUnicode(theUrl)
+   + "&version=" + Math.random();
   xhr.onreadystatechange = function() 
 
   {
@@ -701,7 +898,8 @@ function runActionRequest (id, theUrl, timeout, callback)
   {
     clearTimeout ( resultTimeout );resultTimeout = null;
     resultContainer.innerHTML = "started";
-    result = atob(result);
+    //result = atob(result);
+    result = decodeUnicode(result);
     if (result.startsWith("ERR"))
     {
       resultContainer.innerHTML = "OK";
@@ -743,6 +941,7 @@ function runActionRequest (id, theUrl, timeout, callback)
           alert("There have been errors while running the actions!");
         else
           ;//alert("ActionRunComplete");
+        //document.getElementById("southArea").hidden = true;
         location.reload();
      }
      else
@@ -796,6 +995,7 @@ function runActionRequest (id, theUrl, timeout, callback)
       alert("There is nothing to do!");
       return;
     }  
+    document.getElementById("southArea").hidden = true;
     actionArray = newActions;
     actionRunErrorFlag = false;
     //alert("ActionArray length= " + actionArray.length);
@@ -819,9 +1019,10 @@ function runActionRequest (id, theUrl, timeout, callback)
  // callback: to be called on either timeout (empty stationArr) or success (filled stationArr)
  function listStats ( id, genre, timeout, callback, deleteFirst )
  {
-  var theUrl = "https://nl1.api.radio-browser.info/json/stations/bytagexact/" +
+  var theUrl = "https://" + config.rdbs + "/json/stations/bytagexact/" +
                genre +
                "?hidebroken=true" ;
+  //alert(theUrl);
   xhr = new XMLHttpRequest() ;
   //stationArr = [];
   xhr.onreadystatechange = function() 
@@ -858,7 +1059,24 @@ function runActionRequest (id, theUrl, timeout, callback)
   xhr.send() ;
  }
 
- 
+ function encodeUnicode(str) {
+  // first we use encodeURIComponent to get percent-encoded UTF-8,
+  // then we convert the percent encodings into raw bytes which
+  // can be fed into btoa.
+  return btoa(encodeURIComponent(str).replace(/%([0-9A-F]{2})/g,
+      function toSolidBytes(match, p1) {
+          return String.fromCharCode('0x' + p1);
+  }));
+}
+
+function decodeUnicode(str) {
+  //return atob(str);
+
+  // Going backwards: from bytestream, to percent-encoding, to original string.
+  return decodeURIComponent(atob(str).split('').map(function (c) {
+    return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+  }).join(''));
+}
 
  function setStation ( inx )
  {
@@ -881,7 +1099,25 @@ function runActionRequest (id, theUrl, timeout, callback)
   xhr.open ( "GET", theUrl ) ;
   xhr.send() ;
  }
-   listDir() ;
+   
+  function getConfig()
+  {
+    var theUrl="/genreconfig&version=" + Math.random();
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function() 
+    {
+      if ( this.readyState == XMLHttpRequest.DONE )
+      {
+      config = JSON.parse ( this.responseText ) ;
+      listDir ( null );
+      }
+    }
+  xhr.open ( "GET", theUrl ) ;
+  xhr.send() ;
+  }
+
+   getConfig();
+   //listDir( null ) ;
 </script>
 
 )=====" ;

@@ -6,6 +6,20 @@ Genres genres;
 
 extern void doprint ( const char* format, ... );
 
+
+String GenreConfig::asJson() {
+  String ret;
+  const char *host = _rdbs?_rdbs:"de";
+  ret = String(host);
+  if ((0 == strcmp(host,"de")) || (0 == strcmp(host,"fr")) || (0 == strcmp(host,"nl")))
+      ret = ret + "1.api.radio-browser.info";
+  return  "{\"rdbs\": \"" + ret + "\"" +
+              ",\"noname\": " + String(_noNames?1:0) +
+              ",\"showid\": " + String(_showId?1:0) +
+               "}";
+}
+
+
 void Genres::dbgprint ( const char* format, ... ) {
 #if !defined(NOSERIAL)
     if (_verbose)
@@ -420,7 +434,9 @@ void Genres::listDir(const char * dirname){
     //doprint("Done listing directory: %s", dirname);
 }
 
-void Genres::lsJson(Print& client, bool full)
+
+
+void Genres::lsJson(Print& client, uint8_t lsmode)
 {
     client.print("[");
     for(int id=1, total=0;id <= _knownGenres;id++)
@@ -432,11 +448,17 @@ void Genres::lsJson(Print& client, bool full)
             if (total++)
                 client.print(',');
             client.println();
-            client.printf("{\"id\": %d, \"name\":\"%s\", \"mode\": \"<valid>\"", id, getName(id).c_str());
-            if (full)
+            client.printf("{\"id\": %d, \"name\": \"%s\"", id, getName(id).c_str());
+
+            if (0 == (lsmode & LSMODE_SHORT))
             {
                 uint16_t numUrls = count(id);
-                client.printf(", \"presets\": %d", numUrls);
+                client.printf(", \"presets\": %d, \"mode\": \"<valid>\"", numUrls);
+            }
+            if (0 != (lsmode & LSMODE_WITHLINKS))
+            {
+                String links = getLinks(id);
+                client.printf(", \"links\": \"%s\"", links.c_str());
             }
             client.print('}');
         }
@@ -485,7 +507,7 @@ uint32_t res = 0;
     return res;
 }
 
-String Genres::getUrl(int id, uint16_t number) {
+String Genres::getUrl(int id, uint16_t number, bool cutName) {
 String res = "";
     if (count(id) > number)
     {
@@ -527,6 +549,10 @@ String res = "";
                     p = p + strlen(p) + 1;
                 }
 */
+                char *p;
+                if (cutName)
+                    if (NULL != (p = strchr(s, '#')))
+                        *p = 0;
                 res = String(s);
                 free(s);
             }

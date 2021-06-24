@@ -445,7 +445,7 @@ bool              chunked = false ;                      // Station provides chu
 int               chunkcount = 0 ;                       // Counter for chunked transfer
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
-bool              http_response_flag = false ;           // Response required
+uint8_t           http_response_flag = 0 ;               // Response required: 1 GET, 2 POST, 3 OPTIONS
 uint16_t          ir_value = 0 ;                         // IR code
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
 uint32_t          ir_1 = 1650 ;                          // Average duration of an IR long pulse
@@ -3297,6 +3297,10 @@ void fillkeylist()
 }
 
 
+void sendCrossOriginHeader() {
+//cmdserver.send(204);
+}
+
 //**************************************************************************************************
 //                                           S E T U P                                             *
 //**************************************************************************************************
@@ -3484,6 +3488,7 @@ if (false == NetworkFound)
 }
  #endif
   dbgprint ( "Start server for commands" ) ;
+  //cmdserver.on("/genrelist", HTTP_OPTIONS, sendCrossOriginHeader);
   cmdserver.begin() ;                                    // Start http server
   if ( NetworkFound )                                    // OTA and MQTT only if Wifi network found
   {
@@ -3714,9 +3719,20 @@ void handlehttpreply()
   String        sndstr = "" ;                               // String to send
   int           n ;                                         // Number of files on SD card
 
-  if ( http_response_flag )
+  if (http_response_flag == 3)
   {
-    http_response_flag = false ;
+    http_response_flag = 0;
+    cmdclient.println(String(
+      "HTTP/1.1 204 OK\n" 
+      "server: " NAME "\n"
+      "access-control-allow-origin: *\n"
+      "access-control-allow-headers: *\n"
+      "access-control-allow-methods: *\n\n\n"
+    ));
+  }
+  else if ( http_response_flag )
+  {
+    http_response_flag = 0 ;
     if ( cmdclient.connected() )
     {
       if ( http_rqfile.length() == 0 &&                     // An empty "GET"?
@@ -3817,8 +3833,11 @@ void handlehttp()
   char        c ;                                            // Next character from http input
   int         inx0, inx ;                                    // Pos. of search string in currenLine
   String      currentLine = "" ;                             // Build up to complete line
-  bool        reqseen = false ;                              // No GET seen yet
-
+  //bool        reqseen = false ;                              // No GET seen yet
+  uint8_t     reqseen = 0 ;                                  // 0 - no request seen
+                                                             // 1 - GET request seen
+                                                             // 2 - POST request seen
+                                                             // 3 - OPTIONS request seen
   if ( !cmdclient.connected() )                              // Action if client is connected
   {
     return ;                                                 // No client active
@@ -3828,6 +3847,7 @@ void handlehttp()
   {
     c = rinbyt ( first ) ;                                   // Get a byte
     first = false ;                                          // No more first call
+    Serial.write(c);
     if ( c == '\n' )
     {
       // If the current line is blank, you got two newline characters in a row.
@@ -3848,13 +3868,23 @@ void handlehttp()
         {
           inx0 = 6 ;
         }
+        else if ( currentLine.startsWith ( "OPTIONS /") )    // OPTIONS request
+        {
+          inx0 = 9;
+        }
         else
         {
           inx0 = 0 ;                                         // Not GET nor POST
         }
         if ( inx0 )                                          // GET or POST request?
         {
-          reqseen = true ;                                   // Request seen
+          //reqseen = true ;                                   // Request seen
+          if (inx0 == 5)
+            reqseen = 1;
+          else if (inx0 == 9)
+            reqseen = 3;
+          else 
+            reqseen = 2;
           inx = currentLine.indexOf ( "&" ) ;                // Search for 2nd parameter
           if ( inx < 0 )
           {
@@ -5453,11 +5483,15 @@ const char* analyzeCmd ( const char* par, const char* val )
 //**************************************************************************************************
 String httpheader ( String contentstype )
 {
-  return String ( "HTTP/1.1 200 OK\nContent-type:" ) +
+  return String ( "HTTP/1.1 200 OK\nContent-type: " ) +
          contentstype +
          String ( "\n"
                   "Server: " NAME "\n"
                   "Cache-Control: " "max-age=3600\n"
+                  "Access-Control-Allow-Origin: *\n"
+                  "Access-Control-Max-Age: 600\n"
+                  "Access-Control-Allow-Methods: PUT,POST,GET,OPTIONS\n"
+                  "Access-Control-Allow-Headers: *\n"                  
                   "Last-Modified: " VERSION "\n\n" ) ;
 }
 

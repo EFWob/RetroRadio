@@ -4,6 +4,21 @@
 //#define URL_CHUNKSIZE 10
 #include <Arduino.h>
 
+#define LSMODE_DEFAULT   0
+#define LSMODE_SHORT     0b1
+#define LSMODE_WITHLINKS 0b10
+
+class GenreConfig {
+    public:
+        void noNames(bool noNames) {_noNames = noNames;};
+        void showId(bool showId) {_showId = showId;};
+        void rdbs(const char* s) {if (_rdbs) free(_rdbs);_rdbs = NULL; if (s) _rdbs = strdup(s);};
+        String asJson();
+    protected:
+        char *_rdbs = NULL;
+        bool _noNames = false;
+        bool _showId = false;
+};
 
 class Genres {
     public:
@@ -19,12 +34,13 @@ class Genres {
         String getLinks(int id);
         uint16_t count(int id);
         String getName(int id);
-        String getUrl(int id, uint16_t number);
+        String getUrl(int id, uint16_t number, bool cutName = true);
         void ls();
-        void lsJson(Print& client, bool fullInfo = true);
+        void lsJson(Print& client, uint8_t lsmode = LSMODE_DEFAULT);
         void test();
         void dbgprint ( const char* format, ... );
         void verbose ( int mode);
+        GenreConfig config;
     protected:
         bool _begun = false;
         uint16_t _knownGenres = 0;
