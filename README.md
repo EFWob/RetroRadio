@@ -221,6 +221,10 @@ commands can be defined either by preference settings or through the Input chann
   	is not in the channel-list, i. e. if tuned to by other means, tune to ChannelMax).
   - The number -1. This will not do any change to the current playing, but can be useful to force the radio to switch to a specific channel (which would not happen if that channel was the same that has been set by the previous call to the channel-command). 
 
+## Genre playlists
+### General idea
+
+![Web API for genre](pics/genre0.jpg?raw=true "Empty genre playlists")
 
 
 ## IR remote enhancements
