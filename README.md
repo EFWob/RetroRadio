@@ -223,8 +223,69 @@ commands can be defined either by preference settings or through the Input chann
 
 ## Genre playlists
 ### General idea
-
+The main idea is to use a public radio database server (https://www.radio-browser.info/#/). This database has more
+than 27,000 stations organised in different categories (by reagion or genre tags). With this addition, you can 
+download stations from that radio database as given by their genre-tag. As a result you can have more station lists
+(in addition to the default preset list in NVS) to chose from.
+By now, that lists are organized by genre tag only. So you can create lists like "Pop", "Rock", etc. but not for instance by country.
+### Creating genre playlists
+A specific playlist can have any number of stations, as long as there is free flash left in the flash file system.
+Unlike the preset list, the station URLs are not entered direct, but are downloaded from the database above. 
+For maintaining the genre playlist, you need to open the URL _http://RADIO-IP/genre.html. The first time you do so
+you should see the following. 
 ![Web API for genre](pics/genre0.jpg?raw=true "Empty genre playlists")
+
+There are three main parts on that page:
+- on Top (currently empty) is the list of genres that are already loaded into the radio.
+- the center section (between two bar lines) allows transfer the genre lists from another radio to be transferred here.
+- the bottom section is the interface to the radio database.
+
+You first should start with the interface to the radio database. In the leftmost input, enter (part) of a genre tag name, e. g. "rock". Enter a minimum number of stations that should be returned for each list (if the number of 
+stations is less than that number, that specific list is not returned). Can be left empty, try 20 for now. If you press "Apply Filter" (ignore the right input field for now) you should see the result of the database request after 
+a few moments:
+
+![Web API for genre](pics/genre1.jpg?raw=true "Radio database answered the request")
+
+The result list at the bottom just shows the result of the request, the lists are not yet loaded to the radio.
+In the dropdown at the right side of the result list you can choose which entries you want to "Load" to the radio.
+When decided, press the button labelled "HERE" at the bottom of the page. Only then the station lists selected will
+be loaded into the radio. The website will show the progress:
+
+![Web API for genre](pics/genre2.jpg?raw=true "Transfer from radio database to radio")
+
+While you see that page, do not reload the page or load any other page into this tab as otherwise transfer will be
+cancelled. If you accidentially cancel the tansfer, the radio will still be in a consistent state. Just the list(s) of stations will be truncated/incomplete.
+After the transfer is completed, the page will automatically reload and should look like this:
+
+![Web API for genre](pics/genre3.jpg?raw=true "First genre playlists loaded to radio")
+
+More often than not, you will notice that the stations of your interest are distributed over several genre groups on 
+the database. like in our example "indie rock", "pop rock" and "progressive rock" we just loaded would be an example of "subgenres" for rock. 
+
+As you will see later, you can only select one of those genres. You can however cluster the result list from the database into a "Cluster" called "Rock". There is only one rule to the clustername: it must start with a latter. And that first letter will be converted into uppercase automatically. All genre names in the database are returned in always lowercase letters. That way, you can have a cluster called "Rock" that can be distinguished from the "native" genre "rock".
+
+So instead of loading 3 seperate genres, you could chose the Action "Add to:" for the genres of choice. You must enter the desired cluster name into the input field right of the button "Apply Filter".
+
+![Web API for genre](pics/genre4.jpg?raw=true "Creating cluster Rock from 3 genres")
+
+
+Clusters must not be created in one step, you can always add more stations from another database request later.
+You can however not delete a subgenre from a cluster (but only delete the whole cluster).
+If you press on the station number of a Cluster in the page section "Maintain loaded Genres" a popup will show which genres from the database are clustered into.
+
+![Web API for genre](pics/genre5.jpg?raw=true "In the maintenance section")
+
+
+In the maintenance section you can also Delete or Refresh any or all of the genres loaded into the database (a cyclic refresh is needed to throw out station URLS that got nonoperational in between).
+
+If you click on a genre name on the left side in this list, the radio will play a (random) station from that genre.
+(If you press again, another random station from that list will be played).
+That is currently the only way to play from a genre using the web-interface.
+
+The interface can hande extended unicode characters. The only thing thats not working currently is if the genre name of the database contains the '/'-character. That I have seen on one genre so far and already forgotten again what it was, so it is currently no priority...
+
+![Web API for genre](pics/genreunicode.jpg?raw=true "Unicode is fine")
+
 
 
 ## IR remote enhancements
