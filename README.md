@@ -42,7 +42,7 @@ and use your standard preference settings as before you should notice no differe
 
 
 There are also some enhancements which are not necessarily associated with the extended input capabilities. Those are found
-in the section Generic enhancements below.
+in the section [Generic additions](#generic-additions) below.
 
 ## Considerations for migration
 
@@ -64,7 +64,7 @@ Input Handling](#extended-input-handling) if you are not interested to use the f
  - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
  - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
  - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
- - Radio can now play from [genre playlists](#genre-playlist) that can be downloaded from a internet radio database server.
+ - Radio can now play from [genre playlists](#genre-playlists) that can be downloaded from a internet radio database server.
  - [IR remote handling](#added-support-for-longpress-and-release-on-ir-remotes) has been extended to recognise longpress and release events
  - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
 	  can execute not only a single command, but command sequences also. A command sequence is a list of commands
@@ -239,14 +239,14 @@ By now, that lists are organized by genre tag only. So you can create lists like
 ### Creating genre playlists
 A specific playlist can have any number of stations, as long as there is free flash left in the flash file system.
 Unlike the preset list, the station URLs are not entered direct, but are downloaded from the database above. 
-For maintaining the genre playlist, you need to open the URL _http://RADIO-IP/genre.html. The first time you do so
+For maintaining the genre playlist, you need to open the URL http://RADIO-IP/genre.html. The first time you do so
 you should see the following. 
 ![Web API for genre](pics/genre0.jpg?raw=true "Empty genre playlists")
 
 There are three main parts on that page:
-- on Top (currently empty) is the list of genres that are already loaded into the radio.
-- the center section (between two bar lines) allows transfer the genre lists from another radio to be transferred here.
-- the bottom section is the interface to the radio database.
+- on top (currently empty) is the list of genres that are already loaded into the radio.
+- the center section (between two bar lines) allows to transfer the genre lists from another radio to this radio.
+- the bottom section is the interface to the internet radio database.
 
 You first should start with the interface to the radio database. In the leftmost input, enter (part) of a genre tag name, e. g. "rock". Enter a minimum number of stations that should be returned for each list (if the number of 
 stations is less than that number, that specific list is not returned). Can be left empty, try 20 for now. If you press "Apply Filter" (ignore the right input field for now) you should see the result of the database request after 
@@ -268,11 +268,11 @@ After the transfer is completed, the page will automatically reload and should l
 ![Web API for genre](pics/genre3.jpg?raw=true "First genre playlists loaded to radio")
 
 More often than not, you will notice that the stations of your interest are distributed over several genre groups on 
-the database. like in our example "indie rock", "pop rock" and "progressive rock" we just loaded would be an example of "subgenres" for rock. 
+the database. Like in our example "indie rock", "pop rock" and "progressive rock" we just loaded would be an example of "subgenres" for rock. 
 
-As you will see later, you can only select one of those genres. You can however cluster the result list from the database into a "Cluster" called "Rock". There is only one rule to the clustername: it must start with a latter. And that first letter will be converted into uppercase automatically. All genre names in the database are returned in always lowercase letters. That way, you can have a cluster called "Rock" that can be distinguished from the "native" genre "rock".
+As you will see later, you can only select one of those genres. You can however cluster the result list from the database into a "Cluster" called "Rock". There is only requirement for the clustername: it must start with a letter. And that first letter will be converted into uppercase automatically. All genre names in the database are returned in always lowercase letters. That way, you can have a cluster called "Rock" that can be distinguished from the "native" genre "rock".
 
-So instead of loading 3 seperate genres, you could chose the Action "Add to:" for the genres of choice. You must enter the desired cluster name into the input field right of the button "Apply Filter".
+So instead of loading 3 seperate genres, you could chose the Action "Add to:" for the genres of choice. You must enter the desired cluster name ("Rock" in our example) into the input field right of the button "Apply Filter".
 
 ![Web API for genre](pics/genre4.jpg?raw=true "Creating cluster Rock from 3 genres")
 
