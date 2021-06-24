@@ -1,6 +1,0 @@
-# Name,   Type, SubType, Offset,  Size, Flags
-otadata,  data, ota,     0x9000,  0x2000,
-app0,     app,  ota_0,   , 0x150000,
-presets,     data,  nvs,    ,0x150000,
-other,   data, nvs,      ,0xa0000,
-nvs,      data, nvs,       ,0x10000,

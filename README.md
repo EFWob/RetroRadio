@@ -49,6 +49,7 @@ with a few things to notice:
 - You can use the command _test_ to check if there are still entries in NVS available. If the number of free entries is close to zero, or
   you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
   out of NVS-space.
+- for 4MB (standard) flash sizes I use the partion-table _radio4MB_default.csv_ that can be found at the _/etc_ folder in this repository. This layout is not compatible to the _default_ partition, notably for the NVS section. That means you must reload the default preferences (and edit the wifi credentials) if you flash using this partition table.
 
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
@@ -290,24 +291,23 @@ The interface can hande extended unicode characters. The only thing thats not wo
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
-ToDo: this section needs to be rewritten: if only pin_ir is defined, NEC only is decoded, for decoding both pin_ir_necrc5 must be defined.
-Running both at a time does cause trouble and may be that idea should be dropped.
-
 Now also RC5 remotes (Philips protocol) can be decoded. RC5 codes are 14 bits, where the highest bit (b13) is always 1.
 Bit b11 is a toggle bit that will change with every press/release cycle of a certain key. That will make each key to generate
 two different codes. To keep things simple that bit will always be set to 0.
 
-So if you have a RC5 remote and and pin_ir is defined in preferences and a VS1838B IR receiver is connected to that pin, you
+
+So if you have a RC5 remote and and pin_ir_rc5 (or pin_ir_necrc5, see below) is defined in preferences and a VS1838B IR receiver is connected to that pin, you
 should see some output on Serial if a key on the remote is pressed (and debug is set to 1 of course). The code reported should
 be in the range 0x2000 to 0x37FF. (Also you should see "(RC5)" mentioned in the output. You can attach commands to the observed codes
 with the usual ir_XXXX scheme (or the extended repeat schemes below).
 
 If you want your radio to react on NEC or RC5 codes only, change the pin-setting in the preferences as follows:
-- use pin_ir_nec = x to use only NEC-decoder 
+- use pin_ir = x to use only NEC-decoder 
 - use pin_ir_rc5 = x to use only RC5-decoder
-- only one of pin_ir, pin_ir_nec, pin_ir_rc5 should be defined. If more than one is defined, the preference is pin_ir, pin_ir_nec and pin_ir_rc5.
-  (so if for instance pin_ir_nec and pin_ir_rc5 are defined, the setting for pin_ir_rc5 is ignored and only NEC protocol is decoded using the pin
-  specified by pin_ir_rc5)
+- use pin_ir_necrc5 = x if you want to use both protocols at the same time. Be aware that I have seen occasional
+  crashes during "wild monkey testing" the remote, so use at your own risk.
+- only one of pin_ir, pin_ir_rc5, pin_ir_necrc5 should be defined. If more than one is defined, the preference is pin_ir, pin_ir_rc5 and pin_ir_necrc5.
+  (so if for instance pin_ir and pin_ir_rc5 are defined, the setting for pin_ir_rc5 is ignored and only NEC protocol is decoded using the pin specified by pin_ir)
 
 ### Added support for longpress and release on IR-Remotes
 Sometimes it is desirable to have the radio to react on longpress of an IR remote key (Vol+/Vol- for instance). As implemented in the original 
