@@ -313,11 +313,13 @@ lowercase letters only, while cluster names start with an uppercase letter (foll
 So, _Rock_ is a valid name for a cluster, _rock_ is a valid name for a genre tag from the internet radio database,
 but constucts like _ROCK_ or _rOcK_ are invalid. When in doubt, copy the name from the web API.
 
-If that genre exists, the radio will start to play a random station from that genre. If the same command is issued again (with the same name), another (random) station from that genre will play.
+If a valid genre name has been assigned (and that genre exists in SPIFFS), the radio will start to play a random station from that genre. If the same command is issued again (with the same name), another (random) station from that genre will play.
 
 You can switch to a station direct using the command 
-_gpreset=number_  
-where Number can be any number. If this number (lets call it n) is between 0 and 'number of stations in that genre' - 1, the n-th entry of that list is selected. N can also be greater than the number of stations (or even below zero), modulo function is used in that case to map n always between 0 and 'number of stations in that genre' - 1.
+
+_gpreset=Number_  
+
+where Number can be any number. If this number (lets call it n) is between 0 and 'number of stations in that genre - 1', the n-th entry of that list is selected. N can also be greater than the number of stations (or even below zero), modulo function is used in that case to map n always between 0 and 'number of stations in that genre' - 1.
 
 If no genre has been set by the _genre=XXXX_ command above, _gpreset=n_ has no effect.
 
@@ -326,13 +328,13 @@ So selecting a station is still "fishing in the dark", but it is at least reprod
 If you issue command _genre=Anothername_ with another genre name, the radio will switch to that genre.
 
 If you issue command with no name (empty), the genre playmode will be stopped. The current station will continue to
-play (until another preset or channel is selected). _gpreset=n_ however will have no effect. You can also issue the command _genre_ with parameter _genre=--stop_ to achieve that.
+play (until another preset or channel is selected). _gpreset=n_ however will have no effect. You can also issue the command _genre_ with parameter _genre=--stop_ to achieve the same if you prefer a more clear reading.
 
 You can also switch stations within a genre using the _channel_ command from above. To do so, a channel-list must be defined.
 The preset-numbers assigned to the channel entries are ignored, just the size of the channel list is important.
 In the channel example above we defined a channel list with 9 channels. If you switch to genre-playmode, that channel
 list can be used to change stations within that genre by the following algorithm:
-- each channel has a random number between 0 and 'number of channels in that genre' assigned.
+- each channel has a random number between 0 and 'number of channels in that genre - 1' assigned.
 - one of the channel entries is the current channel (the one last selected by _channel=n_)
 - the distance between two channel stations is the same for all neighbors (and wrapped around between channel 9 and 1) in our example. So if in our case we would have a genre list with 90 stations, the distance between two channels would be 10.
 - example list in that case could be Channel 1: 72, Channel 2: 82, Channel 3: 2, Channel 4: 12 .... Channel 9: 62

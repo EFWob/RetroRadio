@@ -48,10 +48,12 @@ struct IR_data
 
 class RetroRadioInputReader {
   public:
-    virtual int16_t read() = 0;
-    virtual void mode(int mod) = 0;
+    virtual ~RetroRadioInputReader() {deleteContent();};
+    virtual int16_t read()  { return 0;};
+    virtual void mode(int mod)  {_mode = 0;} ;
     virtual String info() {return String("");};
   protected:
+    virtual void deleteContent() {};
     int _mode;
 };
 
@@ -100,21 +102,15 @@ class RetroRadioInput {
     uint32_t _clickStateTime;
     int _clickLongCtr;
     static std::vector<RetroRadioInput *> _inputList;
-    RetroRadioInputReader *_reader;
+    RetroRadioInputReader *_reader = NULL;
 //    std::map<const char*, RetroRadioInput *, cmp_str> _listOfInputs;
     uint32_t _timing[4];
 };
 
 
 void doGenre ( String param, String value );
+void doGenreConfig ( String param, String value );
 void doGpreset ( String value );
-//void gnvsLoop ();
-//void        gnvsopen   ( ) ;
-//esp_err_t   gnvsclear  ( ) ;
-//String      gnvsgetstr ( const char* key ) ;
-//bool        gnvssearchstr ( const char* key ) ;
-//bool        gnvssearchcache ( int id ) ;
-//esp_err_t   gnvssetstr ( const char* key, String val ) ;
 
 
 
@@ -123,10 +119,10 @@ int16_t currentChannel = 0;           // The channel that has been set by comman
 int16_t numChannels = 0;              // Number of channels defined in current channellist
 bool setupDone = false;               // All setup for RetroRadio finished?
 
-int readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
-int readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
-int readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
-int readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
+String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
+String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
+String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
+String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
 static int genreId = 0 ;                             // ID of active genre
 static uint16_t genrePresets = 0 ;                        // Nb of presets in active genre
@@ -145,7 +141,7 @@ extern String httpheader ( String contentstype );           // get httpheader fo
 struct {                           // A table of known internal variables that can be read from outside
   const char *id;
   void *ref;
-  int (*readf)(void*);
+  String (*readf)(void*);
 } sysVarReferences[] = {
   {"volume", &ini_block.reqvol, readUint8},
   {"preset", &ini_block.newpreset, readInt16},
@@ -247,23 +243,23 @@ char* doprint ( const char* format, ... )
 // Read current value of system variable by given name (see table sysvarreferences)
 // Returns 0 if variable is not defined
 
-int readSysVariable(const char *n) {
+String readSysVariable(const char *n) {
   for (int i = 0; i < KNOWN_SYSVARIABLES; i++)
     if (0 == strcmp(sysVarReferences[i].id, n))
       return sysVarReferences[i].readf(sysVarReferences[i].ref);
-  return 0;
+  return String("");
 }
 
-int readUint8(void *ref) {
-  return (int) (*((uint8_t*)ref));
+String readUint8(void *ref) {
+  return String( (*((uint8_t*)ref)));
 }
 
-int readInt16(void *ref) {
-  return (int) (*((int16_t*)ref));
+String readInt16(void *ref) {
+  return String( (*((int16_t*)ref)));
 }
 
-int readVolume(void* ref) {
-  return vs1053player->getVolume (  ) ;
+String readVolume(void* ref) {
+  return String(vs1053player->getVolume (  )) ;
 }
 
 void doSysList(const char* p) {
@@ -274,7 +270,7 @@ void doSysList(const char* p) {
     if (!match)
       match = (NULL != strstr(sysVarReferences[i].id, p));
     if (match)  
-      doprint("%2d: '%s' = %d", i, sysVarReferences[i].id, sysVarReferences[i].readf(sysVarReferences[i].ref));
+      doprint("%2d: '%s' = %s", i, sysVarReferences[i].id, sysVarReferences[i].readf(sysVarReferences[i].ref).c_str());
   } 
 }
 
@@ -365,7 +361,7 @@ void chomp_nvs ( String &str )
     } 
   else if (first == '~' )                         // Reference to System Variable?
     {
-      str = String(readSysVariable(str.c_str() + 1));
+      str = readSysVariable(str.c_str() + 1);
     }
    else if (first == '.' )                         // Reference to RAM?
     {
@@ -377,7 +373,6 @@ void chomp_nvs ( String &str )
       str = nvsgetstr ( str.c_str() + 1) ;
       chomp ( str ) ;
     }
-
 }
 
 
@@ -385,14 +380,14 @@ void chomp_nvs ( String &str )
 
 
 //**************************************************************************************************
-//                          G E T S T R I N G P A R T                                              *
+//                                S P L I T                                                        *
 //**************************************************************************************************
 // Splits the input String value at the delimiter identified by parameter delim.                   *
-//  - Returns left part of the string, chomped and lowercased                                      *
+//  - Returns left part of the string, chomped                                                     *
 //  - Input String will contain the remaining part after delimiter (not altered)                   *
 //  - will return the input string if delimiter is not found
 //**************************************************************************************************
-String getStringPart(String& value, char delim) {
+String split(String& value, char delim) {
   int idx = value.indexOf(delim);
   String ret = value;
   if (idx < 0) {
@@ -402,15 +397,13 @@ String getStringPart(String& value, char delim) {
     value = value.substring(idx + 1);
   }
   chomp(ret);
-//  ret.toLowerCase();
   return ret;
 }
 
-String getStringPart(String& value, char delim, bool protect)
-{
-  
+String split(String& value, char delim, bool protect)
+{ 
   if (!protect)
-    return getStringPart(value, delim);
+    return split(value, delim);
 String ret = value;
 int nesting = 0;
 char nestingChar = 0;
@@ -448,7 +441,7 @@ const char *s1 = s = value.c_str();
   ret = ret.substring(0, idx);
   value = value.substring(idx + 1);
   chomp(ret);
-  ret.toLowerCase();
+  //ret.toLowerCase();
   return ret;  
 }
 
@@ -466,13 +459,21 @@ const char *s1 = s = value.c_str();
 bool getPairInt16(String& value, int16_t& x1, int16_t& x2, bool duplicate, char delim) {
   bool ret = false;
   chomp(value);
-  if ((value.c_str()[0] == '-') || isdigit(value.c_str()[0])) {
+  if ((value.c_str()[0] == '-') || isdigit(value.c_str()[0])) 
+  {
     int idx = value.indexOf(delim);
     x1 = atoi(value.c_str());
-    if (ret = (idx > 0)) {
+    ret = (idx > 0);
+    if ( ret ) 
+    {
       x2 = atoi(value.substring(idx + 1).c_str());
-    } else if (ret = duplicate)
-      x2 = x1;
+    } 
+    else 
+    {
+      ret = duplicate;
+      if ( ret )
+        x2 = x1;
+    }
   }
   return ret;
 }
@@ -523,7 +524,7 @@ String extractgroup(String& inValue) {
 //  - If extendNvs (defaults to false) is true, left and right will be assumed to be reference to  *
 //    nvs-key if preceeded by '@'                                                                  *
 //**************************************************************************************************
-int parseGroup(String & inValue, String& left, String& right, char** delimiters = NULL, bool extendNvs = false,
+int parseGroup(String & inValue, String& left, String& right, const char** delimiters = NULL, bool extendNvs = false,
         bool extendNvsLeft = false, bool extendNvsRight = false) {
   int idx = -1, i;
   bool found;
@@ -597,68 +598,9 @@ int parseGroup(String & inValue, String& left, String& right, char** delimiters 
 }
 
 
-#ifdef OLD
-int parseGroup(String & inValue, String& left, String& right, char** delimiters = NULL, bool extendNvs = false) {
-  int idx, i;
-  bool found;
-  chomp(inValue);
-  int nesting = 0;
-  if (inValue.c_str()[0] == '(') {
-    inValue = inValue.substring(1);
-    chomp(inValue);
-    nesting = 1;
-  }
-  const char *p = inValue.c_str();
-  idx = -1;
-  while (*p && (idx == -1)) {
-    if (*p == '(')
-      nesting++;
-    else if (*p == ')') {
-      if (nesting <= 1)
-        idx = p - inValue.c_str();
-      else
-        nesting--;
-    }
-    p++;
-  }
-  //  idx = inValue.indexOf(')');
-  if (idx == -1) {
-    left = inValue;
-    inValue = "";
-  } else {
-    left = inValue.substring(0, idx);
-    chomp(left);
-    inValue = inValue.substring(idx + 1);
-    chomp(inValue);
-  }
-  found = false;
-  i = 0;
-  if (delimiters)
-    while (!found && (delimiters[i] != NULL))
-      if (!(found = (-1 != (idx = left.indexOf(delimiters[i])))))
-        i++;
-  if (found) {
-    right = left.substring(idx + strlen(delimiters[i]));
-    left = left.substring(0, idx);
-    if (extendNvs) {
-      chomp_nvs(left);
-      chomp_nvs(right);
-    } else {
-      chomp(left);
-      chomp(right);
-    }
-    return i;
-  } else {
-    right = "";
-    if (extendNvs)
-      chomp_nvs(left);
-    return -1;
-  }
-}
-#endif
 
 int doCalculation(String& value, bool show, const char* ramKey = NULL) {
-  char *operators[] = {"==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">", "..", NULL};
+  const char *operators[] = {"==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">", "..", NULL};
   String opLeft, opRight;
   int idx = parseGroup(value, opLeft, opRight, operators, true);
   int op1, op2, ret = 0;
@@ -727,7 +669,6 @@ int doCalculation(String& value, bool show, const char* ramKey = NULL) {
     case 16:
       ret = op1 > op2;
       break;
-
   }
   if (show)
     doprint("Caclulation result=%d", ret);
@@ -739,6 +680,7 @@ int doCalculation(String& value, bool show, const char* ramKey = NULL) {
   return ret;
 }
 
+/*
 void doIf(String value, bool show, bool& returnFlag) {
   String ifCommand, elseCommand;
   String dummy;
@@ -784,7 +726,7 @@ void doCalc(String value, bool show, bool& returnFlag) {
     analyzeCmdsRR(calcCommand);
   }
 }
-
+*/
 
 void doIf(String condition, String value, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   if (show) doprint("Start if(%s)=\"%s\"", condition.c_str(), value.c_str());
@@ -836,41 +778,55 @@ void doCalc(String expression, String value, bool show, String ramKey, bool& ret
   }
 }
 
-String searchElement(String input, int& idx, bool show, bool justCount, int& elements)
+//***********************************************************************************************************
+//* searchElement                                                                                           *
+//***********************************************************************************************************
+//  - scan throug the comma delimited list of "input"                                                       *
+//  - return the list element indicated by idx (idx with 1)                                                 *  
+//  - if idx <=1                                                                                            *
+//        - empty string is returned if parameter elements is NULL                                          *
+//        - *elements is set to number of list elements else                                                *
+//  - outputs some verbose information if parameter show is set to true                                     *
+//***********************************************************************************************************
+String searchElement(String input, int& idx, bool show = false, int* elements = NULL)
 {
+  bool justCount = ((NULL != elements) && (idx <= 0));                            // just counting the elements?
   String result;
-  chomp(input);
+  if ((0 >= idx) && !justCount)                                                   // idx is below 1?             
+    return String("");
+  chomp(input);                                                                   // just to make sure
   if (show) 
     if (!justCount)
       doprint("Search idx(%d) in %s", idx, input.c_str());
-  if (strchr(input.c_str(), ','))
+  if (strchr(input.c_str(), ','))                                                 // more than one element in current list?
     do
     {
-      String left = getStringPart(input, ',');
-      if (show) doprint("Searching deeper with %s (idx is still %d)", left.c_str(), idx);
-      result = searchElement(left, idx, show, justCount, elements);
+      String left = split(input, ',');                                    // separate one element
+      if (show) 
+        doprint("Searching deeper with %s (idx is still %d)", left.c_str(), idx);
+      result = searchElement(left, idx, show, elements);                          // check leftmost entry (could be a derefenced list in itself)
     }
     while ((input.length() > 0) && (justCount || (idx > 0)));
-  else if (input.c_str()[0] == '@')
+  else if (NULL != strchr("@&.", input.c_str()[0]))                               // No ',' found, but pointer to RAM/NVS
   {
-    if (show) doprint ("resolving (and analyzing) key %s", input.c_str()) ;
-    chomp_nvs(input);
-    result = searchElement (input, idx, show, justCount, elements);
+    if (show) 
+      doprint ("resolving (and analyzing) key %s", input.c_str()) ;
+    chomp_nvs(input);                                                             // get RAM/NVS entry
+    result = searchElement (input, idx, show, elements);                          // evaluate the dereferenced list element (could be "embedded" list)
   }
-  else
+  else                                                                            // here one single entry left, not dereferrenced
   {
-    if ((idx == 1) && !justCount)
-      result = input;
+    if ((idx == 1) && !justCount)                                                 // index found?
+      result = input;                                                             // set result  
     idx--;
-    if (justCount)
-      //if (elements || (input.length() > 0))
-        elements++;
+    if (justCount)                                                                // are we just counting?
+        result = ++(*elements);                                                   // increase the count
   }
   return result;
 }
 
 void doIdx(String expression, String value, bool show, String ramKey, bool& returnFlag) {
-  bool justCount, hasAnyEntry;
+  bool hasAnyEntry,justCount;
   int idx = 0;
   int elements = 0;
   String idxCommand;
@@ -880,35 +836,34 @@ void doIdx(String expression, String value, bool show, String ramKey, bool& retu
  
   
   parseGroup(value, idxCommand, right);
-  hasAnyEntry = strchr(expression.c_str(), ',') != NULL;
-  left = getStringPart(expression, ',');
-  chomp_nvs(left);
-  if (!(justCount = (left == "0")))
-    idx = left.toInt();
+//  hasAnyEntry = strchr(expression.c_str(), ',') != NULL;
+  left = split(expression, ',');
+  hasAnyEntry = expression.length() > 0;
+  //chomp_nvs(left);
+//  if (!(justCount = (left == "0")))
+  //idx = left.toInt();
+  idx = doCalculation(left, show, "");
+  justCount = idx <= 0;
   if (show) 
+  {
     if (justCount)
       doprint("Counting elements in list '%s'", expression.c_str());
     else
       doprint("Searching for element %d in list '%s'", idx, expression.c_str());
+  }
   if (hasAnyEntry)
-    do {
-      hasAnyEntry = strchr(expression.c_str(), ',');
-      left = getStringPart(expression, ',');
-      chomp_nvs(left);
-      if(show) doprint("Search %s, idx==%d", left.c_str(), idx);
-      result = searchElement(left, idx, show, justCount, elements);
-//    if (idx == 1) 
-//      result = left;
-//    if (idx > 1)
-//      idx = idx - 1;
-    } while (((idx > 0) || justCount) && (hasAnyEntry/*expression.length() > 0*/));
-  if (justCount)
-    result = elements;
+    {
+      if(show) 
+        doprint("Search %s, idx==%d", left.c_str(), idx);
+      result = searchElement(expression, idx, show, &elements);
+    }
   if (show) 
+  {
     if (justCount)
-      doprint("Looks like the list has %s entries", result.c_str());
+      doprint("Looks like the list has %s entrie(s)", result.c_str());
     else
       doprint("Result = '%s' (found: %d)", result, idx == 0);
+  }
   if (ramKey.length() > 0)
     ramsetstr(ramKey.c_str(), result);
 
@@ -924,6 +879,32 @@ void doIdx(String expression, String value, bool show, String ramKey, bool& retu
     analyzeCmdsRR ( idxCommand, returnFlag );
   }
 }
+
+
+void doLen(String expression, String value, bool show, String ramKey, bool& returnFlag) {
+  String result;
+  if (show) 
+    doprint("Start len(%s)=\"%s\"", expression.c_str(), value.c_str());
+  chomp_nvs(expression);
+  result = String(expression.length());
+  if (show)
+    doprint("Length of expression '%s'=%s", expression.c_str(), result.c_str());
+  if (ramKey.length() > 0)
+    ramsetstr(ramKey.c_str(), result);
+  if ( value == "0" )
+    value = "";
+  if (show) {
+    doprint("LenCommand = \"%s\"", value.c_str());
+  }
+  if ( value.length() > 0 )
+  {
+    substitute(value, result.c_str());
+    if (show) 
+      doprint("Running \"len\" with (substituted) command \"%s\"", value.c_str());
+    analyzeCmdsRR ( value, returnFlag );
+  }
+}
+
 
 
 void doWhile(String conditionOriginal, String valueOriginal, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
@@ -950,17 +931,27 @@ void doWhile(String conditionOriginal, String valueOriginal, bool show, String r
   } while (!done);
 }
 
-void doCalcIfWhile(String command, const char *type, String value, bool& returnFlag, bool invertedLogic = false) {
-  /*
+void doCalcIfWhile(String command, const char *type, String value, bool& returnFlag/*, bool invertedLogic = false*/) {
+/*
+  if (0 == strcmp("idx", type))
+  {
     doprint("Start doCalcIfWhile");
     delay(1000);
     doprint("Parameters are: command=%s, type=%s, value=%s", command.c_str(), type, value.c_str());
     delay(1000);
+  }
   */
   String ramKey, cond, dummy;
-  const char *s = command.c_str() + strlen(type) + (invertedLogic?3:0);
-  bool show = *s == 'v';
+  int commandLen = strlen(type);
+  dummy = command.substring(commandLen, commandLen + 3);
+  dummy.toLowerCase();
+  bool invertedLogic =  dummy == "not";
+  const char *s = command.c_str() + commandLen + (invertedLogic?3:0);
+  bool show =  tolower(*s)  == 'v';
   if (show)
+    s++;
+  //show = true;
+  while ((*s != 0) && (*s <= ' '))
     s++;
   char *condStart = strchr(s, '(');
   if (!condStart) {
@@ -969,24 +960,18 @@ void doCalcIfWhile(String command, const char *type, String value, bool& returnF
     return;
   } else {
     dummy = String(condStart);
+    if (show)
+      doprint("Start extracting condition from %s", dummy.c_str());
     parseGroup(dummy, cond, dummy);
+    if (show)
+      doprint("Extracted condition is: %s", cond.c_str());
   }
   if (*s == '.') {
     ramKey = String(s + 1);
     ramKey = ramKey.substring(0, ramKey.indexOf('('));
-    s = s + ramKey.length();
+    //s = s + ramKey.length();
     ramKey.trim();
   }
-  /*
-    if (value.c_str()[0] != '(') {
-      if (show)
-        doprint("No condition/expression found for %s=()", type);
-      return;
-    }
-    //  doprint("In doCalcIfWhile %s=%s", type, value.c_str());
-    parseGroup(value, cond, dummy);
-  */
-
   if (show)
     doprint("ParseResult: %s(%s)=%s; Ramkey=%s", type, cond.c_str(), value.c_str(), ramKey.c_str());
   switch (*(type + 1)) {
@@ -1001,6 +986,9 @@ void doCalcIfWhile(String command, const char *type, String value, bool& returnF
       break;
     case 'd':
       doIdx(cond, value, show, ramKey, returnFlag);
+      break;
+    case 'e':
+      doLen(cond, value, show, ramKey, returnFlag);
       break;
 
   }
@@ -1083,9 +1071,8 @@ RetroRadioInput::RetroRadioInput(const char* id):
 //**************************************************************************************************
 RetroRadioInput* RetroRadioInput::get(const char *id) {
   String idStr = String(id);
-  RetroRadioInput *p;
   chomp(idStr);
-  idStr.toLowerCase();
+  //idStr.toLowerCase();
   if (idStr.length() == 0)
     return NULL;
   for (int i = 0; i  < _inputList.size(); i++)
@@ -1157,9 +1144,10 @@ char **event = NULL;
 //  - returns NULL if type is not valid.                                                           *
 //**************************************************************************************************
 String RetroRadioInput::getEventCommands(String type, char *srcInfo) {
-char **event = NULL;
+char **event = getEvent(type);
   if (srcInfo != NULL)
     sprintf(srcInfo, "on%s????", type.c_str());
+  /*
   if (type == "change")
     event = &_onChangeEvent;
   else if (type == "0")
@@ -1178,6 +1166,7 @@ char **event = NULL;
     event = &_onClickEvent[4];
   else if (type == "2long")
     event = &_onClickEvent[5];
+  */
   if ( NULL == event) {
     return "";
   }
@@ -1277,9 +1266,9 @@ void RetroRadioInput::setParameters(String params) {
   recursion++;
   chomp(params);
   while (params.length()) {                             // anything left
-    String value = getStringPart(params, ',', true);    // separate next parameter
+    String value = split(params, ',', true);    // separate next parameter
     int ivalue;
-    String param = getStringPart(value, '=');           // see if value is set
+    String param = split(value, '=');           // see if value is set
     if (strchr("@&.", param.c_str()[0])) {               // reference to NVS or RAM?
       chomp_nvs(param); 
       setParameters(param.c_str());                     // new version...
@@ -1770,10 +1759,10 @@ void RetroRadioInput::setValueMap(String value, bool extend) {
     _valueMap.clear();
   while (value.length() > 0) {
     String mapEntryLeft, mapEntryRight;
-    char *delimiters[] = {"=", NULL};
+    const char *delimiters[] = {"=", NULL};
     int idx = parseGroup(value, mapEntryLeft, mapEntryRight, delimiters);
     if (idx == 0) {
-      char *delimiters[] = {"..", NULL};
+      const char *delimiters[] = {"..", NULL};
       String from1, from2, to1, to2;
       if (mapEntryLeft.length() == 0) {
         from1 = String(INT16_MIN);
@@ -1787,49 +1776,9 @@ void RetroRadioInput::setValueMap(String value, bool extend) {
       _valueMap.push_back(from2.toInt());
       _valueMap.push_back(to1.toInt());
       _valueMap.push_back(to2.toInt());
-
-      //Serial.printf("Map entry for input_%s: %d, %d = %d, %d\r\n", getId(), _valueMap[_valueMap.size() - 4],
-      //                         _valueMap[_valueMap.size() - 3],_valueMap[_valueMap.size() - 2],_valueMap[_valueMap.size() - 1]);
-
     }
   }
-  //_lastInputType = NONE;
 }
-
-#ifdef OLD
-void RetroRadioInput::setValueMap(String value) {
-  chomp(value);
-  _valueMap.clear();
-
-  //clearValueMap();
-  if (value.c_str()[0] == '@') {                 // value pointing to NVS-Entry?
-    value = nvsgetstr(value.c_str() + 1);         // yes: get that entry
-  }
-  do {
-    int16_t x1, x2, y1, y2;
-    String mapEntry = getStringPart(value, '|');     // extract one map entry
-    String left = getStringPart(mapEntry, '=');      // split left and right part
-    Serial.printf("After split: (%s)=(%s)\r\n", left.c_str(), mapEntry.c_str());
-    if (getPairInt16(mapEntry, y1, y2, true)) {
-      bool ok = (left.length() == 0);
-      if (ok) {
-        x1 = 0; x2 = INT16_MAX; value = "";
-      } else
-        ok = getPairInt16(left, x1, x2, true);
-      if (ok) {
-        _valueMap.push_back(x1);                  // add to map if both x and y pair is valid
-        _valueMap.push_back(x2);
-        _valueMap.push_back(y1);
-        _valueMap.push_back(y2);
-        Serial.printf("Map entry for input_%s: %d, %d = %d, %d\r\n", getId(), _valueMap[_valueMap.size() - 4],
-                      _valueMap[_valueMap.size() - 3], _valueMap[_valueMap.size() - 2], _valueMap[_valueMap.size() - 1]);
-      }
-    }
-    chomp(value);
-  } while (value.length() > 0);                   // repeat if there is more in the input
-  _lastInputType = NONE;
-}
-#endif
 
 
 class RetroRadioInputReaderDigital: public RetroRadioInputReader {
@@ -1866,10 +1815,6 @@ class RetroRadioInputReaderRam: public RetroRadioInputReader {
         if (strlen(key))
           _key = strdup(key);
     };
-    ~RetroRadioInputReaderRam() {
-      if (_key)
-        free((void *)_key);
-    }
     int16_t read() {
       int16_t res = 0;
       String resultString;
@@ -1882,6 +1827,12 @@ class RetroRadioInputReaderRam: public RetroRadioInputReader {
     }
     String info() {
       return String("RAM Input, key: ") + (_key ? _key : "<null>");
+    }
+  protected:
+    void deleteContent() {
+      if (_key)
+        free((void *)_key);
+      _key = NULL;
     }
 
   private:
@@ -1936,40 +1887,13 @@ class RetroRadioInputReaderAnalog: public RetroRadioInputReader {
     uint32_t _lastReadTime;
 };
 
-#ifdef OLD
-class RetroRadioInputReaderCapa: public RetroRadioInputReader {
-  public:
-    RetroRadioInputReaderCapa(int pin) {
-      _pin = pin;
-      touch_pad_config((touch_pad_t)pin, 0);
-
-      _last = 0xffff;
-    };
-    int16_t read() {
-      uint16_t x;
-      touch_pad_read_filtered((touch_pad_t)_pin, &x);
-      //      if (_last == 0xffff)
-      _last = x;
-      //      else
-      //        _last = ((_last * 7) + x) / 4;
-      return (_last);
-    };
-    void mode(int mod) {
-
-    }
-  private:
-    int _pin;
-    uint16_t _last;
-};
-#endif
 
 class RetroRadioInputReaderTouch: public RetroRadioInputReader {
   public:
     RetroRadioInputReaderTouch(int pin, int mod) {
       _pin = pin;
       _auto = false;
- //     if (pin != 8)
-        touch_pad_config((touch_pad_t)pin, 0);
+      touch_pad_config((touch_pad_t)pin, 0);
       int i = 0;
       uint16_t x = 0;
 
@@ -1998,14 +1922,6 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
       if (x == 0) {
         return _digital ? 1 : 1023;
       }
-      //        x = _maxTouch;
-      /*
-            static uint32_t lastShow = 0;
-            if (millis() - lastShow > 1000) {
-              Serial.printf("touch=%d, max=%d\r\n", x, _maxTouch);
-              lastShow = millis();
-            }
-      */
       if (_auto) {
         if (x >= _maxTouch) {
           if (_minTouch == _maxTouch)
@@ -2017,8 +1933,6 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
         else if (_maxTouch > _minTouch) {
           if (_minTouch > x)
             _minTouch = x;
-          //      else if (x - _minTouch > 20)
-          //        _minTouch++;
           if (_auto && (_maxTouch - x < 5) && (_maxTouch > 10))
             _maxTouch--;
         }
@@ -2030,7 +1944,6 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
         return x;
     };
     String info() {
-      //   doprint("TouchMin: %d, TouchMax: %d", _minTouch, _maxTouch);  //ToDo kann weg
       return String("Touch Input: T") + _pin + ", Digital use: " + _digital +
              ", Auto: " + _auto + (_auto ? " (auto calibration to 1023 if not touched)" : " (pin value is used direct w/o calibration)") ;
     }
@@ -2043,7 +1956,6 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
 class RetroRadioInputReaderSystem: public RetroRadioInputReader {
   public:
     RetroRadioInputReaderSystem(const char* reference): _ref(NULL), _refname(NULL), _readf(NULL) {
-      int i;
       for (int i = 0; (_readf == NULL) && (i < KNOWN_SYSVARIABLES); i++)
         if (0 == strcmp(reference, sysVarReferences[i].id))
           if ((NULL != sysVarReferences[i].ref) && (NULL != sysVarReferences[i].readf)) {
@@ -2053,7 +1965,6 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
           }
       if (NULL == _refname)
         _refname = strdup(reference);
-      //Serial.printf("sytem[%s] has ref=%ld\r\n", reference, _ref);
     };
 
     void mode(int mod) {
@@ -2061,7 +1972,7 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
 
     int16_t read() {
       if (_readf)
-        return _readf(_ref);
+        return _readf(_ref).toInt();
       return 0;
     };
 
@@ -2074,34 +1985,10 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
         ret += " (will always read as 0)";
       return ret;
     }
-
-    static int readUint8(void *ref) {
-      return (int) (*((uint8_t*)ref));
-    }
-    static int readInt16(void *ref) {
-      return (int) (*((uint16_t*)ref));
-    }
-
   private:
-  /*
-    struct {
-      const char *id;
-      void *ref;
-      int (*readf)(void*);
-    } _references[8] = {
-      {"volume", &ini_block.reqvol, RetroRadioInputReaderSystem::readUint8},
-      {"preset", &ini_block.newpreset, RetroRadioInputReaderSystem::readInt16},
-      {"toneha", &ini_block.rtone[0], RetroRadioInputReaderSystem::readUint8},
-      {"tonehf", &ini_block.rtone[1], RetroRadioInputReaderSystem::readUint8},
-      {"tonela", &ini_block.rtone[2], RetroRadioInputReaderSystem::readUint8},
-      {"tonelf", &ini_block.rtone[3], RetroRadioInputReaderSystem::readUint8},
-      {"channel", &currentChannel, RetroRadioInputReaderSystem::readInt16},
-      {"channels", &numChannels, RetroRadioInputReaderSystem::readInt16}
-    };
-*/
     void *_ref;
     const char* _refname;
-    int (*_readf)(void *);
+    String (*_readf)(void *);
 };
 
 
@@ -2113,22 +2000,19 @@ void RetroRadioInput::setReader(String value) {
   int idx = value.substring(1).toInt();
   Serial.printf("SetReader, value = %s\r\n", value.c_str());
   switch (value.c_str()[0]) {
-    case 'd': reader = new RetroRadioInputReaderDigital(idx, _mode);
+    case 'd': 
+      reader = new RetroRadioInputReaderDigital(idx, _mode);
       break;
-    case 'a': if ((_reader == NULL) && (_mode == 0))
+    case 'a': 
+      if ((_reader == NULL) && (_mode == 0))
         _mode = 0b11100;
       reader = new RetroRadioInputReaderAnalog(idx, _mode);
       break;
-    /*
-        case 'c': reader = new RetroRadioInputReaderCapa(idx);
-                  break;
-    */
-    case 't': //if (idx == 9)
-              reader = new RetroRadioInputReaderTouch(idx, _mode);
-              //else
-                //doprint("ignoring reader for any touch other than 9 (request: %d)", idx);
+    case 't': 
+      reader = new RetroRadioInputReaderTouch(idx, _mode);
       break;
-    case '.': reader = new RetroRadioInputReaderRam(value.c_str() + 1);
+    case '.': 
+      reader = new RetroRadioInputReaderRam(value.c_str() + 1);
       break;
     case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
       break;
@@ -2138,38 +2022,11 @@ void RetroRadioInput::setReader(String value) {
       delete _reader;
     _reader = reader;
     _lastInputType = NONE;
-    Serial.printf("Reader %lX set for %lX!", _reader, this);
+    Serial.printf("Reader %lX set for %lX!", (unsigned long)_reader, (unsigned long)this);
   }
 }
 
-//**************************************************************************************************
-// Class: RetroRadioInput.clearValueMap()                                                          *
-//**************************************************************************************************
-//  - Clears the value map, if that map is not empty. In that case, also _lastRead is reset, as    *
-//    from now on the mapping used to calculate _lastRead is no longer valid                       *
-//**************************************************************************************************
-/*
-  void RetroRadioInput::clearValueMap() {
-  if (_valueMap.size()) {
-    _valueMap.clear();
-    _lastRead = _lastUndebounceRead = INT16_MIN;
-  }
-  _lastInputType = NONE;
-  }
-*/
 
-//**************************************************************************************************
-// Class: RetroRadioInput.valid()                                                                  *
-//**************************************************************************************************
-//  - Virtual method, can be overidden by subclasses. True, if a valid input is associated with    *
-//    the calling object.                                                                          *
-//    from now on the mapping used to calculate _lastRead is no longer valid                       *
-//**************************************************************************************************
-/*
-  bool RetroRadioInput::valid() {
-  return _valid;
-  }
-*/
 
 //**************************************************************************************************
 // Class: RetroRadioInput.physRead()                                                               *
@@ -2209,7 +2066,7 @@ int RetroRadioInput::read(bool doStart) {
   bool show = (_show > 0) && ((millis() - _lastShowTime > _show) || forced);
   String showStr;
   int16_t x = physRead();
-  int16_t nearest;
+  int16_t nearest = 0;
   if (show)
     _lastShowTime = millis();
   if (NONE == _lastInputType) {
@@ -2413,15 +2270,12 @@ void RetroRadioInput::checkAll() {
     bool isRunning = p->_lastInputType != NONE;
     if ((isRunning && (p->hasChangeEvent() || (p->_clickEvents > 0))) || ((p->_show > 0) && (millis() - p->_lastShowTime > p->_show))) {
       p->read(isRunning);
-      //if (!isRunning)
-      //Serial.printf("Input \"in.%s\" is STOPped!\r\n", p->getId());
-      //p->_lastInputType = NONE;
     }
   }
 }
 
 void RetroRadioInput::showAll(const char *p) {
-  Serial.printf("Running showAll! p=%ld\r\n", p);
+  Serial.printf("Running showAll! p=%ld\r\n", (unsigned long)p);
   for (int i = 0; i < _inputList.size(); i++) {
     bool match = (p == NULL);
     if (!match)
@@ -2437,200 +2291,6 @@ void doInput(const char* idStr, String value) {
     i->setParameters(value);
 }
 
-/*
-  //To be documented....
-  int16_t RetroRadioInput::read(bool show) {
-  int16_t x;
-  bool found = false;
-  int16_t nearest = 0;
-  if (!valid())
-    return INT16_MIN;
-  x = physRead();
-  if (show)
-    doprint("PhysRead = %d, ValueMapSize =%d (_show=%ld, show=%d)", x, _valueMap.size(), _show, show);
-  if ((x >= 0) && (_valueMap.size() >= 4)) {
-    size_t idx = 0;
-    uint16_t maxDelta = UINT16_MAX;
-    while (idx < _valueMap.size() && !found) {
-      int16_t c1, c2;
-      int16_t x1, x2, y1, y2;
-      x1 = _valueMap[idx++];
-      x2 = _valueMap[idx++];
-      y1 = _valueMap[idx++];
-      y2 = _valueMap[idx++];
-      c1 = x1 = (x1 < 0?_maximum+x1:x1);
-      c2 = x2 = (x2 < 0?_maximum+x2:x2);
-      if (c1 > c2) {
-        int16_t t = c1;
-        c1 = c2;
-        c2 = t;
-      }
-      if ((x >= c1) && (x <= c2)) {
-        found = true;
-        if (show)
-          if (_calibrate)
-            doprint("Compare success at valueMap[%d] %d < %d < %d ?= map(%d, %d, %d, %d, %d)", (idx - 4) / 4, c1, x, c2, x, x1, x2, y1, y2);
-
-        if (y1 == y2)
-          x = y1;
-        else
-          x = map(x, x1, x2, y1, y2);
-      } else {
-        int16_t newNearest;
-        uint16_t myDelta = x < c1?c1 - x: x - c2;
-        if (x < c1) {
-          newNearest = -y1 - 1;
-          myDelta = c1 - x;
-        } else {
-          newNearest = -y2 - 1;
-          myDelta = x - c2;
-        }
-        if (myDelta < maxDelta) {
-          maxDelta = myDelta;
-          nearest = newNearest;
-        }
-      }
-    };
-  }
-  if (!found & (0 != nearest)) {
-    if (show)
-      if (_calibrate)
-        doprint("No direct match in map, nearest entry found is: %d", -nearest - 1);
-    x = nearest;
-  }
-  if (false)  {
-    if (x != _lastUndebounceRead) {
-      _lastUndebounceRead = x;
-      _lastReadTime = millis();
-      x = _lastRead;
-    } else if (x != _lastRead) {
-      if (millis() - _lastReadTime < _debounceTime)
-        x = _lastRead;
-    }
-  }
-  return x;
-  }
-
-
-
-  void RetroRadioInput::check() {
-  //todo: filtern?
-  //todo: forcedRead
-  bool forced = false;//_force;
-  bool showflag = false;
-  //  _force = false;
-  if (_show || forced)
-    showflag = forced || ((millis() - _lastShowTime > _show));
-  if (showflag)
-    _lastShowTime = millis();
-  int16_t x = read(showflag);
-  if ((x == INT16_MIN))
-    return;
-  if (!forced) {
-    if (x == _lastRead) {
-      return;
-      _lastReadTime = millis();
-      _lastUndebounceRead = x;
-    } else if (x != _lastUndebounceRead) {
-      _lastReadTime = millis();
-      _lastUndebounceRead = x;
-      return;
-    } else if (millis() - _lastReadTime < _debounceTime)
-      return;
-  }
-  // Here we now have an debounced read that was different to the last one...
-  if (forced || ((x >= 0)
-  //&& (_lastRead >= 0)
-  && (abs(_lastRead - x) >= _delta))) {
-     if (_calibrate > 0)
-       doprint("Change of Input_%s (from %d) to %d", getId(), _lastRead, x);
-     if ((x < 0) && forced)
-        x = -x - 1;
-      if (x >= 0) {
-        int delta = abs(x - _lastRead);
-        if (!forced && (_step > 0) && (delta >= _step) && (_lastRead >= 0))
-          if (x > _lastRead)
-            if ((delta > _fastStep) && (_fastStep > _step))
-              x = _lastRead + _fastStep;
-            else
-              x  = _lastRead + _step;
-          else {
-            if ((_fastStep > _step) && (delta > _fastStep))
-              x = _lastRead - _fastStep;
-            else
-              x  = _lastRead - _step;
-            if (x < 0)
-              x = 0;
-          }
-        if (_calibrate > 0)
-          doprint("We have an event here: %s=%d", getId(), x);
-        _lastRead = x;
-        if (0 == strcmp("a33", getId())) {
-          if (x <= 100) {
-            char s[20];
-            sprintf(s,"volume=%d", x);
-            analyzeCmd(s);
-          }
-        } else if (0 == strcmp("t6", getId())) {
-          if (x <= 100) {
-            char s[20];
-            sprintf(s,"preset=%d", x);
-            analyzeCmd(s);
-          }
-        } else if (0 == strcmp("a35", getId())) {
-          if (x <= 100) {
-            char s[20];
-            sprintf(s,"mp3track=0", x);
-            analyzeCmd(s);
-          }
-        }
-      }
-  }
-  }
-
-
-  RetroRadioInputADC::RetroRadioInputADC(const char* id):RetroRadioInput(id) {
-  _valid = true;
-  _pin = atoi(id + 1);
-  Serial.println("Now setParams for ADC should follow!");
-  setParameters("@/inputa");
-  }
-
-  int16_t RetroRadioInputADC::physRead() {
-  return analogRead(_pin);
-  }
-
-  RetroRadioInputTouch::RetroRadioInputTouch(const char* id):RetroRadioInput(id), _auto(false) {
-  _pin = (touch_pad_t)atoi(id + 1);
-  if (_valid = (_pin < TOUCH_PAD_MAX)) {
-     touch_pad_config(_pin, 0);
-     Serial.println("Now setParams for Touch should follow!");
-      setParameters("@/inputt");
-  }
-  }
-
-  int16_t RetroRadioInputTouch::physRead() {
-  uint16_t tuneReadValue;
-  touch_pad_read_filtered(_pin, &tuneReadValue);
-  if (_auto && (tuneReadValue < _maximum))
-    _maximum--;
-  return tuneReadValue;
-  }
-
-
-  //**************************************************************************************************
-  // Class: RetroRadioInputTouch.setParameter(String param, String value, int32_t ivalue)            *
-  //**************************************************************************************************
-  //  - overrides but uses method from base function                                                 *
-  //  - only addition is the parameter "auto"                                                        *
-  //**************************************************************************************************
-  void RetroRadioInputTouch::setParameter(String param, String value, int32_t ivalue) {
-  if (param == "auto") {
-    _auto = (bool)ivalue ;
-  } else
-    RetroRadioInput::setParameter(param, value, ivalue);
-  }
-*/
 
 std::map<String, String> ramContent;
 
@@ -2709,6 +2369,8 @@ void doRamlist(const char* p) {
 void doRam(const char* param, String value) {
   const char *s = param;
   char* s1;
+  while (*s && (*s <= ' '))
+    s++;
   if ( strchr ( s, '?' ) )
   {
     if ( value != "0" )
@@ -2720,7 +2382,7 @@ void doRam(const char* param, String value) {
   {
     ramdelkey ( value.c_str() );
   }
-  else if ( s1 = strchr ( s, '.' ) )
+  else if ( (s1 = strchr ( s, '.' )) )
   {
     String str = String ( s1 + 1 ) ;
     chomp_nvs ( str ) ;
@@ -2773,7 +2435,7 @@ void doNvs(const char* param, String value) {
   {
     nvsdelkey ( value.c_str() );
   }
-  else if ( s1 = strpbrk ( s, ".&" ) )
+  else if ( (s1 = strpbrk ( s, ".&" )) )
   {
     String str = String ( s1 + 1 ) ;
     chomp_nvs ( str ) ;
@@ -2781,30 +2443,6 @@ void doNvs(const char* param, String value) {
       nvssetstr ( str.c_str(), value);
   }
 }
-
-
-/*
-//**************************************************************************************************
-//                                      D O N V S L I S T                                          *
-//**************************************************************************************************
-// - command "nvslist": list the full NVS content to Serial (even if DEBUG = 0)                    *
-// - if parameter p != NULL, only show entries which have *p as substring in keyname               *
-//**************************************************************************************************
-void doNvslist(const char* p) {
-  fillkeylist();
-  int i = 0;
-  int idx = 0;
-  doprint("NVS content");
-  while (nvskeys[i][0] != '\0') {
-    bool match = (p == NULL);
-    if (!match)
-      match =  strstr(nvskeys[i], p) != NULL;
-    if (match)
-      doprint(" %3d: '%s' = '%s'", ++idx, nvskeys[i], nvsgetstr(nvskeys[i]).c_str());
-    i++;
-  }
-}
-*/
 
 
 void doChannels(String value) {
@@ -3340,7 +2978,7 @@ void IRAM_ATTR isr_RR_IRNEC()
 {
   sv uint32_t      t0 = 0 ;                          // To get the interval
   uint32_t         t1, intval ;                      // Current time and interval since last change
-  int pin_state = digitalRead(ir_pin);               // Get current state of InputPin
+  //int pin_state = digitalRead(ir_pin);               // Get current state of InputPin
 
   t1 = micros() ;                                    // Get current time
   intval = t1 - t0 ;                                 // Compute interval
@@ -3660,23 +3298,7 @@ void setupRR(uint8_t setupLevel) {
 
 
 void loopRR() {
-  /*
-  static int8_t firstLoops = 0xff;
-  if (firstLoops)
-  {
-    if (!--firstLoops)
-    {
-      gnvsopen();
-    }
-  }
-  else
-  {
-    //gnvsLoop();
-  }
-
-*/
   scanIRRR();
-
   RetroRadioInput::checkAll();
   if (numLoops) {
     int deb = DEBUG;
@@ -3688,46 +3310,6 @@ void loopRR() {
     }
     DEBUG = deb;
   }
-  return;
-  /*
-    static bool statusWasNeverPublished = true;
-    static int ledToShow = 0;
-      if (first)
-        setupMedionExtension();
-      if (first || (1 == playingstat) || (localfile))
-        {
-    //        toggleMedionLED(LED_MODE_LOW);
-
-          first = false;
-        }
-    //   volumeRead();
-    //   if ((1 == playingstat) && (0 != lastVolume))
-    //   readChannel();
-    #ifdef OLD
-     toneRead();
-     switchKnobRead();
-     volumeKnobRead();
-     tuneKnobRead();
-     if (numLeds) {
-      showLed(ledToShow, 0);
-      if (++ledToShow >= numLeds)
-        ledToShow = 0;
-     }
-    #endif
-     //dummy->check();
-     //dummyVol->check();
-     //dummySwitch->check();
-     static uint32_t last39;
-     if (millis() - last39 > 1000)
-     {
-    //      Serial.printf("GPIO39: %d\r\n", analogRead(39));
-        //Serial.printf("GPIO36: %d\r\n", analogRead(36));
-        //Serial.printf("GPIO35: %d\r\n", analogRead(35));
-        //Serial.printf("GPIO34: %d\r\n", analogRead(34));
-        last39 = millis();
-     }
-    RetroRadioInput::checkAll();
-  */
 }
 
 
@@ -3757,24 +3339,18 @@ bool doShow = param.c_str()[4] == 'v';
     calllevel--;
 }
 
+
 const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {
   const char *s; 
   char firstChar; 
   bool ret = false;
-  
   chomp(param);
+  String paramOriginal = param;
   param.toLowerCase();
   chomp ( value ) ;
 
-  s = param.c_str();
+  s = paramOriginal.c_str();
   firstChar = *s; 
-/*  
-  dbgprint("analyzeCmdRR '%s'='%s'", param.c_str(), value.c_str());
-  if (param.startsWith("ifnot"))
-    dbgprint("This is IFNOT!!");
-  else
-    dbgprint("Not ifnot, s[0] = %c!!", firstChar);
-*/
   if ( ( value.c_str()[0] == '(' ) )
   {
     String group, dummy;
@@ -3811,89 +3387,91 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     }
   
   }
-  else if ( ret = ( param.startsWith ( "call" ) )) 
+  else if ( (ret = ( param.startsWith ( "call" ))) )
   {
     doCall ( param, value );
   }
-  else if ( ret = ( param.startsWith ( "genre" ) )) 
+  else if ( (ret = ( param.startsWith ( "genre" ))) ) 
   {
     doGenre ( param, value );
   }
-  else if ( ret = (param == "gpreset")  ) 
+  else if ( (ret = (param == "gpreset")) ) 
   {
     doGpreset ( value );
   }
 
-  else if (ret = param.startsWith("ifnot")) 
+//  else if ( (ret = param.startsWith("ifnot")) )
+//  {
+//    doCalcIfWhile(param, "if", value, returnFlag, true);
+//  } 
+  else if ( (ret = param.startsWith("if")) )
   {
-    //Serial.println("About to enter CalcIfWhile");
-    doCalcIfWhile(param, "if", value, returnFlag, true);//doIf(value, argument.c_str()[2] == 'v');
+    doCalcIfWhile(paramOriginal, "if", value, returnFlag);//doIf(value, argument.c_str()[2] == 'v');
   } 
-  else if (ret = param.startsWith("if")) 
+  else if ( (ret = param.startsWith("calc")) )
   {
-    //Serial.println("About to enter CalcIfWhile");
-    doCalcIfWhile(param, "if", value, returnFlag);//doIf(value, argument.c_str()[2] == 'v');
+    doCalcIfWhile(paramOriginal, "calc", value, returnFlag);//doCalc(value, argument.c_str()[4] == 'v');
   } 
-  else if (ret = param.startsWith("calc")) 
+//  else if ( (ret = param.startsWith("whilenot")) )
+//  {
+//    doCalcIfWhile(param, "while", value, returnFlag, true);
+//  }
+  else if ( (ret = param.startsWith("while")) )
   {
-    doCalcIfWhile(param, "calc", value, returnFlag);//doCalc(value, argument.c_str()[4] == 'v');
-  } 
-  else if (ret = param.startsWith("whilenot"))
-  {
-    doCalcIfWhile(param, "while", value, returnFlag, true);
+    doCalcIfWhile(paramOriginal, "while", value, returnFlag);
   }
-  else if (ret = param.startsWith("while"))
+  else if ( (ret = param.startsWith("idx")) )
   {
-    doCalcIfWhile(param, "while", value, returnFlag);
+    doCalcIfWhile(paramOriginal, "idx", value, returnFlag);
   }
-  else if (ret = param.startsWith("idx"))
+  else if ( (ret = param.startsWith("len")) )
   {
-    doCalcIfWhile(param, "idx", value, returnFlag);
+    doCalcIfWhile(paramOriginal, "len", value, returnFlag);
   }
-  else if ( ret = (param.startsWith("ram" ))) 
+  else if ( (ret = (param.startsWith("ram" ))) ) 
   {
     //Serial.println("RAM FROM NEW SOURCE!!!");
-    doRam ( param.c_str() + 3, value ) ;
+    doRam ( paramOriginal.c_str() + 3, value ) ;
   }
-  else if ( ret = (param.startsWith("in.")))
+  else if ( (ret = (param.startsWith("in"))) )
+  {
+    const char *s = paramOriginal.c_str() + 2;
+    while (*s && (*s != '.'))
+      s++;
+    if ( (ret = (*s == '.')))
+    //Serial.println("RAM FROM NEW SOURCE!!!");
+      doInput ( s + 1, value ) ;
+    else
+      ret = false;
+  }
+  else if ( (ret = (param.startsWith("nvs" ))) ) 
   {
     //Serial.println("RAM FROM NEW SOURCE!!!");
-    doInput ( param.c_str() + 3, value ) ;
+    doNvs ( paramOriginal.c_str() + 3, value ) ;
   }
-  else if ( ret = (param.startsWith("nvs" ))) 
-  {
-    //Serial.println("RAM FROM NEW SOURCE!!!");
-    doNvs ( param.c_str() + 3, value ) ;
-  }
-  else if ( ret = ( param == "channels" ) ) 
+  else if ( (ret = ( param == "channels" )) ) 
   {
     doChannels (value);
   } 
-  else if ( ret = ( param == "channel" ) )
+  else if ( (ret = ( param == "channel" )) )
   {
     doChannel (value, atoi ( value.c_str() ) );
   }
-  else if ( ret = (param.startsWith("return" ))) 
+  else if ( (ret = (param.startsWith("return" ))) ) 
   {
-    //Serial.println("RETURN NEW SOURCE!!!");
     returnFlag = true ;
     char *s1 = strchr ( param.c_str() , '.' ) ; 
     if ( s1 )
       doRam ( s1, value ) ;
-//    else
-//      doRam ( ".return", value );
   }
-/*
-  else if ((param == "preset") && (genreId > 0))
-  {
-    doGpreset(value);
-    ret = true;
-  }
-*/
   else if ((param == "preset") && ((value == "--stop") || (value.toInt() == -1)))
   {
     currentpreset = ini_block.newpreset = -1;
     ret = true;
+  }
+  else if ( param.startsWith("gcfg.") )
+  {
+    doGenreConfig(param.substring(5), value);
   }
   if ( ret ) 
   {
@@ -4015,551 +3593,7 @@ const char* analyzeCmdsRR( String s, bool& returnFlag) {
 }
 #endif //if !defined(WRAPPER)
 
-#include <WiFiClientSecure.h>
-#include <nvs.h>
-WiFiClientSecure rdbsClient;
 
-
-const char *rdbsHost = "de1.api.radio-browser.info";
-const int rdbsPort = 443;
-
-/*
-
-#define MAX_GENRE_PRESETS   500
-#define GENRE_LOOP_READ_NONE     0
-#define GENRE_LOOP_READ          1
-#define GENRE_LOOP_READ_FAIL     2
-
-#define GENRE_PARTITION_NAME    "presets"
-#define GENRE_IDENTIFIER_LEN    40
-#define GENRE_TABLE_ENTRIES     10
-
-#define GENRE_ENTRY_MODE_EMPTY  0         // Entry can be used to store a Genre
-#define GENRE_ENTRY_MODE_DELETE 1         // Entry shall be deleted (set task to delete if identied on page load?)
-#define GENRE_ENTRY_MODE_FILL   2         // Entry is currently used to read presets (set task to restart on cache load?)
-
-#define GNVS_TASK_LOAD          0         // Serach gnvs if specific genre is already in gnvs, if not load it from rdbs into gnve
-//#define GNVS_TASK_OPEN          1         // Open specific genre for playing (load if not in gnvs so far)
-#define GNVS_TASK_CLEAR         2         // erase entire gnvs
-#define GNVS_TASK_PUSHBACK      3         // Treat as command-line command...
-
-
-#define GNVS_STATE_IDLE         0         // Ready to handle gnvs task (from gnvsTaskList)
-#define GNVS_STATE_SEARCH       1         // Search if specific genre is existing in gnvs
-#define GNVS_STATE_OPEN         2         // Not found, open client to rdbs
-#define GNVS_STATE_READ         3         // After successful open, do read
-#define GNVS_STATE_READFAIL     4         // Read failed
-#define GNVS_STATE_DONE         5         // current task has been handled, can be deleted from tasklist
-
-uint32_t                gnvshandle = 0 ;                  // Handle for nvs access
-esp_err_t               gnvserr ;                         // Error code from nvs functions
-
-
-
-class GnvsTask
-{
-public:
-  GnvsTask(int taskId ) :_genreId(0), _taskId(taskId), _genreName(NULL) {};
-  GnvsTask(int genreId, int taskId ) :_genreId(genreId), _taskId(taskId), _genreName(NULL) {};
-  GnvsTask(const char* genreName, int taskId ):_genreId(0), _taskId(taskId)
-  {
-    _genreName = strdup(genreName);
-  };
-  ~GnvsTask() 
-  {
-    if (_genreName != NULL)
-      free (_genreName);
-  }
-  int _genreId, _taskId;
-  char* _genreName;
-};
-
-std::queue<GnvsTask *> gnvsTaskList;
-
-struct gnvs_table_entry_t 
-{
-  int id;
-  time_t timeMode;
-  char name[GENRE_IDENTIFIER_LEN + 1];
-  int presets;
-} ;
-
-struct gnvs_table_part_t
-{
-  int id;
-  struct gnvs_table_entry_t entry[GENRE_TABLE_ENTRIES];
-} gnvsTableCache;
-
-
-void clearGnvsTableCache() 
-{
-  memset(&gnvsTableCache, 0, sizeof(gnvsTableCache)) ;
-}
-
-//**************************************************************************************************
-//                           writeGnvsTableCache()                                                 *
-//**************************************************************************************************
-// Write back current gnvsTableCache, only if id > 0 and only if there is some change              *
-// No writing if no change.                                                                        *
-//**************************************************************************************************
-bool writeGnvsTableCache() 
-{
-  char key[20];
-  gnvs_table_part_t buf;
-  bool   wflag = true  ;                                   // Assume update
-  if (0 == gnvsTableCache.id)                              // No valid table in cache
-    return false;
-  sprintf(key, "t%d", gnvsTableCache.id);                  // 
-  dbgprint ( "Flush Cache with key: %s:", key ) ;
-  size_t l = sizeof(buf);
-  if ( gnvssearchcache ( gnvsTableCache.id ) )                                 // Already in nvs?
-  {
-    nvs_get_blob ( gnvshandle, key, &buf, &l);             // Read the current table content in nvs
-    wflag = ( l != sizeof(buf) ) ;                         // Wrong BufSize?
-    if (! wflag )
-      wflag = (0 != memcmp(&buf, &gnvsTableCache, l));
-  }
-  l = sizeof(buf);
-  if ( wflag )                                             // Update or new?
-  {
-    //dbgprint ( "nvssetstr update value" ) ;
-    gnvserr = nvs_set_blob ( gnvshandle, key, &gnvsTableCache, sizeof(gnvsTableCache) ) ; // Store key and value
-    if ( gnvserr )                                          // Check error
-    {
-      dbgprint ( "gnvssetstr failed!" ) ;
-    }
-  }
-  return gnvserr != 0;
-}
-
-//**************************************************************************************************
-//                           createGnvsTableCache()                                                *
-//**************************************************************************************************
-// Create a new gnvsTableCache. The last is assumed to be the last known valid one.                *
-// Application is responsible to flush out current Cache                                           *
-//**************************************************************************************************
-void createGnvsTableCache() 
-{
-  int id = gnvsTableCache.id + 1;
-  clearGnvsTableCache();
-  gnvsTableCache.id = id;
-  writeGnvsTableCache();
-}
-
-//**************************************************************************************************
-//                           loadGnvsTableCache()                                                  *
-//**************************************************************************************************
-// Load a specific Table. Returns false (and unchanged gnvsTableCache), if table with that id does *
-// not exists                                                                                      *
-//**************************************************************************************************
-bool loadGnvsTableCache(int id)
-{
-  char key[20];
-  gnvs_table_part_t buf;
-  gnvsopen();
-  if (gnvshandle == 0)
-  {
-    dbgprint("Error reading table: gnvs not available!");
-    return false;
-  }
-  sprintf(key, "t%d", id);                  // 
-  if (gverbose)
-    doprint ( "Load Cache with key: %s:", key ) ;
-  size_t l = sizeof(buf);
-  if ( gnvssearchcache ( id ) )                                 // Already in nvs?
-  {
-    nvs_get_blob ( gnvshandle, key, &buf, &l);             // Read the current table content in nvs
-    if (l != sizeof(buf) )                           // Wrong BufSize?
-    {
-      dbgprint("Wrong size of blog in gnvs for blob %s", key);
-      return false;
-    }
-    memcpy(&gnvsTableCache, &buf, sizeof(buf));
-    if (gverbose)
-      doprint("Cache loaded: %s", key);
-    return true;
-  }
-  if (gverbose)
-    doprint("Could not load cache: %s", key);
-  return false;
-}
-
-
-
-//**************************************************************************************************
-//                                    G N V S O P E N                                              *
-//**************************************************************************************************
-// Open Preferences with my-app namespace. Each application module, library, etc.                  *
-// has to use namespace name to prevent key name collisions. We will open storage in               *
-// RW-mode (second parameter has to be false).                                                     *
-//**************************************************************************************************
-void gnvsopen()
-{
-  gnvshandle = 0; return;   // Make always fail...
-
-  if ( ! gnvshandle )                                         // Opened already?
-  {
-    clearGnvsTableCache();
-    if ( ESP_OK == nvs_flash_init_partition (GENRE_PARTITION_NAME) )
-      gnvserr = nvs_open_from_partition ( GENRE_PARTITION_NAME, 
-          GENRE_PARTITION_NAME, NVS_READWRITE, &gnvshandle ) ;  // No, open nvs
-      if ( gnvserr )
-      {
-        dbgprint ( "nvs_open for GENRE failed!" ) ;
-      }
-      else
-      {
-        dbgprint (" SUCCESS!!! nvs_open for GENRE!") ;
-      }
-  }
-
-}
-
-//**************************************************************************************************
-//                                    G N V S C L E A R                                            *
-//**************************************************************************************************
-// Clear all preferences.                                                                          *
-//**************************************************************************************************
-esp_err_t gnvsclear()
-{
-  gnvsopen() ;                                         // Be sure to open gnvs
-  return nvs_erase_all ( gnvshandle ) ;                // Clear all keys
-}
-
-
-//**************************************************************************************************
-//                                    G N V S G E T S T R                                          *
-//**************************************************************************************************
-// Read a string from nvs.                                                                         *
-//**************************************************************************************************
-String gnvsgetstr ( const char* key )
-{
-  static char   nvs_buf[NVSBUFSIZE] ;       // Buffer for contents
-  size_t        len = NVSBUFSIZE ;          // Max length of the string, later real length
-
-  gnvsopen() ;                              // Be sure to open nvs
-  nvs_buf[0] = '\0' ;                       // Return empty string on error
-  gnvserr = nvs_get_str ( gnvshandle, key, nvs_buf, &len ) ;
-  if ( gnvserr )
-  {
-    dbgprint ( "nvs_get_str failed %X for genre-key %s, keylen is %d, len is %d!",
-               gnvserr, key, strlen ( key), len ) ;
-    dbgprint ( "Contents: %s", nvs_buf ) ;
-  }
-  return String ( nvs_buf ) ;
-}
-
-
-//**************************************************************************************************
-//                                    G N V S S E T S T R                                          *
-//**************************************************************************************************
-// Put a key/value pair in gnvs. Length is limited to allow easy read-back.                        *
-// No writing if no change.                                                                        *
-//**************************************************************************************************
-esp_err_t gnvssetstr ( const char* key, String val )
-{
-  String curcont ;                                         // Current contents
-  bool   wflag = true  ;                                   // Assume update or new key
-
-  //dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
-  if ( val.length() >= NVSBUFSIZE )                        // Limit length of string to store
-  {
-    dbgprint ( "nvssetstr length failed!" ) ;
-    return ESP_ERR_NVS_NOT_ENOUGH_SPACE ;
-  }
-  if ( gnvssearchstr ( key ) )                                 // Already in nvs?
-  {
-    curcont = gnvsgetstr ( key ) ;                          // Read current value
-    wflag = ( curcont != val ) ;                           // Value change?
-  }
-  if ( wflag )                                             // Update or new?
-  {
-    //dbgprint ( "nvssetstr update value" ) ;
-    gnvserr = nvs_set_str ( gnvshandle, key, val.c_str() ) ; // Store key and value
-    if ( gnvserr )                                          // Check error
-    {
-      dbgprint ( "gnvssetstr failed!" ) ;
-    }
-  }
-  return gnvserr ;
-}
-
-//**************************************************************************************************
-//                                    G N V S S E A R C H S T R                                    *
-//**************************************************************************************************
-// Check if key exists in gnvs.                                                                    *
-//**************************************************************************************************
-bool gnvssearchstr ( const char* key )
-{
-  size_t        len = NVSBUFSIZE ;                      // Length of the string
-
-  gnvsopen() ;                                           // Be sure to open nvs
-  gnvserr = nvs_get_str ( gnvshandle, key, NULL, &len ) ; // Get length of contents
-  return ( gnvserr == ESP_OK ) ;                         // Return true if found
-}
-
-//**************************************************************************************************
-//                                    G N V S D E L K E Y                                          *
-//**************************************************************************************************
-// Deleta a keyname in nvs.                                                                        *
-//**************************************************************************************************
-void gnvsdelkey ( const char* k)
-{
-
-  if ( gnvssearchstr ( k ) )                                   // Key in gnvs?
-  {
-    nvs_erase_key ( gnvshandle, k ) ;                        // Remove key
-  }
-}
-
-
-//**************************************************************************************************
-//                                    G N V S S E A R C H S T R                                    *
-//**************************************************************************************************
-// Check if cache exists in gnvs.                                                                  *
-//**************************************************************************************************
-bool gnvssearchcache ( int id )
-{
-  char key[20];
-  sprintf(key, "t%d", id);
-  size_t        len = sizeof(gnvsTableCache) ;           // Length of the blob
-
-  gnvsopen() ;                                           // Be sure to open nvs
-  gnvserr = nvs_get_blob ( gnvshandle, key, NULL, &len ) ; // Get length of contents
-  return ( gnvserr == ESP_OK ) ;                         // Return true if found
-}
-
-
-
-char* listOfPresets[MAX_GENRE_PRESETS];
-static uint16_t numPresets;
-static int genreLoopReadState = GENRE_LOOP_READ_NONE;
-
-
-
-const char* rdbsRootCa PROGMEM = R"=====(-----BEGIN CERTIFICATE-----
-MIIDSjCCAjKgAwIBAgIQRK+wgNajJ7qJMDmGLvhAazANBgkqhkiG9w0BAQUFADA/
-MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT
-DkRTVCBSb290IENBIFgzMB4XDTAwMDkzMDIxMTIxOVoXDTIxMDkzMDE0MDExNVow
-PzEkMCIGA1UEChMbRGlnaXRhbCBTaWduYXR1cmUgVHJ1c3QgQ28uMRcwFQYDVQQD
-Ew5EU1QgUm9vdCBDQSBYMzCCASIwDQYJKoZIhvcNAQEBBQADggEPADCCAQoCggEB
-AN+v6ZdQCINXtMxiZfaQguzH0yxrMMpb7NnDfcdAwRgUi+DoM3ZJKuM/IUmTrE4O
-rz5Iy2Xu/NMhD2XSKtkyj4zl93ewEnu1lcCJo6m67XMuegwGMoOifooUMM0RoOEq
-OLl5CjH9UL2AZd+3UWODyOKIYepLYYHsUmu5ouJLGiifSKOeDNoJjj4XLh7dIN9b
-xiqKqy69cK3FCxolkHRyxXtqqzTWMIn/5WgTe1QLyNau7Fqckh49ZLOMxt+/yUFw
-7BZy1SbsOFU5Q9D8/RhcQPGX69Wam40dutolucbY38EVAjqr2m7xPi71XAicPNaD
-aeQQmxkqtilX4+U9m5/wAl0CAwEAAaNCMEAwDwYDVR0TAQH/BAUwAwEB/zAOBgNV
-HQ8BAf8EBAMCAQYwHQYDVR0OBBYEFMSnsaR7LHH62+FLkHX/xBVghYkQMA0GCSqG
-SIb3DQEBBQUAA4IBAQCjGiybFwBcqR7uKGY3Or+Dxz9LwwmglSBd49lZRNI+DT69
-ikugdB/OEIKcdBodfpga3csTS7MgROSR6cz8faXbauX+5v3gTt23ADq1cEmv8uXr
-AvHRAosZy5Q6XkjEGB5YGV8eAlrwDPGxrancWYaLbumR9YbK+rlmM6pZW87ipxZz
-R8srzJmwN0jP41ZL9c8PDHIyh8bwRLtTcm1D9SZImlJnt1ir/md2cXjbDaJWFBM5
-JDGFoqgCWjBH4d1QB7wCCZAA62RjYJsWvIjJEubSfZGL+T0yjWW06XyxV3bqxbYo
-Ob8VZRzI9neWagqNdwvYkQsEjgfbKbYK7p2CNTUQ
------END CERTIFICATE-----)=====" ;
-
-const char* rdbsRootCa2 PROGMEM =R"=====(-----BEGIN CERTIFICATE-----
-MIIEZTCCA02gAwIBAgIQQAF1BIMUpMghjISpDBbN3zANBgkqhkiG9w0BAQsFADA/
-MSQwIgYDVQQKExtEaWdpdGFsIFNpZ25hdHVyZSBUcnVzdCBDby4xFzAVBgNVBAMT
-DkRTVCBSb290IENBIFgzMB4XDTIwMTAwNzE5MjE0MFoXDTIxMDkyOTE5MjE0MFow
-MjELMAkGA1UEBhMCVVMxFjAUBgNVBAoTDUxldCdzIEVuY3J5cHQxCzAJBgNVBAMT
-AlIzMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuwIVKMz2oJTTDxLs
-jVWSw/iC8ZmmekKIp10mqrUrucVMsa+Oa/l1yKPXD0eUFFU1V4yeqKI5GfWCPEKp
-Tm71O8Mu243AsFzzWTjn7c9p8FoLG77AlCQlh/o3cbMT5xys4Zvv2+Q7RVJFlqnB
-U840yFLuta7tj95gcOKlVKu2bQ6XpUA0ayvTvGbrZjR8+muLj1cpmfgwF126cm/7
-gcWt0oZYPRfH5wm78Sv3htzB2nFd1EbjzK0lwYi8YGd1ZrPxGPeiXOZT/zqItkel
-/xMY6pgJdz+dU/nPAeX1pnAXFK9jpP+Zs5Od3FOnBv5IhR2haa4ldbsTzFID9e1R
-oYvbFQIDAQABo4IBaDCCAWQwEgYDVR0TAQH/BAgwBgEB/wIBADAOBgNVHQ8BAf8E
-BAMCAYYwSwYIKwYBBQUHAQEEPzA9MDsGCCsGAQUFBzAChi9odHRwOi8vYXBwcy5p
-ZGVudHJ1c3QuY29tL3Jvb3RzL2RzdHJvb3RjYXgzLnA3YzAfBgNVHSMEGDAWgBTE
-p7Gkeyxx+tvhS5B1/8QVYIWJEDBUBgNVHSAETTBLMAgGBmeBDAECATA/BgsrBgEE
-AYLfEwEBATAwMC4GCCsGAQUFBwIBFiJodHRwOi8vY3BzLnJvb3QteDEubGV0c2Vu
-Y3J5cHQub3JnMDwGA1UdHwQ1MDMwMaAvoC2GK2h0dHA6Ly9jcmwuaWRlbnRydXN0
-LmNvbS9EU1RST09UQ0FYM0NSTC5jcmwwHQYDVR0OBBYEFBQusxe3WFbLrlAJQOYf
-r52LFMLGMB0GA1UdJQQWMBQGCCsGAQUFBwMBBggrBgEFBQcDAjANBgkqhkiG9w0B
-AQsFAAOCAQEA2UzgyfWEiDcx27sT4rP8i2tiEmxYt0l+PAK3qB8oYevO4C5z70kH
-ejWEHx2taPDY/laBL21/WKZuNTYQHHPD5b1tXgHXbnL7KqC401dk5VvCadTQsvd8
-S8MXjohyc9z9/G2948kLjmE6Flh9dDYrVYA9x2O+hEPGOaEOa1eePynBgPayvUfL
-qjBstzLhWVQLGAkXXmNs+5ZnPBxzDJOLxhF2JIbeQAcH5H0tZrUlo5ZYyOqA7s9p
-O5b85o3AM/OJ+CktFBQtfvBhcJVd9wvlwPsk+uyOy2HI7mNxKKgsBTt375teA2Tw
-UdHkhVNcsAKX1H7GNNLOEADksd86wuoXvg==
------END CERTIFICATE-----)=====" ;
-
-bool connectRdbs(String tag) 
-{
-  rdbsClient.setCACert(rdbsRootCa);
-  if (gverbose)
-    doprint ("Try to connect RDBS: %s to read tag: %s?hidebroken = true", rdbsHost, tag.c_str());
-  if ( rdbsClient.connect ( rdbsHost, rdbsPort ) )
-  {
-    String getreq ;
-    String uri = "/json/stations/bytag/" + tag + "?hidebroken=true";
-    //String uri = "/";
-    if (gverbose)
-      doprint ( "Connected to RDBS server" ) ;
-    getreq = String ( "GET " ) +                            // Format get request
-             uri +
-             String ( " HTTP/1.0\r\n" ) +
-             String ( "Host: " ) +
-             rdbsHost +
-             String ( "\r\n" ) +
-             String ("User-Agent: RetroRadio/betaTest\r\n") +
-             String ( "Connection: close\r\n\r\n" ) ;
-    rdbsClient.print ( getreq ) ;                            // Send get request
-    vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;              // Give some time to react
-    
-    while (rdbsClient.connected()) {
-      String line = rdbsClient.readStringUntil('\n');
-      if (line == "\r") {
-        break;
-      }
-    }
-    // if there are incoming bytes available
-    // from the server, read them and print them:
-
-    genreLoopReadState = GENRE_LOOP_READ;
-    return true ;                                           // Send is probably okay
-  }
-  if (gverbose)
-    doprint ( "Connect to RDBS failed!" ) ;
-  genreLoopReadState = GENRE_LOOP_READ_NONE;
-  return false ;
-}
-
-//std::vector<char *>* listOfPresets = NULL;
-
-
-//**************************************************************************************************
-//                                    genreReadLoop                                                *
-//**************************************************************************************************
-// Actually read the response from Put a key/value pair in gnvs. Length is limited to allow easy read-back.                        *
-// No writing if no change.                                                                        *
-//**************************************************************************************************
-
-int rdbsReadLoop(int nb)
-{
-#define READ_WAIT 0
-#define READ_KEY 1
-#define KEY_SEEN 2
-#define WAIT_VALUE 3
-#define SKIP     4
-#define READ_VALUE 5
-    static int state = READ_WAIT;
-    static bool expectKey = true;
-    static int arrayNest = 0;
-    static char buf[300];
-    static int count = 0;
-    static int idx = 0;
-    int ret = count;
-    if (0 == ret)
-      ret = -1;
-    if (genreLoopReadState == GENRE_LOOP_READ_NONE)
-    {
-      dbgprint("RDBS loop returned because state is READ_NONE");
-      count = 0;
-      if (rdbsClient.connected())
-        rdbsClient.stop();
-      return ret;
-    }
-
-    if (genreLoopReadState == GENRE_LOOP_READ)
-    {
-      gnvsopen();
-      if ( !gnvshandle ) 
-        if (rdbsClient.connected())
-          rdbsClient.stop();
-      if (!rdbsClient.connected()) 
-      {
-        dbgprint("RDBS client connection closed!");
-        state = READ_WAIT;
-        expectKey = true;
-        genreLoopReadState = GENRE_LOOP_READ_NONE;
-        count = 0;
-        return ret;
-      }
-      while (rdbsClient.available()) {
-        char c = rdbsClient.read();
-        if ((c == '}') || (c == ']') || (c == '{') || (c == '['))
-        {
-          state = READ_WAIT;
-          if (c == ']')
-          {
-            arrayNest--;
-            if (arrayNest < 1)
-              if (arrayNest == 0)
-                Serial.println("End of Array seen!");
-              else if (arrayNest < 0)
-                Serial.printf("Array nesting error: %d\r\n", arrayNest);
-          }
-          else if (c == '[')
-            arrayNest++;
-        }
-        else if (c == '"') 
-        {
-          if (READ_WAIT== state ) 
-          {
-//            Serial.println("Switch to state ReadKey");
-            state = READ_KEY;
-            idx = 0;
-          }
-          else if (READ_KEY == state)
-          {
-            buf[idx] = 0;
-            if (buf == strstr(buf, "url_resolved"))
-            {
-//              Serial.printf("Key: %s\r\n", buf);
-              idx = 0;
-              state = WAIT_VALUE;
-            }
-            else
-              state = SKIP;
-          } 
-          else if (WAIT_VALUE == state)
-          {
-              state = READ_VALUE;
-              idx = 0;
-          }
-          else if (READ_VALUE == state)
-          {
-            buf[idx] = 0;
-            state = READ_WAIT;
-            if (buf == strstr(buf, "http:")) 
-            {
-              char key[20];
-              char *s = strchr(buf, '?');
-              if (s)
-                *s = 0;
-              sprintf(key, "%d_%d", nb, count++);
-              if (gverbose)
-                doprint("gnvs %s: %s", key, buf + 7);
-              if (ESP_OK != gnvssetstr(key, buf + 7)) 
-              {
-                count--;
-                ret = count?count:-1;
-                rdbsClient.stop();
-                state = READ_WAIT;
-                expectKey = true;
-                genreLoopReadState = GENRE_LOOP_READ_NONE;
-                dbgprint("Bummer: gnvs write error (full?): Genre: %d is truncated (count is %d)", 
-                  nb, count);                  
-                count = 0;
-                return ret;
-              }
-              //dbgprint("gnvssetstr %s: %s", key, buf + 7);
-            }
-          }
-        }
-        else if ((SKIP == state) && (',' == c))
-          state = READ_WAIT;
-        else if (isprint(c) && ((READ_VALUE == state) || (READ_KEY == state)))
-          if (idx < sizeof(buf)  - 1)
-            buf[idx++] = c;
-      }
-
-    }    //rdbsClient.stop();
-  return 0;     // not yet finished
-}
-*/
 
 int searchGenre(const char * name)
 {
@@ -4572,96 +3606,11 @@ int searchGenre(const char * name)
   else
     ret = 0;
   return ret;
-
-/*
-  if (gverbose)
-    doprint("Start searching for genre: '%s'", name) ;
-  gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
-  if (gnvshandle == 0)
-  {
-    if (gverbose)
-      doprint("ERRPR: can not open gnvs!");
-    return ret;
-  }
-  if (!loadGnvsTableCache(1))
-  {
-    gnvsTableCache.id = 0;
-    createGnvsTableCache();
-  }
-  if (!loadGnvsTableCache(1))
-  {
-    if (gverbose)
-      doprint("ERROR: Could not load/create table in gnvs");
-    return ret; 
-  }     
-  bool found, done;
-  do
-  {
-    if (gverbose)
-      doprint("Scanning genre table %d", 1 + ret / GENRE_TABLE_ENTRIES);
-    do {                // search current table (start with 1)
-      doprint("%d: '%s' (%ld)", ret + 1, gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].name, 
-                gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].timeMode);
-      found = (0 == strcmp(gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].name, name));
-      if (found)        // name match: check if it has presets and mode is OK
-      found = (gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].presets > 0) &&
-              (gnvsTableCache.entry[ret % GENRE_TABLE_ENTRIES].timeMode >= 100);
-      ret++;
-    } while (!found && ( 0 != (ret % GENRE_TABLE_ENTRIES))) ;
-    if (!found)
-      done = !loadGnvsTableCache(gnvsTableCache.id + 1);
-    else 
-      done = true;
-  } while ( !done );
-  if (!found)
-    ret = 0;
-  if (found)
-    doprint("Found: Genre-Id is: %d for genre '%s', %d presets", ret, name, 
-              gnvsTableCache.entry[(ret - 1) % GENRE_TABLE_ENTRIES].presets);
-  else
-    doprint("Error: Genre '%s' not found in gnvs.", name); 
-  return ret;
-*/
 }
-
-/*
-void partGenre() 
-{
-  size_t ul;
-  esp_partition_iterator_t _mypartiterator;
-  const esp_partition_t *_mypart;
-  ul = spi_flash_get_chip_size(); 
-  doprint("Flash chip size: %ld", ul);
-  doprint("Partiton table:");
-  _mypartiterator = esp_partition_find(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_ANY, NULL);
-  if (_mypartiterator) 
-  {
-    do 
-    {
-      _mypart = esp_partition_get(_mypartiterator);
-      doprint("%x - %x - %x - %x - %s - %i\r\n", _mypart->type, _mypart->subtype, _mypart->address, _mypart->size, _mypart->label, _mypart->encrypted);
-    } while (_mypartiterator = esp_partition_next(_mypartiterator));
-  }
-  esp_partition_iterator_release(_mypartiterator);
-  _mypartiterator = esp_partition_find(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, NULL);
-  if (_mypartiterator) 
-  {
-    do 
-    {
-      _mypart = esp_partition_get(_mypartiterator);
-      doprint("%x - %x - %x - %x - %s - %i", _mypart->type, _mypart->subtype, _mypart->address, _mypart->size, _mypart->label, _mypart->encrypted);
-    } 
-    while (_mypartiterator = esp_partition_next(_mypartiterator));  
-  }
-  esp_partition_iterator_release(_mypartiterator);
-}
-*/
 
 bool doDelete(int idx, String genre, bool deleteLinks, String& result)
 {  
-  int lastId = 0;
   int storedId = 0;
-  int tableIndex;
   bool ret = false;
 
   storedId = searchGenre(genre.c_str());
@@ -4676,167 +3625,12 @@ bool doDelete(int idx, String genre, bool deleteLinks, String& result)
   else
   {
     genres.createGenre(genre.c_str(), deleteLinks);
-    //ToDo: Keep Links????
     result = String("OK");
     ret = true;
   }
   
   return ret;
-/*
-  if ( gnvshandle == 0)
-    gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
-  else
-    lastId = gnvsTableCache.id;
-  if (gnvshandle == 0)
-  {
-    result = String("Error: can not open stoarage in GNVS.");
-    return false;
-  }
-  storedId = searchGenre(genre.c_str());
-  if (0 == storedId)
-  {
-    result = String("Error: genre not found in GNVS.");
-    if ( lastId != 0)
-      loadGnvsTableCache(lastId);
-    return false;
-  }
-  if (idx != storedId)
-  {
-    result = String("Error: genre id does not match in GNVS.");
-    if ( lastId != 0)
-      loadGnvsTableCache(lastId);
-    return false;
-  }
-  tableIndex = (idx - 1) % GENRE_TABLE_ENTRIES;
-  gnvsTableCache.entry[tableIndex].timeMode = GENRE_ENTRY_MODE_DELETE;
-  gnvsTableCache.entry[tableIndex].name[0] = 0; 
-  writeGnvsTableCache();
-  char key[30];
-  for(int i= gnvsTableCache.entry[tableIndex].presets;i > 0;)
-  {
-    --i;
-    sprintf(key, "%d_%d", idx, i);
-    gnvsdelkey(key);
-  }
-  if (deleteLinks)
-  {
-    sprintf(key, "%d_x", idx);
-    gnvsdelkey(key);
-  }
-
-  gnvsTableCache.entry[tableIndex].timeMode = 0;
-  gnvsTableCache.entry[tableIndex].presets = 0; 
-  writeGnvsTableCache();
-  result = String ( "OK" );
-  if ( lastId != 0)
-      loadGnvsTableCache(lastId);
-  return true;
-*/
 }
-
-/*
-void dirGenre(Print *client, bool asJson)
-{
-  bool isSerial = (client == &Serial);
-  int idx = 0;
-  int lastId = 0;
-  bool haveJsonEntry = false;
-  if (isSerial)
-    doprint("List known genres in gnvs");
-  else 
-    if (asJson)
-      client->println("[");
-    else
-      client->println("List knonw genres in gnvs");
-  if ( gnvshandle == 0)
-    gnvsopen();                             // Here we have a Task. DoubleCheck if gnvs can be used
-  else
-    lastId = gnvsTableCache.id;
-  if (gnvshandle == 0)
-  {
-    if (isSerial)
-      doprint("ERROR: can not open gnvs!");
-    else 
-      if (!asJson)
-        client->println("]");
-      else
-        client->println("ERROR: can not open gnvs!");
-    return ;
-  }
-  if (!loadGnvsTableCache(1))
-  {
-    gnvsTableCache.id = 0;
-    createGnvsTableCache();
-  }
-  if (!loadGnvsTableCache(1))
-  {
-    if (gverbose && isSerial)
-      doprint("ERROR: Could not load/create table in gnvs");
-    if (asJson)
-      client->println("]") ;
-    return ; 
-  }     
-  if (isSerial)
-    doprint("ID: '%-30s' %8s %-20s", "Name", "Presets", "Mode");
-  else if (!asJson)
-    client->printf("ID: '%-30s' %8s %-20s\r\n", "Name", "Presets", "Mode");
-  bool done;
-  do
-  {
-    do {                // search current table (start with 1)
-      char mode[30];
-      uint32_t timeMode = gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].timeMode;
-      if (0 == timeMode)
-        strcpy(mode, "<empty>");
-      else if (timeMode >= 100)
-        strcpy(mode, "<valid>");
-      else
-        strcpy(mode, "<invalid>");
-      if (isSerial)
-        doprint("%2d: '%-30s' %8d %-20s", idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
-                gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
-                mode);
-      else
-        if (!asJson)  
-        {
-          client->printf("%2d: '%-30s' %8d %-20s\r\n", idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
-                gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
-                mode);
-        }
-        else //if (timeMode >= 100)
-        {
-
-          //if (haveJsonEntry)
-          if (idx > 0)
-            client->println(",") ;
-          haveJsonEntry = true;
-          client->printf("{\"id\": %d, \"name\":\"%s\", \"presets\": %d, \"mode\": \"%s\"}",
-                idx + 1, gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].name, 
-                gnvsTableCache.entry[idx % GENRE_TABLE_ENTRIES].presets,
-                mode);
-        }
-      idx++;
-    } while ( 0 != (idx % GENRE_TABLE_ENTRIES)) ;
-    done = !loadGnvsTableCache(gnvsTableCache.id + 1);
-  } while ( !done );
-  nvs_stats_t nvs_stats;
-  if (isSerial || !asJson)
-  {
-    nvs_get_stats("presets", &nvs_stats);
-    if (isSerial)
-      doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
-                nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
-    else
-      client->printf ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)\r\n",
-                nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
-  }
-  if (asJson)
-    client->println("\r\n]") ;
-  if ( lastId != 0)
-    loadGnvsTableCache(lastId);
-}
-*/
-
 
 bool playGenre(int id)
 {
@@ -4863,260 +3657,30 @@ bool playGenre(int id)
   analyzeCmd(cmd);
   return true;
 }
-/*
 
-  gnvsopen();
-  if (gnvshandle == 0)
-  {
-    if (gverbose)
-      doprint("Error: could not open gnvs!") ;
-    return false;
-  }
-  id = id - 1;              // For accessing the tables...
-  if ( !loadGnvsTableCache ( 1 + (id / GENRE_TABLE_ENTRIES )))
-  {
-    doprint("Error: could not load genre table (invalid ID: %d?)", id + 1);
-    return false;
-  }
-  int numPresets = gnvsTableCache.entry[id % GENRE_TABLE_ENTRIES].presets ;
-  if (numPresets > 0 && (gnvsTableCache.entry[id % GENRE_TABLE_ENTRIES].timeMode >= 100))
-  {
-    char cmd[50];
-    genreId = id + 1 ;
-    genrePresets = numPresets ;
-    genrePreset = random(genrePresets) ;
-    if (gverbose)
-      doprint("Active genre is now: '%s' (id: %d), random start gpreset=%d (of %d)",
-        gnvsTableCache.entry[id % GENRE_TABLE_ENTRIES].name, genreId, genrePreset, genrePresets);
-    sprintf(cmd, "gpreset=%d", genrePreset);
-    analyzeCmd(cmd);
-
-  }
+void doGenreConfig(String param, String value)
+{
+  bool ret = true;
+  if (param == "rdbs")
+    genres.config.rdbs(value.c_str());
+  else if (param == "nonames")
+    genres.config.noNames(value.toInt());
+  else if (param == "showid")
+    genres.config.showId(value.toInt());
+  else if (param == "verbose")
+    genres.config.verbose(value.toInt());
   else
-  {
-    if (gverbose)
-      doprint("Error! genre-ID: %d is invalid/does not seem to have valid presets associated", id + 1) ;
-    return false;
-  }
+    ret = false;
+  if (!ret)
+    genres.dbgprint("Unknown genre config parameter '%s', ignored!", param.c_str());
 }
-
-#define GNVS_STATE_IDLE         0         // Ready to handle gnvs task (from gnvsTaskList)
-#define GNVS_STATE_SEARCH       1         // Search if specific genre is existing in gnvs
-#define GNVS_STATE_OPEN         2         // Not found, open client to rdbs
-#define GNVS_STATE_READ         3         // After successful open, do read
-#define GNVS_STATE_READFAIL     4         // Read failed
-#define GNVS_STATE_FOUND        5         // genre is found (or has been loaded) to gnvs
-#define GNVS_STATE_DONE         6         // current task has been handled, can be deleted from tasklist
-
-
-void gnvsTaskLoop()
-{
-  static GnvsTask* task;
-  static int state = GNVS_STATE_IDLE;
-  static int spareIdx = 0;
-  if (state == GNVS_STATE_IDLE)
-  {
-    if (gnvsTaskList.size() == 0)
-      return;
-    gnvsopen();                           // Here we have a Task. DoubleCheck if gnvs can be used
-    if (0 == gnvshandle) 
-    {
-      if (gverbose)
-        doprint("ERROR: gnvs could not be loaded, but task has been assigned: ignored!");
-      state = GNVS_STATE_DONE;
-    }
-    task = gnvsTaskList.front();
-    if (task->_taskId == GNVS_TASK_CLEAR)
-    {
-      if (gverbose)
-        doprint("gnvstask: clear all in gnvs!");
-      gnvsclear();
-      clearGnvsTableCache();
-      if (gverbose) 
-      {
-        doprint("gnvs should be clear now. Running 'genre=--dir' to verify");
-        analyzeCmd("genre=--dir") ;
-      }
-      genreId = genrePresets = 0;
-      state = GNVS_STATE_DONE;
-    }
-    else if (task->_taskId == GNVS_TASK_LOAD)
-    {
-      spareIdx = 0;
-      if (!loadGnvsTableCache(1))
-      {
-        gnvsTableCache.id = 0;
-        createGnvsTableCache();
-      }
-      if (!loadGnvsTableCache(1))
-      {
-        dbgprint("ERROR: Could not load/create table in gnvs");
-      }
-      else
-      {
-        dbgprint("Start searching genre %s in gnvs", task->_genreName);
-        state = GNVS_STATE_SEARCH;
-      }
-    }
-    else if (task->_taskId == GNVS_TASK_PUSHBACK)
-    {
-      if (task->_genreName) 
-      {
-        char cmd[200];
-        sprintf(cmd, "genre=%s", task->_genreName); 
-        if (gverbose)
-          doprint("Genre: Pushback will execute: %s", cmd);
-        analyzeCmd( cmd ) ;
-      }
-      else
-        if (gverbose)
-          doprint("Genre: Pushback with empty command encountered...");
-      state = GNVS_STATE_DONE;
-    }
-    else
-      state = GNVS_STATE_DONE;
-  }
-  else if ( state == GNVS_STATE_SEARCH)
-  {
-    bool found = false;
-    int i;
-      for (i = 0;(i < GENRE_TABLE_ENTRIES) && !found;i++)
-      {
-        if (gnvsTableCache.entry[i].timeMode >= 100)
-          found = (0 == strcmp(task->_genreName, gnvsTableCache.entry[i].name));
-        else if (gnvsTableCache.entry[i].timeMode == 0)
-          if (0 == spareIdx)
-            spareIdx = i + ( gnvsTableCache.id - 1) * GENRE_TABLE_ENTRIES + 1;
-      }
-      if (found)
-      {
-        task->_genreId = i + ( gnvsTableCache.id - 1) * GENRE_TABLE_ENTRIES;
-        state = GNVS_STATE_FOUND;
-      }
-      else                                // not found in current cache table, try next
-      {
-        if (!loadGnvsTableCache(gnvsTableCache.id + 1))       // No next? Finally not found...
-        {
-          if (0 == spareIdx)                                  // Any space to re-use?
-          {                                                   // if not, allocate new space
-            createGnvsTableCache();
-            spareIdx = 1 + ( gnvsTableCache.id - 1) * GENRE_TABLE_ENTRIES;
-          }
-          dbgprint("Genre not found. Have spare (or new): %d", spareIdx);
-          task->_genreId = spareIdx;
-          state = GNVS_STATE_OPEN;
-        }
-      
-      }
-
-  }
-  else if ( state == GNVS_STATE_OPEN)
-  {
-    dbgprint("Genre %s is not in preferences, load it to idx: %d", task->_genreName, task->_genreId);
-    String tag;
-    const char *s = task->_genreName;
-    for (int i = 0; s[i] != 0;i++)
-      if (isalnum(s[i]))
-        tag = tag + s[i];
-      else
-      {
-        char buf[10];
-        sprintf(buf, "%%%02X", s[i]);
-        tag = tag + String(buf);
-      }
-    dbgprint("GetGenre=%s, heap: %ld", tag.c_str(), ESP.getFreeHeap());  
-    if (connectRdbs(tag))
-    {
-      dbgprint("Successfully connected to RDBS, start read");
-      gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].timeMode = GENRE_ENTRY_MODE_FILL;
-      writeGnvsTableCache();
-      state = GNVS_STATE_READ;
-    }
-    else
-    {
-      dbgprint("Connect to RDBS failed!");
-      state = GNVS_STATE_DONE;
-    }
-  }
-  else if ( state == GNVS_STATE_READ)
-  {
-    int ret = rdbsReadLoop(task->_genreId);
-    if (ret)
-    {
-      dbgprint("Read from RDBS finished! Result: %d", ret);
-      if (ret < 0)
-      {
-        dbgprint("RDBS read failed!");
-        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].timeMode = GENRE_ENTRY_MODE_EMPTY;
-        state = GNVS_STATE_DONE;
-      }
-      else
-      {
-        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].timeMode = 2021; // must be now
-        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].presets = ret; 
-        strncpy(gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].name,
-          task->_genreName, GENRE_IDENTIFIER_LEN);
-        state = GNVS_STATE_FOUND;
-      }
-      writeGnvsTableCache();
-    }
-  }
-  else if (state == GNVS_STATE_FOUND)
-  {
-    if (gverbose)
-      doprint("Genre found in presets: %s (%d), NumPresets: %d", task->_genreName, task->_genreId,
-        gnvsTableCache.entry[(task->_genreId - 1) % GENRE_TABLE_ENTRIES].presets);
-    state = GNVS_STATE_DONE;
-  }
-  else if (state == GNVS_STATE_DONE)
-  {
-    if (gnvshandle != 0)
-      nvs_commit (gnvshandle);
-    if (gnvsTaskList.size())
-    {    
-      task = gnvsTaskList.front();
-      gnvsTaskList.pop();
-      delete task;
-    }
-    state = GNVS_STATE_IDLE;
-  }
-}
-
-*/
-
-
-
-/*
-void gnvsLoop() 
-{
-  gnvsTaskLoop();
-}
-
-void addToTaskList(int taskType, String value)
-{
-  String left;
-  do 
-  {
-    left = getStringPart(value, ',');
-    chomp_nvs(left);
-    if (strchr(left.c_str(), ','))
-      addToTaskList(taskType, left);
-    else
-//      doprint("addtask for :%s", left.c_str());
-      gnvsTaskList.push(new GnvsTask(left.c_str(), taskType));
-    chomp(value);
-  } while (value.length() > 0);
-}      
-
-*/
-
 
 void doGenre(String param, String value)
 {
   
   if (value.startsWith("--")) 
   {
-    static bool gverbosestore;
+    //static bool gverbosestore;
     const char *s = value.c_str() + 2;
     const char *remainder = strchr(s, ' ');
     if (remainder) 
@@ -5257,7 +3821,7 @@ void doGenre(String param, String value)
     }
     else if (param == "lsjson")
     {
-      const char *s = param.c_str() + 6;
+      //const char *s = param.c_str() + 6;
       genres.dbgprint("List genres as JSON, full=%d", value.toInt());
       genres.lsJson(Serial, value.toInt());
     }
@@ -5390,7 +3954,7 @@ void doGpreset(String value)
 
 String urlDecode(String &SRC) {
     String ret;
-    char ch;
+    //char ch;
     int i, ii;
     for (i=0; i<SRC.length(); i++) {
         if (SRC.c_str()[i] == 37) {
@@ -5458,10 +4022,11 @@ bool canAddGenreToGenreId(String idStr, int genreId)
     return true;
   }  
   do {
-    if (idStr == getStringPart(knownLinks, ','))
+    if (idStr == split(knownLinks, ','))
       return false;
   } while (knownLinks.length() > 0);
   genres.addLinks(genreId, idStr.c_str());
+  return true;
   /*
   char key[30];
   sprintf(key, "%d_x", genreId);
@@ -5569,7 +4134,7 @@ String sndstr = "";
   else if (http_rqfile == "genre")
   {
     int genreId = http_getcmd.toInt();
-    bool dummy;
+    //bool dummy;
     http_rqfile = String("--id ") + genreId;
     doprint("Genre switch by http:...%s (id: %d)", http_rqfile.c_str(), genreId);
     if (genreId > 0)
@@ -5591,13 +4156,13 @@ String sndstr = "";
     //Serial.print("Decoded string is:\t");Serial.println(decodedString);    
     
 
-    String command = getStringPart(http_getcmd, '|');
+    String command = split(http_getcmd, '|');
     String genre, idStr;
     int idx = command.indexOf("genre=");
     if (idx >= 0) 
     {
       String dummy = command.substring(idx + 6);
-      genre = getStringPart(dummy, ',');
+      genre = split(dummy, ',');
       genre.trim();
     }
     if (command.startsWith("link="))
@@ -5607,7 +4172,7 @@ String sndstr = "";
     else if (/*command.startsWith("link") || */command.startsWith("link64="))
     {
       String dummy = command.substring(7);
-      idStr = getStringPart(dummy, ',');
+      idStr = split(dummy, ',');
       idStr.trim();
       int genreId = idStr.toInt();
       //int genreId = searchGenre(genre.c_str());
@@ -5635,7 +4200,7 @@ String sndstr = "";
     else if (command.startsWith("createwithlinks"))
     {
       int genreId;
-      if (genreId =genres.createGenre(genre.c_str()))
+      if ((genreId =genres.createGenre(genre.c_str())))
       {
         genres.dbgprint("Created genre '%s', Id=%d, links given with len=%d (%s)",
                 genre.c_str(), genreId, http_getcmd.length(), http_getcmd.c_str());
@@ -5656,9 +4221,9 @@ String sndstr = "";
     else if (command.startsWith("del=") /*|| (command.startsWith("clr="))*/)
     {
       String dummy = command.substring(4);
-      idStr = getStringPart(dummy, ',');
+      idStr = split(dummy, ',');
       idStr.trim();
-      bool deleteLinks = command.c_str() [0] == 'd' ;
+      //bool deleteLinks = command.c_str() [0] == 'd' ;
       doprint("HTTP is about to delete genre '%s' with id %d", genre.c_str(), idStr.toInt());
       //doDelete(idStr.toInt(), genre, deleteLinks, sndstr);
       genres.deleteGenre(idStr.toInt());
@@ -5674,7 +4239,7 @@ String sndstr = "";
       bool isStart = false;
       const char *s;
       String dummy = command.substring(isAdd?4:5);
-      idStr = getStringPart(dummy, ',');
+      idStr = split(dummy, ',');
       idStr.trim();
       int count=-1;int idx = -1;
       s = strstr(command.c_str(), "count=");
@@ -5837,16 +4402,6 @@ String sndstr = "";
     sndstr = httpheader ( String ("application/json") ) ;
     cmdclient.print(sndstr);
     sndstr = genres.config.asJson();
-    /*
-    String host = nvsgetstr("gcfg.rdbs");
-    if (host == "")
-      host = "de";
-    if ((host == "de") || (host == "nl") || (host == "fr"))
-      host = host + "1.api.radio-browser.info";
-    sndstr = "{\"rdbs\": \"" + host + "\"" +
-              ",\"noname\": " + nvsgetstr("gcfg.noname").toInt()
-             + "}";
-    */
     genres.dbgprint("Sending config: '%s'", sndstr.c_str());
     cmdclient.println(sndstr);
     cmdclient.println("\r\n\r\n");                        // Double empty to end the send body
@@ -5879,3 +4434,4 @@ String sndstr = "";
 
 
 #endif // Retroradio
+

@@ -3847,7 +3847,7 @@ void handlehttp()
   {
     c = rinbyt ( first ) ;                                   // Get a byte
     first = false ;                                          // No more first call
-    Serial.write(c);
+    //Serial.write(c);
     if ( c == '\n' )
     {
       // If the current line is blank, you got two newline characters in a row.

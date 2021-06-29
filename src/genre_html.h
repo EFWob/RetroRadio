@@ -266,7 +266,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   xhr.send() ;
  } 
 
- function listDir ( callback )
+ function listDir (  )
  {
   var table = document.getElementById('genreDir') ;
   table.innerHTML = "Please wait for the list of stored genres to load...";
@@ -499,7 +499,7 @@ function drawFilterTable()
 
       cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="Enter substring here">' ;
       cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="Minimum">' ;
-      cell3.innerHTML = '<button class="button" onclick=loadGenres()>Apply Filter</button>' ;
+      cell3.innerHTML = '<button class="button" onclick=getConfig(loadGenres)>Apply Filter</button>' ;
 //      cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" onchange="setAddGenre()">' ;
       cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" placeholder="Clustername" onchange="setAddGenre()">' ;
       var idx;
@@ -983,6 +983,11 @@ function runActionRequest (id, theUrl, timeout, callback)
      }
  }
 
+ function startActionRunCB()
+ {
+   runAction(0);
+ }
+
  function runActions(newActions)
  {
     if (actionArray.length > 0)
@@ -1006,7 +1011,8 @@ function runActionRequest (id, theUrl, timeout, callback)
     cell1.colSpan = 2;
     cell1.innerHTML = "Please wait for page to reload. Do not load any other page now!"; 
     loadIdx = 0;
-    runAction (0) ;
+    getConfig(startActionRunCB);
+    //runAction (0) ;
  }
 
 
@@ -1100,7 +1106,7 @@ function decodeUnicode(str) {
   xhr.send() ;
  }
    
-  function getConfig()
+  function getConfig(callback)
   {
     var theUrl="/genreconfig&version=" + Math.random();
     var xhr = new XMLHttpRequest();
@@ -1109,14 +1115,20 @@ function decodeUnicode(str) {
       if ( this.readyState == XMLHttpRequest.DONE )
       {
       config = JSON.parse ( this.responseText ) ;
-      listDir ( null );
+      callback();
+/*
+      if (actionArray.length == 0)
+        listDir ( null );
+      else
+        runAction ( 0 );
+*/
       }
     }
   xhr.open ( "GET", theUrl ) ;
   xhr.send() ;
   }
 
-   getConfig();
+   getConfig(listDir);
    //listDir( null ) ;
 </script>
 
