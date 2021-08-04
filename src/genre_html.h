@@ -849,6 +849,7 @@ function runActionRequest (id, theUrl, timeout, callback)
     }
   }  
   clearTimeout(resultTimeout);resultTimeout = null;
+  timeout=0;
   if (timeout)
     if (id > 0)
       resultTimeout = setTimeout(actionDone, timeout, id, `ERR: Timeout for URL: ${theUrl}`);
@@ -1016,7 +1017,6 @@ function runActionRequest (id, theUrl, timeout, callback)
  }
 
 
-
  // Get info from a radiobrowser.  Working servers are:
  // https://de1.api.radio-browser.info, https://fr1.api.radio-browser.info, https://nl1.api.radio-browser.info
  // id: reference to be passed on to callback
@@ -1025,9 +1025,7 @@ function runActionRequest (id, theUrl, timeout, callback)
  // callback: to be called on either timeout (empty stationArr) or success (filled stationArr)
  function listStats ( id, genre, timeout, callback, deleteFirst )
  {
-  var theUrl = "https://" + config.rdbs + "/json/stations/bytagexact/" +
-               genre +
-               "?hidebroken=true" ;
+  var theUrl = "https://" + config.rdbs + "/json/stations/search" ;
   //alert(theUrl);
   xhr = new XMLHttpRequest() ;
   //stationArr = [];
@@ -1056,14 +1054,16 @@ function runActionRequest (id, theUrl, timeout, callback)
       }
     }
     stationArr = stationArr.concat(thisStationArr);
-    //alert ("RDBS done for genre " + genre + " nb. stations found: " + stationArr.length);
     callback(id, genre, true, deleteFirst);
    }
   }
-  xhr.open ( "GET", theUrl ) ;
+  xhr.open ( "POST", theUrl ) ;
+  xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+  xhr.send("tag=" + genre + "&tagExact=true&hidebroken=true");
   resultTimeout = setTimeout(callback, timeout, id, genre, false, deleteFirst);
-  xhr.send() ;
  }
+
+
 
  function encodeUnicode(str) {
   // first we use encodeURIComponent to get percent-encoded UTF-8,

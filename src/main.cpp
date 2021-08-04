@@ -174,7 +174,7 @@
 //
 // Define type of local filesystem(s).  See documentation.
 //#define CH376                          // For CXH376 support (reading files from USB stick)
-//#define SDCARD                         // For SD card support (reading files from SD card)
+#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
 //#define OLED1306                     // 64x128 I2C OLED SSD1306
@@ -391,6 +391,7 @@ bool              connectDelay = false ;                 // Station with Connect
 #endif
 int               DEBUG = 1 ;                            // Debug on/off
 int               numSsid ;                              // Number of available WiFi networks
+int               bestSsid = -1 ;                        // Best (acceptable) SSID found
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
 ini_struct        ini_block ;                            // Holds configurable data
 WiFiServer        cmdserver ( 80 ) ;                     // Instance of embedded webserver, port 80
@@ -1576,6 +1577,10 @@ void listNetworks()
       if ( WiFi.SSID(i).indexOf ( winfo.ssid ) == 0 )    // Is this SSID acceptable?
       {
         acceptable = "Acceptable" ;
+        if (bestSsid == -1)
+          bestSsid = i;
+        else if (WiFi.RSSI(i) > WiFi.RSSI(bestSsid))
+          bestSsid = i;
         break ;
       }
     }
@@ -2173,23 +2178,37 @@ bool connectwifi()
     if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
     {
       winfo = wifilist[0] ;                             // Get this entry
-      WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
+      if (bestSsid != -1)
+      {
+        dbgprint("Best WiFi SSID: %s, RSSI: %d, channel: %d, BSSID: %s", WiFi.SSID(bestSsid).c_str(), WiFi.RSSI(bestSsid), 
+                                  WiFi.channel(bestSsid), WiFi.BSSIDstr(bestSsid).c_str());
+        WiFi.begin(WiFi.SSID(bestSsid).c_str(), winfo.passphrase, 0, WiFi.BSSID(bestSsid));
+      }
+      else
+        WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
       dbgprint ( "Try WiFi %s", winfo.ssid ) ;          // Message to show during WiFi connect
     }
     else                                                // More AP to try
     {
       wifiMulti.run() ;                                 // Connect to best network
     }
-    if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect
+    int connectResult; 
+    if (  (connectResult = WiFi.waitForConnectResult()) != WL_CONNECTED ) // Try to connect
     {
 #if defined(RETRORADIO)
-      dbgprint("Wifi connect failed, try once again...");
+      dbgprint("Wifi connect failed, ressult = %d, try once again...", connectResult);
       WiFi.disconnect(true);
       WiFi.softAPdisconnect(true);
       if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
+      {
+        winfo = wifilist[0] ;                             // Get this entry
         WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
+        dbgprint ( "Try WiFi %s AGAIN", winfo.ssid ) ;          // Message to show during WiFi connect
+      }
       else                                                // More AP to try
+      {
         wifiMulti.run() ;                                 // Connect to best network
+      }
       if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect      
 #endif
       localAP = true ;                                  // Error, setup own AP
@@ -3456,6 +3475,7 @@ void setup()
     pinMode ( ini_block.tft_blx_pin, OUTPUT ) ;          // Yes, enable output
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
+  dbgprint("SDCARD geht los\r\n\r\n\r\n\r\n");
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
 #if defined(RETRORADIO)
   if (false == NetworkFound) {                           // We have no (Ether-)Net yet...

@@ -352,6 +352,22 @@ You will notice that in genre playlist mode this can happen (for remote stations
 
 When in genre play mode, you can still issue a _preset=n_ command and the radio will play the according preset from the preferences. However, genre playlist mode will not be stopped: the command _gpreset=n_ as well as _channel=m_ (if channellist is defined) will still operate on the current genre playlist.
 
+### Configuring anything around genres
+
+To configure genre settings use the command 
+
+_gcfg.subcommand=value_
+
+The command can be used from command line or from the preference settings in NVS.
+
+The following commands (including subcommands) are defined:
+
+- _gcfg.path=/root/path_ All playlist information is stored in Flash (using LITTLEFS) or on SD-Card. If path value does start with 'SD:' (case ignored), the genre lists will be stored on SD card using the path following the token 'SD:'. If not, the genre information is stored in Flash, using LITTLEFS with path '/root/path' in this example.
+No validity checking, if the given path does not exists or is invalid, genre playlists will be dysfunctional. (For historic reason, defaults to '/____gen.res/genres'). Must not end with '/'! Can be changed at any time (to allow for different genre playlists for different users).
+- _gcfg.host=hostURL_ Set the host to RDBS. Defaults to 'de1.api.radio-browser.info' if not set. 'de', 'nl', 'fr' can be used (as short cuts) to address 'de1.api.radio-browser.info', 'nl1.api.radio-browser.info' or 'fr1.api.radio-browser.info' respectively. Otherwise full server name must be given.
+- _gcfg.nonames=x_ if x is nonZero, station names will be stored in genre playlists (not just URLs). Currently, station names from genre playlists are not used at all but might be useful in future versions. When short on storage, set to '1'.
+
+
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
 Now also RC5 remotes (Philips protocol) can be decoded. RC5 codes are 14 bits, where the highest bit (b13) is always 1.
@@ -439,12 +455,12 @@ ir_52AD = channel = 9 # (9)
 
 The 'tricky' part is the switching the user (and hence the channel assignment). I use a separate (NVS)-entry to store the commands list 
 to be executed if switching between users. That way, the same sequence can be re-used later if the switch is happening by another input event.
-By my convention, I use '$' sign as starting character for NVS-Keys that store constants for later use:
+(By my convention, I use the ':' as starting character for NVS-Keys that store for later execution.)
 ```
 :user1 = channels=0,1,2,3,4,5,6,7,10;channel=1;volume=70
 :user2 = channels=1,2,10,11,12,13,14,15,16;channel=1;
 ```
-So if that commands are executed, for both users different presets would be assigned to Channel1 to Channel9, but in both cases the preset
+So if these command sequences are executed, for both users different presets would be assigned to Channel1 to Channel9, but in both cases the preset
 referenced by Channel1 would be tuned to (i. e. _preset_00_ for _:user1_ and _preset_1_ for _:user2_). For _:user1_ the volume would also
 be set to 70 (but will stay at current value if switching to _:user2_).
 
@@ -458,7 +474,7 @@ By the _call_ command, the contents of the value linked to _:user1_ or _:user2_ 
 both in RAM and NVS-Preferences, the RAM setting will override the NVS setting).
 
 Now there is only one thing left to do: at start, no channels are defined. You should use _::setup_ to define channel settings. The most 
-obvious way is to force user1 at start:
+obvious way is to force user1 at start by adding the following entry to the NVS preferences:
 ```
 ::setup = call = :user1
 ```

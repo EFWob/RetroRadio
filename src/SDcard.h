@@ -9,7 +9,7 @@ int               SD_nodecount = 0 ;                     // Number of nodes in S
 String            SD_currentnode = "" ;                  // Node ID of song playing ("0" if random)
 #if defined(TRACKLIST)
 bool              SD_hastracklist = false;               // Nodelist file "/mp3nodes.txt" exists (or not)
-char*             SD_tracklistname = "/mp3nodes.txt";    // Path to store the nodestring
+const char*       SD_tracklistname = "/mp3nodes.txt";    // Path to store the nodestring
 #endif
 
 #ifndef SDCARD
@@ -444,7 +444,6 @@ bool connecttofile_SD()
 void setup_SDCARD()
 {
   char *p ;                                              // Last debug string
-  
   if ( ini_block.sd_cs_pin >= 0 )                        // SD configured?
   {
     if ( !SD.begin ( ini_block.sd_cs_pin, SPI,           // Yes,
@@ -501,7 +500,7 @@ void setup_SDCARD()
         char *sbuff = (char *)&tmpbuff;
         size_t buffsize = sizeof(tmpbuff);
         if (!SD_hastracklist)
-          dbgprint ( "Locate mp3 files on SD, may take a while...", SD_tracklistname ) ;
+          dbgprint ( "Locate mp3 files on SD, may take a while..." ) ;
         else
           dbgprint ( "Tracklist file \"%s\" is empty (or corrupt), creating it may take a while...", SD_tracklistname ) ;
         tftlog ( "Read SD card" ) ;

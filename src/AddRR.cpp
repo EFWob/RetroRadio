@@ -122,6 +122,9 @@ bool setupDone = false;               // All setup for RetroRadio finished?
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
+String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
+String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
+
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
 static int genreId = 0 ;                             // ID of active genre
@@ -153,9 +156,10 @@ struct {                           // A table of known internal variables that c
   {"channels", &numChannels, readInt16},
   {"volume_vs", &numChannels, readVolume},
   {"genre", &genreId, readInt16},
+  {"gname", NULL, readGenreName},
   {"gpresets", &genrePresets, readInt16},
   {"gpreset", &genrePreset, readInt16},
-  {"gmaintain", &gmaintain, readUint8},
+  {"glist", NULL, readGenrePlaylist},
 };
 
 
@@ -791,10 +795,12 @@ void doCalc(String expression, String value, bool show, String ramKey, bool& ret
 String searchElement(String input, int& idx, bool show = false, int* elements = NULL)
 {
   bool justCount = ((NULL != elements) && (idx <= 0));                            // just counting the elements?
-  String result;
+  String result = String("");
   if ((0 >= idx) && !justCount)                                                   // idx is below 1?             
-    return String("");
+    return result;
   chomp(input);                                                                   // just to make sure
+  if (input.length() == 0)
+    return (justCount?String("0"):result);                                                            
   if (show) 
     if (!justCount)
       doprint("Search idx(%d) in %s", idx, input.c_str());
@@ -807,7 +813,7 @@ String searchElement(String input, int& idx, bool show = false, int* elements = 
       result = searchElement(left, idx, show, elements);                          // check leftmost entry (could be a derefenced list in itself)
     }
     while ((input.length() > 0) && (justCount || (idx > 0)));
-  else if (NULL != strchr("@&.", input.c_str()[0]))                               // No ',' found, but pointer to RAM/NVS
+  else if (NULL != strchr("@&.~", input.c_str()[0]))                               // No ',' found, but pointer to RAM/NVS
   {
     if (show) 
       doprint ("resolving (and analyzing) key %s", input.c_str()) ;
@@ -857,6 +863,8 @@ void doIdx(String expression, String value, bool show, String ramKey, bool& retu
         doprint("Search %s, idx==%d", left.c_str(), idx);
       result = searchElement(expression, idx, show, &elements);
     }
+  else if (justCount)
+    result = "0";
   if (show) 
   {
     if (justCount)
@@ -1999,6 +2007,15 @@ void RetroRadioInput::setReader(String value) {
   value.toLowerCase();
   int idx = value.substring(1).toInt();
   Serial.printf("SetReader, value = %s\r\n", value.c_str());
+  if ((value.c_str()[0] == '@') || (value.c_str()[0] == '&'))
+  {
+    chomp_nvs(value);
+    value.toLowerCase();
+    if (value.length() == 0)
+      value = "-1";
+    idx = value.substring(1).toInt();
+    //Serial.printf("Source of input after chomp nvs is: %s\r\n", value.c_str());
+  }
   switch (value.c_str()[0]) {
     case 'd': 
       reader = new RetroRadioInputReaderDigital(idx, _mode);
@@ -2015,6 +2032,14 @@ void RetroRadioInput::setReader(String value) {
       reader = new RetroRadioInputReaderRam(value.c_str() + 1);
       break;
     case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
+      break;  
+    case '-': 
+      if (idx == 1)
+        if (_reader)
+        {
+          delete _reader;
+          _reader = NULL;
+        }  
       break;
   }
   if (reader) {
@@ -3245,7 +3270,7 @@ void setupRR(uint8_t setupLevel) {
     int l = strlen(s);
     setupDone = true;
     doprint("Try to open Genres on LITTLEFS!");
-    if (genres.begin())
+    if (genres.begin());
       doprint("SPIFFS open for genres was a success!");
     doprint("Running commands from NVS '%s'", s);
     analyzeCmdsRR ( nvsgetstr(s) );
@@ -3310,17 +3335,34 @@ void loopRR() {
     }
     DEBUG = deb;
   }
+  genres.cacheStep();
 }
 
 
-void doCall ( String param, String value ) {
+void doCall ( String param, String value, bool doShow ) {
 //bool returnFlag = false;
 static int calllevel = 0;
-bool doShow = param.c_str()[4] == 'v';
+//bool doShow = (param.c_str()[4] == 'v') || (param.c_str()[4] == 'V');
     if (param.length() > (doShow?5:4))
     {
       param = param.substring( doShow?5:4 );
       chomp ( param ) ;
+      const char *s = param.c_str();
+      if ( *s == '.' )
+      {
+        const char *p;
+        s++;
+        if ( NULL == (p = strchr(s, '(')) )
+          p = s + strlen(s);
+        char buf[p - s + 1];
+        strncpy(buf, s, p - s + 1);
+        buf[p - s] = 0;
+        String dummy = String(buf);
+        chomp ( dummy );
+        if ( dummy.length() > 0 )
+          value = dummy;
+        param = String ( p );
+      }
       if ( param.c_str()[0] == '(') 
       {
         String group, dummy;
@@ -3389,7 +3431,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if ( (ret = ( param.startsWith ( "call" ))) )
   {
-    doCall ( param, value );
+    doCall ( paramOriginal, value, param[4] == 'v' );
   }
   else if ( (ret = ( param.startsWith ( "genre" ))) ) 
   {
@@ -3624,9 +3666,10 @@ bool doDelete(int idx, String genre, bool deleteLinks, String& result)
   }
   else
   {
-    genres.createGenre(genre.c_str(), deleteLinks);
-    result = String("OK");
-    ret = true;
+    if ( (ret = genres.createGenre(genre.c_str(), deleteLinks)) )
+      result = String("OK");
+    else
+      result = String("Error: could not create Genre. LITTLEFS full?");
   }
   
   return ret;
@@ -3669,6 +3712,8 @@ void doGenreConfig(String param, String value)
     genres.config.showId(value.toInt());
   else if (param == "verbose")
     genres.config.verbose(value.toInt());
+  else if (param == "path")
+    genres.nameSpace(value.c_str());
   else
     ret = false;
   if (!ret)
@@ -3731,6 +3776,10 @@ void doGenre(String param, String value)
     {
       playGenre(0);
       genres.dbgprint("stop playing from genre requested.");
+    } 
+    else if (param == "deleteall")
+    {
+      genres.deleteAll();
     }
 /*    
     else if (param == "load")
@@ -3768,7 +3817,7 @@ void doGenre(String param, String value)
     }
     else if (param == "format")
     {
-      genres.format();
+      genres.format(value.toInt());
     }
     else if (param == "add")
     {
@@ -3888,6 +3937,18 @@ void doGenre(String param, String value)
   return;
 
 }
+
+String readGenrePlaylist(void *)
+{
+  return genres.playList();
+}
+
+String readGenreName(void *)
+{
+  return genres.getName( genreId );
+}
+
+
 
 void doGpreset(String value)
 {
@@ -4412,7 +4473,7 @@ String sndstr = "";
     cmdclient.println(sndstr);
 
     cmdclient.println("OK\r\n");
-    if (genres.format())
+    if (genres.format(true))
       cmdclient.println("OK: LITTLEFS formatted for genre info");
     else
       cmdclient.println("Error: could not format LITTLEFS for genre info.");

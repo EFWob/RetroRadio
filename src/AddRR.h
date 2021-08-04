@@ -26,10 +26,19 @@ extern void httpHandleGenre ( String http_rqfile, String http_getcmd );
 
 
 
+#if defined(DEBUG_BUFFER_SIZE)
+#undef DEBUG_BUFFER_SIZE
+#endif
+#if defined(NVSBUFSIZE)
+#undef NVSBUFSIZE
+#endif
+#if defined(MAXKEYS)
+#undef MAXKEYS
+#endif
 
 #define DEBUG_BUFFER_SIZE 500
 #define NVSBUFSIZE 500
-#define MAXKEYS 300
+#define MAXKEYS 500
 
 
 struct ini_struct
