@@ -363,9 +363,9 @@ The command can be used from command line or from the preference settings in NVS
 The following commands (including subcommands) are defined:
 
 - _gcfg.path=/root/path_ All playlist information is stored in Flash (using LITTLEFS) or on SD-Card. If path value does start with 'SD:' (case ignored), the genre lists will be stored on SD card using the path following the token 'SD:'. If not, the genre information is stored in Flash, using LITTLEFS with path '/root/path' in this example.
-No validity checking, if the given path does not exists or is invalid, genre playlists will be dysfunctional. (For historic reason, *defaults to '/____gen.res/genres'*). Must not end with '/'! Can be changed at any time (to allow for different genre playlists for different users).
-- _gcfg.host=hostURL_ Set the host to RDBS. *Defaults to 'de1.api.radio-browser.info'* if not set. 'de', 'nl', 'fr' can be used (as short cuts) to address 'de1.api.radio-browser.info', 'nl1.api.radio-browser.info' or 'fr1.api.radio-browser.info' respectively. Otherwise full server name must be given.
-- _gcfg.nonames=x_ if x is nonZero, station names will be stored in genre playlists (not just URLs). Currently, station names from genre playlists are not used at all but might be useful in future versions. When short on storage, set to '1'. *Defaults to 0*, so station names will be stored.
+No validity checking, if the given path does not exists or is invalid, genre playlists will be dysfunctional. (For historic reason, **defaults to '/____gen.res/genres'**). Must not end with '/'! Can be changed at any time (to allow for different genre playlists for different users).
+- _gcfg.host=hostURL_ Set the host to RDBS. **Defaults to 'de1.api.radio-browser.info'** if not set. 'de', 'nl', 'fr' can be used (as short cuts) to address 'de1.api.radio-browser.info', 'nl1.api.radio-browser.info' or 'fr1.api.radio-browser.info' respectively. Otherwise full server name must be given.
+- _gcfg.nonames=x_ if x is nonZero, station names will be stored in genre playlists (not just URLs). Currently, station names from genre playlists are not used at all but might be useful in future versions. When short on storage, set to '1'. **Defaults to 0**, so station names will be stored.
 
 
 ## IR remote enhancements
