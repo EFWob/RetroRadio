@@ -20,6 +20,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   </ul>
   <br><br><br>
   <center>
+   <div id="genreMain">
    <h1>** ESP32 Radio Genre Manager **</h1>
    <h3> Maintain loaded Genres </h3>
    <div id="genreArea">
@@ -36,7 +37,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
           genres with that other radio with the IP: 
           <input type="text" id="inputOtherRadio" placeholder="192.168.x.y">
       </div>
-      <div id="syncRunning" hidden=true>
+      <div id="syncRunning" hidden>
           Sync is running....
       </div>
       <hr>
@@ -45,6 +46,108 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
    
       </div>
       <table class="table2" id="filterTable" width="800">
+      </table>
+   </div>
+      <br><hr><br>
+        Or <button class="button" onclick=startEditSettings()>Edit settings here!</button>  
+   </div>
+   <div id="genreSet" hidden>
+    <h1>** ESP32 Radio Genre Settings **</h1>
+    <table class="pull-left">    
+        <tr>
+          <td colspan=2 style="text-align:center">
+            <hr>
+            Functional settings<br><hr>
+          </td>
+        </tr>
+        <tr hidden id="fsNotOpen">
+          <td colspan=2 style="text-align:center">
+            Directory or Filesystem for Genre Playlists could not be opened.<br>
+            So probably something is wrong with the Path-setting below!<hr>
+          </td>
+        </tr>
+    
+        <tr>
+          <td style="text-align:right">
+            IP address of RDBS Server:
+          </td>
+          <td style="text-align:left">
+            <input type="text" id="cfgRdbs">
+          </td>
+        </tr>
+        <!--
+        <tr>
+          <td style="text-align:right">
+            Use SD-Card (not Flash):
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgIsSD">
+          </td>
+        </tr>
+        -->
+        <tr>
+          <td style="text-align:right" 
+          title="Path must be given with leading slash '/'.&#013;Preceed with literal 'sd:' to store playlists on SD card.">
+            Full path to genre storage directory:
+          </td>
+          <td style="text-align:left">
+            <input type="text" id="cfgPath">
+          </td>
+        </tr>
+        <tr>
+          <td style="text-align:right">
+            Do not store Station Names:
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgNoname">
+          </td>
+        </tr>
+        <tr>
+          <td colspan=2 style="text-align:center">
+            <br>
+            <hr>
+            Debug support<br><hr>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="text-align:right">
+            Verbose output on Serial:
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgVerbose">
+          </td>
+        </tr>
+
+
+        <tr>
+          <td style="text-align:right">
+            Show internal ID-Number:
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgShowID">
+          </td>
+        </tr>
+       <tr>
+          <td colspan=2 style="text-align:center">
+            <hr>
+          </td>
+        </tr>
+        <tr>
+          <td style="text-align:center">
+            <button class="button" onclick=cancelEditSettings()>Cancel</button>  
+          </td>
+          <td style="text-align:center">
+            <button class="button" onclick=useEditSettings(0)>Apply</button>  
+          </td>
+        </tr>
+       <tr>
+          <td colspan=2 style="text-align:center">
+            <hr>Store the settings to NVS-preferences.<br>
+            <button class="button" onclick=useEditSettings(1)>Store to NVS preferences</button>  
+
+          </td>
+        </tr>
       </table>
    </div>
   </center>
@@ -70,6 +173,55 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  var loadIdx = 0;
  var progressAlert;
 
+  function startEditSettings()
+  {
+    document.getElementById("genreSet").hidden = false;
+    document.getElementById("genreMain").hidden = true;
+  }
+
+  function locationReload()
+  {
+    location.reload();
+  }
+
+  function setConfig()
+  {
+    config.rdbs = document.getElementById("cfgRdbs").value;
+    config.path = document.getElementById("cfgPath").value;
+    if (document.getElementById("cfgVerbose").checked == true)
+      config.verbose = 1;
+    else
+      config.verbose = 0;
+    if (document.getElementById("cfgNoname").checked == true)
+      config.noname = 1;
+    else
+      config.noname = 0;
+    if (document.getElementById("cfgShowID").checked == true)
+      config.showid = 1;
+    else
+      config.showid = 0;
+  }
+
+  function useEditSettings(store)
+  {
+    if (store)
+      if (!confirm("Are you sure you want to save these settings to NVS preferences?"))
+        return;
+    document.getElementById("genreSet").hidden = true;
+    document.getElementById("southArea").hidden = true;
+    document.getElementById("genreMain").hidden = false;
+    document.getElementById("genreDir").innerHTML = "<tr><td>Loading...</td></tr>";
+    setConfig();
+    config.save = store;
+    sendConfig();
+  }
+
+  function cancelEditSettings()
+  {
+    document.getElementById("genreSet").hidden = true;
+    document.getElementById("genreMain").hidden = false;
+
+  }
 
   function getAction ( actionId, actions )
   {
@@ -920,6 +1072,24 @@ function runActionRequest (id, theUrl, timeout, callback)
     reloadOneGenre(idx);
   }
 
+  function sendConfig()
+  {
+    var theUrl = "setconfig=" + JSON.stringify(config);
+    xhr = new XMLHttpRequest() ;
+    theUrl="genreaction?" + 
+      encodeUnicode(theUrl)
+      + "&version=" + Math.random();
+    xhr.onreadystatechange = function() 
+    {
+      if ( this.readyState == XMLHttpRequest.DONE )
+      {
+        location.reload();
+      }
+    }  
+    xhr.open ( "GET", theUrl ) ;
+    xhr.send() ;  
+  }
+
   function reloadPresets(idx)
   {
     var theUrl = "link64=" + actionArray[idx].id +",genre=" + actionArray[idx].name ; 
@@ -1115,6 +1285,17 @@ function decodeUnicode(str) {
       if ( this.readyState == XMLHttpRequest.DONE )
       {
       config = JSON.parse ( this.responseText ) ;
+      config.store = false;
+      var path = config.path;
+      document.getElementById("cfgRdbs").value = config.rdbs;
+      //document.getElementById("cfgIsSD").checked = config.isSD;
+      if (config.isSD)
+        path = "sd:" + path;
+      document.getElementById("cfgPath").value = path;
+      document.getElementById("cfgNoname").checked = config.noname;
+      document.getElementById("cfgShowID").checked = config.showid;      
+      document.getElementById("cfgVerbose").checked = config.verbose;      
+      document.getElementById("fsNotOpen").hidden = (config.open != 0);
       callback();
 /*
       if (actionArray.length == 0)

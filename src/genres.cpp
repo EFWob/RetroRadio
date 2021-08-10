@@ -17,13 +17,64 @@ String GenreConfig::asJson() {
   if ((0 == strcmp(host,"de")) || (0 == strcmp(host,"fr")) || (0 == strcmp(host,"nl")))
       ret = ret + "1.api.radio-browser.info";
   return  "{\"rdbs\": \"" + ret + "\"" +
-              ",\"noname\": " + String(_noNames?1:0) +
+              ",\"noname\": " + String(_noName?1:0) +
               ",\"showid\": " + String(_showId?1:0) +
+              ",\"verbose\": " + String(_verbose?1:0) +
               ",\"isSD\":" + String(_genres->_isSD?1:0) +
               ",\"path\": \"" + String(_genres->_nameSpace) + "\"" +
               ",\"open\":" + String(_genres->_begun?1:0) +
                "}";
 }
+
+
+void GenreConfig::toNVS() {
+    String value;
+    nvssetstr("gcfg.rdbs", String(_rdbs));
+    nvssetstr("gcfg.usesd", String(_genres->_isSD?1:0));
+    nvssetstr("gcfg.path", String(_genres->_nameSpace));
+    nvssetstr("gcfg.noname", String(_noName?1:0));
+    nvssetstr("gcfg.verbose", String(_verbose?1:0));
+    nvssetstr("gcfg.showid", String(_showId?1:0));
+}
+
+void GenreConfig::info() {
+String infoLine;
+    if (_genres)
+    {
+        const char *host = _rdbs?_rdbs:"de";                
+        infoLine = "  gcfg.rdbs=" + String(host);
+        _genres->dbgprint("Current genre configuration settings:");
+        _genres->dbgprint(infoLine.c_str());
+        infoLine = "  gcfg.usesd=" + String(_genres->_isSD?1:0);
+        _genres->dbgprint(infoLine.c_str());
+        infoLine = "  gcfg.path=" + String(_genres->_nameSpace);
+        _genres->dbgprint(infoLine.c_str());
+        infoLine = "  gcfg.noname=" + String(_noName?1:0);
+        _genres->dbgprint(infoLine.c_str());
+        infoLine = "  gcfg.verbose=" + String(_verbose?1:0);
+        _genres->dbgprint(infoLine.c_str());
+        infoLine = "  gcfg.showid=" + String(_showId?1:0);
+        _genres->dbgprint(infoLine.c_str());
+        _genres->dbgprint("(Note that these settings are not necessarily equal to preference settings in NVS.)");
+        _genres->dbgprint("Use command \"gcfg.store\" to store the current settings to NVS.)");
+    }
+}
+
+
+/*
+void GenreConfig::useSD(bool useSD) {
+    if (_genres) 
+        if (_genres->_isSD != useSD)
+            {
+            _genres->_isSD = useSD;
+            if (_genres->_wasBegun)
+                {
+                _genres->_begun = false;
+                _genres->begin();
+                }
+            }
+}
+*/
 
 Genres::Genres(const char *name) {
     if (NULL == name)
@@ -835,13 +886,11 @@ String res = "";
     if (_fs && (count(id) > number))
     {
         char path[20];
-        char fileNameIdx[30], fileNameUrls[30];
         File fileIdx, fileUrls;
-        sprintf(path, "/genres/%d", id);
-        sprintf(fileNameIdx, "%s/idx", path);
-        sprintf(fileNameUrls, "%s/urls", path);
-        fileIdx = _fs->open(fileNameIdx, "r");
-        fileUrls = _fs->open(fileNameUrls, "r");
+        sprintf(path, "%d/idx", id);
+        fileIdx = _fs->open(fileName(path).c_str(), "r");
+        sprintf(path, "%d/urls", id);
+        fileUrls = _fs->open(fileName(path).c_str(), "r");
         if (fileIdx && fileUrls)
         {
             size_t seekPosition = number * 4;
@@ -949,8 +998,8 @@ void Genres::cleanLinks(int id){
     {
         char path[30];
         File linkFile;
-        sprintf(path, "/genres/%d/links", id);
-        linkFile = _fs->open(path, "w");
+        sprintf(path, "%d/links", id);
+        linkFile = _fs->open(fileName(path).c_str(), "w");
         if (linkFile)
             linkFile.close();
     }
@@ -961,8 +1010,8 @@ void Genres::addLinks(int id, const char* moreLinks){
     {
         char path[30];
         File linkFile;
-        sprintf(path, "/genres/%d/links", id);
-        linkFile = _fs->open(path, "a");
+        sprintf(path, "%d/links", id);
+        linkFile = _fs->open(fileName(path).c_str(), "a");
         if (linkFile)
         {
             dbgprint("Add link to genre[%d]=%s (len=%d) (filesize so far: %ld", 
@@ -980,10 +1029,10 @@ String ret ="";
     if (_fs && _begun && (id > 0) && (id <=_knownGenres))
     {
         char path[30];
-        sprintf(path, "/genres/%d/links", id);
-        if ( _fs->exists(path) )
+        sprintf(path, "%d/links", id);
+        if ( _fs->exists(fileName(path).c_str() ))
         {
-            File linkFile = _fs->open(path, "r");
+            File linkFile = _fs->open(fileName(path).c_str(), "r");
             char s[linkFile.size() + 1];
             linkFile.read((uint8_t *)s, linkFile.size());
             s[linkFile.size()] = 0;

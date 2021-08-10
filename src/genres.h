@@ -15,18 +15,22 @@ class Genres;
 class GenreConfig {
 friend class Genres;
     public:
-        void noNames(bool noNames) {_noNames = noNames;};
+        void noName(bool noName) {_noName = noName;};
         void showId(bool showId) {_showId = showId;};
         void rdbs(const char* s) {if (_rdbs) free(_rdbs);_rdbs = NULL; if (s) _rdbs = strdup(s);};
+    //    void useSD(bool useSD);// {if (_genres) _genres->_isSD = useSD;};
         void verbose(bool mode) { _verbose = mode;};
         bool verbose() { return _verbose;};
+        void toNVS();
+        void info();
         String asJson();
     protected:
         Genres *_genres = NULL; 
         char *_rdbs = NULL;
-        bool _noNames = false;
+        bool _noName = false;
         bool _showId = false;
         bool _verbose = true;
+        bool _useSD = false;
 };
 
 class Genres {

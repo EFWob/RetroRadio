@@ -12,6 +12,7 @@
 #include <WiFi.h>
 #include <genre_html.h>
 #include <genres.h>
+#include <ArduinoJson.h>
 
 #if !defined(WRAPPER)
 #define TIME_DEBOUNCE 0
@@ -3706,14 +3707,20 @@ void doGenreConfig(String param, String value)
   bool ret = true;
   if (param == "rdbs")
     genres.config.rdbs(value.c_str());
-  else if (param == "nonames")
-    genres.config.noNames(value.toInt());
+  else if (param == "noname")
+    genres.config.noName(value.toInt());
   else if (param == "showid")
     genres.config.showId(value.toInt());
   else if (param == "verbose")
     genres.config.verbose(value.toInt());
+//  else if (param == "usesd")
+//    genres.config.useSD(value.toInt());
   else if (param == "path")
     genres.nameSpace(value.c_str());
+  else if (param == "store")
+    genres.config.toNVS();
+  else if (param == "info")
+    genres.config.info();
   else
     ret = false;
   if (!ret)
@@ -4430,6 +4437,27 @@ String sndstr = "";
         sndstr = "ER\r\n\r\n";
       }
 #endif
+    }
+    else if (command.startsWith("setconfig="))
+    {
+      DynamicJsonDocument doc(JSON_OBJECT_SIZE(20));
+      DeserializationError err = deserializeJson(doc, command.c_str() + strlen("setconfig="));
+      if (err == DeserializationError::Ok)
+      {
+        const char* path = doc["path"];
+        const char* rdbs = doc["rdbs"];
+        int noname = doc["noname"];
+        int verbose = doc["verbose"];
+        int showid = doc["showid"];
+        int save = doc["save"];
+        doGenreConfig("verbose", String(verbose));
+        doGenreConfig("rdbs", String(rdbs));
+        doGenreConfig("path", String(path));
+        doGenreConfig("noname", String(noname));
+        doGenreConfig("showid", String(showid));
+        if (save)
+          genres.config.toNVS();
+      }
     }
     else
     {
