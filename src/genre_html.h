@@ -47,9 +47,9 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
       </div>
       <table class="table2" id="filterTable" width="800">
       </table>
-   </div>
       <br><hr><br>
         Or <button class="button" onclick=startEditSettings()>Edit settings here!</button>  
+     </div>
    </div>
    <div id="genreSet" hidden>
     <h1>** ESP32 Radio Genre Settings **</h1>

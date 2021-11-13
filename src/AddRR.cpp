@@ -3604,6 +3604,7 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
               break;
         value++;
         }
+      yield();
       if (*value)
         {
           *value = '\0' ;                              // Separate command from value
@@ -3614,6 +3615,7 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
         {
           analyzeCmdRR ( reply, s, "0", returnFlag ) ;              // No value, assume zero
         }
+      yield();
       commands_executed++ ;
       s = next ;
     }
@@ -4095,23 +4097,6 @@ bool canAddGenreToGenreId(String idStr, int genreId)
   } while (knownLinks.length() > 0);
   genres.addLinks(genreId, idStr.c_str());
   return true;
-  /*
-  char key[30];
-  sprintf(key, "%d_x", genreId);
-  idStr.trim();
-  String knownLinks = gnvsgetstr(key);
-  if (knownLinks.length() == 0)
-  {
-    gnvssetstr(key, idStr);
-    return true;
-  }
-  do {
-    if (idStr == getStringPart(knownLinks, ','))
-      return false;
-  } while (knownLinks.length() > 0);
-  gnvssetstr(key, gnvsgetstr(key) + ","+idStr);
-  return true;
-*/
 }
 
 

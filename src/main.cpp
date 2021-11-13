@@ -5386,6 +5386,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "%d IR interrupts seen", ir_intcount ) ;
     dbgprint ( "Total PSRAM: %d", ESP.getPsramSize());
     dbgprint ( "Free PSRAM: %d", ESP.getFreePsram());    
+    dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
+    dbgprint ( "WiFi RSSI: %d", WiFi.RSSI());
+    dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+
     dbgprint ( reply );
     max_mp3loop_time = 0 ;                            // Start new check
   }

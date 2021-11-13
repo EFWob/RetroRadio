@@ -347,10 +347,6 @@ list can be used to change stations within that genre by the following algorithm
     a completely different list.
 
 
-Some fine detail (ToDo): if the radio stream stalls, the radio has a fallback strategy to switch to another preset. If that happens when playing from a genre playlist, the radio would fall back to a preset from the preset list in preferences.
-You will notice that in genre playlist mode this can happen (for remote stations with a bad connection). In a next step, this fallback needs to be recoded to use another station from the current genre playlist. If you want to avoid the fallback to a preset from NVS, use the command _preset=--stop_. This will block fallback to a station from presets until a station from presets is requested (for instance by _preset=n_  or _channel=m_ if genre play mode has stopped).
-
-When in genre play mode, you can still issue a _preset=n_ command and the radio will play the according preset from the preferences. However, genre playlist mode will not be stopped: the command _gpreset=n_ as well as _channel=m_ (if channellist is defined) will still operate on the current genre playlist.
 
 ### Configuring anything around genres
 
@@ -366,6 +362,20 @@ The following commands (including subcommands) are defined:
 No validity checking, if the given path does not exists or is invalid, genre playlists will be dysfunctional. (For historic reason, **defaults to '/____gen.res/genres'**). Must not end with '/'! Can be changed at any time (to allow for different genre playlists for different users).
 - **_gcfg.host=hostURL_** Set the host to RDBS. **Defaults to 'de1.api.radio-browser.info'** if not set. 'de', 'nl', 'fr' can be used (as short cuts) to address 'de1.api.radio-browser.info', 'nl1.api.radio-browser.info' or 'fr1.api.radio-browser.info' respectively. Otherwise full server name must be given.
 - **_gcfg.nonames=x_** if x is nonZero, station names will be stored in genre playlists (not just URLs). Currently, station names from genre playlists are not used at all but might be useful in future versions. When short on storage, set to '1'. **Defaults to 0**, so station names will be stored.
+
+### Considerations (and limitations) around using genre playlists
+
+The total number of genre lists is limited (to 1000). This is a compile time limitation that can not be changed by a command or a preference setting. 
+
+For faster access, some information is cached. For caching, PSRAM is preferred. If PSRAM is not available, normal heap is used. PSRAM should be plenty, however, if there is no sufficient heap, operation might be slower. (Use command _test_ from the Serial input. If the reported Free Memory is below 100.000, it is likely that RAM caching is
+not available.)
+
+On a board with 16MB flash I was able to load around 33.000 stations within 740 genres before the flash was fully used. With SD-card even more will be possible. However, SD access is slower. It is using shared access with the SPI. You will notice quite a few debug messages saying "SPI semaphore not taken...". That is annoying but still fine. It is probably advisable to stop radio playback (using _stop_ from the Serial command line) to limit the access conflicts on the SPI bus if you maintain the genre playlists (adding/deleting/reloading).
+
+If the radio stream stalls, the radio has a fallback strategy to switch to another preset. If that happens when playing from a genre playlist, the radio would fall back to a preset from the preset list in preferences.
+You will notice that in genre playlist mode this can happen (for remote stations with a bad connection). In a next step, this fallback needs to be recoded to use another station from the current genre playlist. If you want to avoid the fallback to a preset from NVS, use the command _preset=--stop_. This will block fallback to a station from presets until a station from presets is requested (for instance by _preset=n_  or _channel=m_ if genre play mode has stopped).
+
+When in genre play mode, you can still issue a _preset=n_ command and the radio will play the according preset from the preferences. However, genre playlist mode will not be stopped: the command _gpreset=n_ as well as _channel=m_ (if channellist is defined) will still operate on the current genre playlist.
 
 
 ## IR remote enhancements

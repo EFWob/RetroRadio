@@ -5,6 +5,12 @@
 //#undef BOARD_HAS_PSRAM
 //#define ROOT_GENRES "/_____gen.res"
 //#define ROOT_GENRES "/g/en/r/e/s"
+
+extern void claimSPI(const char *name);
+extern void releaseSPI(void);
+inline void claim_spi_genre(bool isSD) {if (isSD) claimSPI("genre");}
+inline void release_spi_genre(bool isSD) {if (isSD) releaseSPI();}
+
 Genres genres("/_____gen.res/genres");
 
 extern void doprint ( const char* format, ... );
@@ -207,11 +213,15 @@ bool res = false;
             if (p) {
                 *p = 0;
             }
+            claim_spi_genre(_isSD);
             res = _fs->exists(s);
+            release_spi_genre(_isSD);
             if (!res)
             {
                 dbgprint("Creating ROOT-directory '%s' for genres", s);
+                claim_spi_genre(_isSD);
                 res = _fs->mkdir(s);
+                release_spi_genre(_isSD);
             }
             if (!res)
                 p = NULL;
@@ -247,26 +257,34 @@ bool res = false;
         size_t size = 0;
         String fName = fileName("list");
         const char* s= fName.c_str();
+        claim_spi_genre(_isSD);
         if ( _fs->exists(s) )
         {
          idxFile = _fs->open(s);
+         release_spi_genre(_isSD);
          size = idxFile.size();
         }
+        else
+            release_spi_genre(_isSD);
         if (size > 0)
         {
             _psramList = (uint8_t *)gmalloc(idxFile.size());
             if (_psramList != NULL)
             {
+                claim_spi_genre(_isSD);
                 idxFile.read(_psramList, idxFile.size());
                 idxFile.seek(0);
+                release_spi_genre(_isSD);
             }
             size_t i = 0;
             int idx = 0;
             while (i < idxFile.size() && (idx < MAX_GENRES))
             {
                 size_t skip; 
+                claim_spi_genre(_isSD);
                 idxFile.seek(i);
                 skip = (size_t)idxFile.read();
+                release_spi_genre(_isSD);
                 if (!onlyAppend || (idx == _lastKnownGenres))
                 {
                     _idx[idx].count = 0xffff;
@@ -282,11 +300,15 @@ bool res = false;
             }
             _knownGenres = idx;
             if (onlyAppend)
+            {
                 cacheStep();
+            }
         }
         else
             dbgprint("ListOfGenres file has size 0");
+        claim_spi_genre(_isSD);
         idxFile.close();
+        release_spi_genre(_isSD);
     }
     else
     {
@@ -316,6 +338,7 @@ String Genres::getName(int id)
         }
         else
         {
+            claim_spi_genre(_isSD);
             File file = _fs->open(fileName("list").c_str(), "r");//"/genres/list", "r");
             file.seek(idx);
             l = file.read();
@@ -325,6 +348,7 @@ String Genres::getName(int id)
             }
 //            dbgprint("Got name from File: %s", genreName);
             file.close();
+            release_spi_genre(_isSD);
         }
     }
     return String(genreName);
@@ -340,7 +364,11 @@ int len = strlen(s);
     {
         File idxFile;
         if (!_psramList)    
+        {
+            claim_spi_genre(_isSD);
             idxFile = _fs->open(fileName("list").c_str());//"/genres/list");
+            release_spi_genre(_isSD);
+        }
         res = 0;
         size_t idx = 0;
         for (int i = 0;i < _knownGenres;i++)
@@ -352,8 +380,10 @@ int len = strlen(s);
             }
             else
             {
+                claim_spi_genre(_isSD);
                 l = idxFile.seek(idx++);
                 l = idxFile.read();
+                release_spi_genre(_isSD);
             }
             if (l == len)
             {
@@ -361,7 +391,11 @@ int len = strlen(s);
                 if (_psramList)
                     memcpy(genreName, _psramList + idx, l);
                 else
+                {
+                    claim_spi_genre(_isSD);
                     idxFile.read(genreName, l);
+                    release_spi_genre(_isSD);
+                }
                 genreName[l] = 0;
                 if (0 == strcmp(s, (char *)genreName))
                 {
@@ -371,7 +405,12 @@ int len = strlen(s);
             }
             idx = idx + l;
         }
-        idxFile.close();
+        if (!_psramList)    
+        {
+            claim_spi_genre(_isSD);
+            idxFile.close();
+            release_spi_genre(_isSD);
+        }
     }
     return res;
 }
@@ -388,7 +427,9 @@ int res;
         cleanGenre(res, deleteLinks);
     else if (_knownGenres < MAX_GENRES)
     {
+        claim_spi_genre(_isSD);
         File idxFile = _fs->open(fileName("list").c_str(), "a");//"/genres/list", "a");
+        release_spi_genre(_isSD);
         if (!idxFile)
         {
             dbgprint("Could not open '%s' for adding", fileName("list").c_str());
@@ -402,9 +443,11 @@ int res;
             if (l > 255)
                 l = 255;
             dbgprint("Adding to idxFile, current size is %d", idxFile.size());
+            claim_spi_genre(_isSD);
             if ( (valid = (idxFile.write((uint8_t)l) == 1)) )
                 valid = (l == idxFile.write((const uint8_t *)s, l));
             idxFile.close();
+            release_spi_genre(_isSD);
 //            if (valid)
 //                _knownGenres++;
 //            else
@@ -443,29 +486,22 @@ bool ret = false;
         }
         _idx[id - 1].count = 0;
         sprintf(path, "%d/idx", id);
-        const char* s = fileName(path).c_str();
+        String fnameStr = fileName(path);
+        const char* s = fnameStr.c_str();
+        claim_spi_genre(_isSD);
         if ( (ret = _fs->exists(s)) )
         {
             _fs->remove(s);
             sprintf(path, "%d/urls", id);
-            s = fileName(path).c_str();
+            fnameStr = fileName(path);
+            s = fnameStr.c_str();
             _fs->remove(s);
             sprintf(path, "%d/links", id);
-            s = fileName(path).c_str();
+            fnameStr = fileName(path);
+            s = fnameStr.c_str();
             _fs->remove(s);
         }
-
-/*
-        sprintf(path, "/genres/%d/idx", id);
-        if ( (ret = _fs->exists(path)) )
-        {
-            _fs->remove(path);
-            sprintf(path, "/genres/%d/urls", id);
-            _fs->remove(path);
-            sprintf(path, "/genres/%d/links", id);
-            _fs->remove(path);
-        }
-*/
+        release_spi_genre(_isSD);
     }
     return ret;
 }
@@ -485,6 +521,7 @@ bool res = false;
             sprintf(path, "%d/idx", id);
             fnameStr = fileName(path);
             fname = fnameStr.c_str();
+            claim_spi_genre(_isSD);
             idxFile = _fs->open(fname, "a");
             sprintf(path, "%d/urls", id);
             fnameStr = fileName(path);
@@ -514,13 +551,16 @@ bool res = false;
             }
             idxFile.flush();
             count = idxFile.size() / 4;
+            release_spi_genre(_isSD);
             if (count >= 0xffff)
                 count = 0xfffe;
             _idx[id - 1].count = count;
             if ((count == added) && (NULL != _gplaylist))
                 addToPlaylist(id);
+            claim_spi_genre(_isSD);
             idxFile.close();
             urlFile.close();
+            release_spi_genre(_isSD);
         }
     return res;        
 }   
@@ -531,18 +571,6 @@ bool Genres::add(int id, const char *s) {
     if (_fs && (id > 0) && (id <= _knownGenres))
     {
         dbgprint("Request to add URL '%s' to Genre with id=%d", (s?s:"<NULL>"), id);
-/*
-    if (id != _addGenre)
-    {
-        dbgprint("First stopping add to genre %d", _addGenre);
-        stopAdd();
-        if (!startAdd(id))
-        {
-            dbgprint("Could not start adding to genre %d", id);
-            res = false;
-        }
-    }
-*/  
         res = true;
         if (!s)
         {
@@ -561,7 +589,9 @@ bool Genres::add(int id, const char *s) {
         sprintf(path, "%d/urls", id);
         String fnameStr = fileName(path);
         fname = fnameStr.c_str();
+        claim_spi_genre(_isSD);
         File urlFile = _fs->open(fname, "a");
+        release_spi_genre(_isSD);
         File idxFile;
         if (!urlFile)
         {
@@ -569,12 +599,15 @@ bool Genres::add(int id, const char *s) {
             return false;
         }
         sprintf(path, "%d/idx", id);
-        fname = fileName(path).c_str();
+        fnameStr = fileName(path);
+        fname = fnameStr.c_str();
+        claim_spi_genre(_isSD);
         idxFile = _fs->open(fname, "a");
         if (!idxFile)
         {
-            dbgprint("Can not open index-file '%s'.", fname);
             urlFile.close();
+            release_spi_genre(_isSD);
+            dbgprint("Can not open index-file '%s'.", fname);
             return false;
         }
         size_t idx = urlFile.size();
@@ -583,6 +616,7 @@ bool Genres::add(int id, const char *s) {
         urlFile.close();
         idxFile.write((uint8_t *)&idx, sizeof(idx));
         idxFile.flush();
+        release_spi_genre(_isSD);
         uint32_t count = idxFile.size() / 4;
         if (count < 0xfffe)
             count++;
@@ -591,41 +625,12 @@ bool Genres::add(int id, const char *s) {
         if ((count == 1) && (_gplaylist))
             addToPlaylist(id);
         _idx[id - 1].count = count;
+        claim_spi_genre(_isSD);
         idxFile.close();
-//    _addCount++;
-/*
-    if ((_addCount % URL_CHUNKSIZE) == 0)
-    {
-        File idxFile;
-        sprintf(path, "/genres/%d/idx", _addGenre);
-        idxFile = LITTLEFS.open(path, "a");
-        idxFile.write((uint8_t)URL_CHUNKSIZE);
-        idxFile.write((const uint8_t *)&_addIdx, sizeof(_addIdx));
-        idxFile.close();
-        _addCount = 0;
-*/  
+        release_spi_genre(_isSD);
     }
     return true;
 }
-
-/*
-void Genres::stopAdd() {
-    if (_addGenre)
-    {
-        char path[30];
-        char fileName[50];
-        sprintf(path, "/genres/%d", _addGenre);
-        sprintf(fileName, "%s/idx", path);
-        if ((_addCount == 0) || ((_addCount % URL_CHUNKSIZE) != 0))
-        {
-            File idxFile = LITTLEFS.open(fileName, "a");
-            idxFile.write((uint8_t)(_addCount % URL_CHUNKSIZE));
-            idxFile.close();
-        }
-        _addGenre = 0;
-    }
-}
-*/
 
 bool Genres::deleteAll() {
     if (_fs)
@@ -686,7 +691,9 @@ void Genres::listDir(const char * dirname){
         doprint("Genre Filesystem is not mounted!");
         return;
     }
+    claim_spi_genre(_isSD);
     File root = _fs->open(dirname);
+    release_spi_genre(_isSD);
     if(!root)
     {
         doprint("- failed to open directory");
@@ -697,8 +704,9 @@ void Genres::listDir(const char * dirname){
         doprint(" - not a directory");
         return;
     }
-
+    claim_spi_genre(_isSD);
     File file = root.openNextFile();
+    release_spi_genre(_isSD);
     String rootDir = fileName("");
     const char* rootDirName = rootDir.c_str();
     int rootDirLen = strlen(rootDirName);
@@ -718,9 +726,10 @@ void Genres::listDir(const char * dirname){
         {
             doprint("  FILE: %s\tSize: %ld", file.name(), file.size());
         }
+        claim_spi_genre(_isSD);
         file = root.openNextFile();
+        release_spi_genre(_isSD);
     }
-    //doprint("Done listing directory: %s", dirname);
 }
 
 void Genres::deleteDir(const char * dirname){
@@ -731,7 +740,9 @@ char s[100];
         dbgprint("Genre Filesystem is not mounted!");
         return;
     }
+    claim_spi_genre(_isSD);
     File root = _fs->open(dirname);
+    release_spi_genre(_isSD);
     if(!root)
     {
         doprint("- failed to open directory");
@@ -742,13 +753,16 @@ char s[100];
         doprint(" - not a directory");
         return;
     }
-
+    claim_spi_genre(_isSD);
     File file = root.openNextFile();
+    release_spi_genre(_isSD);
     while(file)
     {
         strcpy(s, file.name());
         bool isDir = file.isDirectory();
+        claim_spi_genre(_isSD);
         file = root.openNextFile();
+        release_spi_genre(_isSD);
         if(isDir)
         {
             deleteDir(s);    
@@ -756,11 +770,14 @@ char s[100];
         else 
         {
             dbgprint("Delete file '%s'", s);
+            claim_spi_genre(_isSD);
             _fs->remove(s);
+            release_spi_genre(_isSD);
         }
     }
+    claim_spi_genre(_isSD);
     _fs->rmdir(dirname);
-    //doprint("Done listing directory: %s", dirname);
+    release_spi_genre(_isSD);
 }
 
 
@@ -770,11 +787,8 @@ void Genres::lsJson(Print& client, uint8_t lsmode)
     client.print("[");
     for(int id=1, total=0;id <= _knownGenres;id++)
     {
-        //char path[30];
-        //sprintf(path, "/genres/%d/idx", id);
         if ( count(id) > 0 )
         {
-            //Serial.printf("\r\nPath=%s exists!\r\n", path);
             if (total++)
                 client.print(',');
             client.println();
@@ -792,11 +806,6 @@ void Genres::lsJson(Print& client, uint8_t lsmode)
             }
             client.print('}');
         }
-//        else   
-//        {
-//            Serial.printf("\r\nPath=%s does not exist!\r\n", path);
-//            _idx[id - 1].count = 0;
-//        }
     }
     client.println();
     client.println("]");
@@ -814,24 +823,31 @@ const char *fname;
         {
             String fnameStr = fileName("idx");
             const char *fname = fnameStr.c_str();
-            //strcpy(path, "/genres/idx");
+            claim_spi_genre(_isSD);
             if ( _fs->exists(fname) )
             {
                 File file = _fs->open(fname, "r");
+                release_spi_genre(_isSD);
                 size_t fSize = file.size();
                 res = fSize / sizeof(_idx[0]);
                 if (res == _knownGenres)
                 {
+                    claim_spi_genre(_isSD);
                     file.read((uint8_t *)&_idx, sizeof(_idx[0]) * _knownGenres);
                     file.close();
+                    release_spi_genre(_isSD);
                     _cacheIdx = _knownGenres;
                 }
                 else
                 {
+                    claim_spi_genre(_isSD);
                     file.close();
                     _fs->remove(fname);
+                    release_spi_genre(_isSD);
                 }
             }
+            else
+                release_spi_genre(_isSD);
         }
         if (_idx[id-1].count != 0xffff)
             res = _idx[id - 1].count;
@@ -841,13 +857,17 @@ const char *fname;
             sprintf(pathId, "%d/idx", id);
             fnameStr = fileName(pathId);
             fname = fnameStr.c_str();
+            claim_spi_genre(_isSD);
             if ( _fs->exists(fname) )
             {
                 File file = _fs->open(fname, "r");
                 size_t fSize = file.size();
                 res = fSize / 4;
                 file.close();
+                release_spi_genre(_isSD);
             }
+            else
+                release_spi_genre(_isSD);
             if (res <= 0xfffe)
                 _idx[id - 1].count = res;
             else
@@ -860,9 +880,11 @@ const char *fname;
                     //strcpy(path, "/genres/idx");
                     fnameStr = fileName("idx");
                     fname = fnameStr.c_str();
+                    claim_spi_genre(_isSD);
                     File file = _fs->open(fname, "w");
                     file.write((uint8_t *)&_idx, sizeof(_idx[0]) * _knownGenres);
                     file.close();
+                    release_spi_genre(_isSD);
                 }
             }
         }
@@ -888,6 +910,7 @@ String res = "";
         char path[20];
         File fileIdx, fileUrls;
         sprintf(path, "%d/idx", id);
+        claim_spi_genre(_isSD);
         fileIdx = _fs->open(fileName(path).c_str(), "r");
         sprintf(path, "%d/urls", id);
         fileUrls = _fs->open(fileName(path).c_str(), "r");
@@ -904,6 +927,8 @@ String res = "";
             }
             else
                 chunkSize = fileUrls.size();
+            release_spi_genre(_isSD);
+
             // chunkSize now contains the start index of next chunk, make it chunkSize with next expression
             //number = number % URL_CHUNKSIZE;
             chunkSize = chunkSize - chunkStart;
@@ -911,16 +936,10 @@ String res = "";
             char *s = (char *)malloc(chunkSize);
             if (s)
             {
+                claim_spi_genre(_isSD);
                 fileUrls.seek(chunkStart);
                 fileUrls.read((uint8_t *)s, chunkSize);
-/*
-                char *p = s;
-                while (number)
-                {
-                    number--;
-                    p = p + strlen(p) + 1;
-                }
-*/
+                release_spi_genre(_isSD);
                 char *p;
                 if (cutName)
                     if (NULL != (p = strchr(s, '#')))
@@ -929,69 +948,14 @@ String res = "";
                 free(s);
             }
         }
+        claim_spi_genre(_isSD);
         fileIdx.close();
         fileUrls.close();
+        release_spi_genre(_isSD);
     }
     return res;
 }
 
-/*
-bool Genres::startAdd(int id) {
-bool res = false;
-    if ((id > 0) && (id <= _knownGenres))
-    {
-        char path[30];
-        char fileName[50], fileName2[50];
-        File idxfile, file2;
-        //cleanGenre(id);
-        sprintf(path, "/genres/%d", id);
-        sprintf(fileName, "%s/idx", path);
-        sprintf(fileName2, "%s/new", path);
-        idxfile = LITTLEFS.open(fileName, "r");
-        file2 = LITTLEFS.open(fileName2, "w");
-        size_t l = idxfile.size();
-        if (idxfile && file2 && ((l % 5) == 0) && (l >= 5))
-        {
-            uint32_t knownUrls = ((l / 5) - 1) * URL_CHUNKSIZE;
-            size_t l1 = l - 1;
-            size_t bufsize = l1>2000?2000:l1;
-            uint8_t buf[bufsize];
-            while (l1 > 0)
-            {
-                size_t chunksize = (l1 > bufsize)?bufsize:l1;
-                idxfile.read(buf, chunksize);
-                file2.write(buf, chunksize);
-                l1 = l1 - chunksize;
-            }
-            _addCount = idxfile.read();
-            knownUrls = knownUrls + _addCount;
-            idxfile.close();
-            file2.close();
-            if (LITTLEFS.rename(fileName2, fileName))
-            {
-                sprintf(fileName, "%s/urls", path);
-                file2 = LITTLEFS.open(fileName, "r");
-                if (file2)
-                {
-                    _addIdx = file2.size();
-                    _addGenre = id;
-                    file2.close();
-                    res = true;
-                    dbgprint("Success to start add to Genre with id: %d", id);
-                    dbgprint("URLs so far: %ld, URL filesize=%ld, subIndex: %d", knownUrls, _addIdx, _addCount);
-                }
-            }
-            else
-                dbgprint("Error: could not create new indexfile for genre with id: %d", id);
-        }
-        else 
-            dbgprint("Error: could not start adding to genre with id: %d. Filesystem corrupt!?", id);    
-    }
-    if (!res)
-        _addGenre = 0;
-    return res;
-}
-*/
 
 void Genres::cleanLinks(int id){
     if (_fs && _begun && (id > 0) && (id <=_knownGenres))
@@ -999,9 +963,11 @@ void Genres::cleanLinks(int id){
         char path[30];
         File linkFile;
         sprintf(path, "%d/links", id);
+        claim_spi_genre(_isSD);
         linkFile = _fs->open(fileName(path).c_str(), "w");
         if (linkFile)
             linkFile.close();
+        release_spi_genre(_isSD);
     }
 }
 
@@ -1011,16 +977,21 @@ void Genres::addLinks(int id, const char* moreLinks){
         char path[30];
         File linkFile;
         sprintf(path, "%d/links", id);
+        claim_spi_genre(_isSD);
         linkFile = _fs->open(fileName(path).c_str(), "a");
         if (linkFile)
         {
-            dbgprint("Add link to genre[%d]=%s (len=%d) (filesize so far: %ld", 
-                    id, moreLinks, strlen(moreLinks), linkFile.size());
             if (linkFile.size() > 0)
                 linkFile.write(',');
             linkFile.write((uint8_t *)moreLinks, strlen(moreLinks));
             linkFile.close();
+            release_spi_genre(_isSD);    
+            dbgprint("Add link to genre[%d]=%s (len=%d) (filesize so far: %ld", 
+                    id, moreLinks, strlen(moreLinks), linkFile.size());
+
         }
+        else
+            release_spi_genre(_isSD);
     }
 }
 
@@ -1030,6 +1001,7 @@ String ret ="";
     {
         char path[30];
         sprintf(path, "%d/links", id);
+        claim_spi_genre(_isSD);
         if ( _fs->exists(fileName(path).c_str() ))
         {
             File linkFile = _fs->open(fileName(path).c_str(), "r");
@@ -1037,9 +1009,12 @@ String ret ="";
             linkFile.read((uint8_t *)s, linkFile.size());
             s[linkFile.size()] = 0;
             linkFile.close();
+            release_spi_genre(_isSD);
             ret = String(s);
             dbgprint("Returning links for genre[%d]=%s", id, ret.c_str());
         }
+        else
+            release_spi_genre(_isSD);
     }
     return ret;
 }
@@ -1066,32 +1041,46 @@ void Genres::cleanGenre(int id, bool deleteLinks)
         sprintf(s0, "%d", id);
         fnameStr = fileName(s0);
         fname = fnameStr.c_str();
+        claim_spi_genre(_isSD);
         File root = _fs->open(fname);
+        release_spi_genre(_isSD);
         if (!root) {
             dbgprint("No content is stored in LITTLEFS for genre with id: %d", id);
             dbgprint("Creating directory %s", fname);
+            claim_spi_genre(_isSD);
             _fs->mkdir(fname);
+            release_spi_genre(_isSD);
         }
         else if (!root.isDirectory()) {
             dbgprint("PANIC because unexpected: File with name %s is not a directory!", fname);
+            claim_spi_genre(_isSD);
             root.close();
+            release_spi_genre(_isSD);
             return;
         }
         else
         {
+            claim_spi_genre(_isSD);
             File file = root.openNextFile();
+            release_spi_genre(_isSD);
             while (file)
             {
                 char *s = strdup(file.name());
+                claim_spi_genre(_isSD);
                 file = root.openNextFile();
+                release_spi_genre(_isSD);
                 if (deleteLinks || (strstr(s, "links") == NULL))
                     dbgprint("Removing '%s'=%d", s, _fs->remove(s));
                 free(s);
             }        
             //dbgprint("Removing directory '%s'=%d", s0, LITTLEFS.rmdir(s0));
+            claim_spi_genre(_isSD);
             root.close();
+            release_spi_genre(_isSD);
         }
-        root = _fs->open(fname); // Directory should be open now..
+        
+       //????? root = _fs->open(fname); // Directory should be open now..
+       
         /*
         if (root && (root.isDirectory()))
         {
@@ -1117,7 +1106,7 @@ void Genres::cleanGenre(int id, bool deleteLinks)
             dbgprint("PANIC because unexpected: Directory with name %s not found!", s0);
         }
         */
-        root.close();
+        //????? root.close();
 
     }
     else 
@@ -1133,6 +1122,7 @@ bool ret = false;
         {
             File f;
             dbgprint("Quick Formatting LITTLEFS for genre!");
+            //??? Filename!!!!
             f = _fs->open("/genres/list", "w");
             ret = f;
             f.close();
