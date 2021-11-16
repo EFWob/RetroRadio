@@ -10,6 +10,16 @@
 #define LSMODE_SHORT     0b1
 #define LSMODE_WITHLINKS 0b10
 
+
+// Follwing functions must be defined elsewhere to resolve conflicting access to SPI 
+// (SPI is needed, if genres are stored on SD card)
+extern void claimSPI(const char *name);
+extern void releaseSPI(void);
+
+// Follwing function must be defined elsewhere to allow debug output and store config info to NVS
+extern int DEBUG;
+esp_err_t nvssetstr ( const char* key, String val );
+
 class Genres;
 
 class GenreConfig {
@@ -18,9 +28,11 @@ friend class Genres;
         void noName(bool noName) {_noName = noName;};
         void showId(bool showId) {_showId = showId;};
         void rdbs(const char* s) {if (_rdbs) free(_rdbs);_rdbs = NULL; if (s) _rdbs = strdup(s);};
-    //    void useSD(bool useSD);// {if (_genres) _genres->_isSD = useSD;};
+        void useSD(bool useSD); 
         void verbose(bool mode) { _verbose = mode;};
         bool verbose() { return _verbose;};
+        void disable(bool mode) {_disable = mode;};
+        bool disable() {return _disable;}; 
         void toNVS();
         void info();
         String asJson();
@@ -31,6 +43,7 @@ friend class Genres;
         bool _showId = false;
         bool _verbose = true;
         bool _useSD = false;
+        bool _disable = false;
 };
 
 class Genres {
@@ -39,13 +52,13 @@ friend class GenreConfig;
         Genres(const char* name = NULL);
         ~Genres();
         void nameSpace(const char *name);
-        bool begin();
+        bool begin(bool formatOnFail = true);
         int findGenre(const char *s);
         int createGenre(const char *s, bool deleteLinks = true);
         bool deleteGenre(int id);
         bool format(bool quick = false);
         bool deleteAll();
-        bool add(int id, const char *s);
+        //bool add(int id, const char *s);
         bool addChunk(int id, const char *s, char delimiter);
         void cleanLinks(int id);
         void addLinks(int id, const char* moreLinks);
@@ -58,9 +71,10 @@ friend class GenreConfig;
         void lsJson(Print& client, uint8_t lsmode = LSMODE_DEFAULT);
         void test();
         void dbgprint ( const char* format, ... );
-        void cacheStep();
         //void verbose ( int mode);
         GenreConfig config;
+        void *gmalloc(size_t size, bool forcePSRAM = false);
+        bool loop();
     protected:
         bool _begun = false;
         bool _wasBegun = false;
@@ -81,13 +95,24 @@ friend class GenreConfig;
 //        void stopAdd();
 //        bool startAdd(int id);
         void listDir(const char* dirname);
-        void *gmalloc(size_t size);
         uint8_t *_psramList = NULL;
         char *_gplaylist = NULL;
 //        bool _verbose = true;
 //        uint16_t _addCount = 0;
 //        size_t _addIdx = 0;
 //        int _addGenre = 0;
+    private:
+        uint8_t * _urlCache = NULL;
+        uint8_t * _idxCache = NULL;
+        size_t _idxSize = 0;
+        size_t _urlSize = 0;
+        int _urlId = -1;
+        void writeIndexFile(bool force = false);
+        void doWriteIndexFile();
+        uint8_t * getUrlCache(int id, size_t &urlSize, File& urlFile, File& idxFile, uint8_t **idxCache, size_t & idxSize);
+        uint32_t _idxFileWriteRequestTime = 0;
+        void invalidateUrlCache(int id = -1);
+        bool cacheStep();
 };
 
 

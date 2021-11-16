@@ -1,19 +1,18 @@
-#include <genres.h>
-#include <AddRR.h>
+//#include "OdroidExtra.h"
+#include "genres.h"
 #include <SD.h>
 
 //#undef BOARD_HAS_PSRAM
 //#define ROOT_GENRES "/_____gen.res"
 //#define ROOT_GENRES "/g/en/r/e/s"
 
-extern void claimSPI(const char *name);
-extern void releaseSPI(void);
-inline void claim_spi_genre(bool isSD) {if (isSD) claimSPI("genre");}
-inline void release_spi_genre(bool isSD) {if (isSD) releaseSPI();}
+// If SD card used, claim SPI to avoid conflicting access to SPI
+inline void claim_spi_genre(bool isSD) {if (isSD) claimSPI("genres");}            
+inline void release_spi_genre(bool isSD) {if (isSD) releaseSPI();}          
 
 Genres genres("/_____gen.res/genres");
 
-extern void doprint ( const char* format, ... );
+//extern void doprint ( const char* format, ... );
 
 
 String GenreConfig::asJson() {
@@ -26,6 +25,7 @@ String GenreConfig::asJson() {
               ",\"noname\": " + String(_noName?1:0) +
               ",\"showid\": " + String(_showId?1:0) +
               ",\"verbose\": " + String(_verbose?1:0) +
+              ",\"disable\":" + String(_disable?1:0) +
               ",\"isSD\":" + String(_genres->_isSD?1:0) +
               ",\"path\": \"" + String(_genres->_nameSpace) + "\"" +
               ",\"open\":" + String(_genres->_begun?1:0) +
@@ -33,12 +33,14 @@ String GenreConfig::asJson() {
 }
 
 
+
 void GenreConfig::toNVS() {
     String value;
     nvssetstr("gcfg.rdbs", String(_rdbs));
-    nvssetstr("gcfg.usesd", String(_genres->_isSD?1:0));
-    nvssetstr("gcfg.path", String(_genres->_nameSpace));
-    nvssetstr("gcfg.noname", String(_noName?1:0));
+//    nvssetstr("gcfg.usesd", String(_genres->_isSD?1:0));
+//    nvssetstr("gcfg.path", String(_genres->_nameSpace));
+//    nvssetstr("gcfg.noname", String(_noName?1:0));
+    nvssetstr("gcfg.disable", String(_disable?1:0));
     nvssetstr("gcfg.verbose", String(_verbose?1:0));
     nvssetstr("gcfg.showid", String(_showId?1:0));
 }
@@ -67,7 +69,7 @@ String infoLine;
 }
 
 
-/*
+
 void GenreConfig::useSD(bool useSD) {
     if (_genres) 
         if (_genres->_isSD != useSD)
@@ -80,7 +82,6 @@ void GenreConfig::useSD(bool useSD) {
                 }
             }
 }
-*/
 
 Genres::Genres(const char *name) {
     if (NULL == name)
@@ -116,7 +117,7 @@ void Genres::dbgprint ( const char* format, ... ) {
 #if !defined(NOSERIAL)
     if (config.verbose())
     {
-        static char sbuf[2 * DEBUG_BUFFER_SIZE] ;                // For debug lines
+        char sbuf[500] ;                                     // For debug lines
         va_list varArgs ;                                    // For variable number of params
         sbuf[0] = 0 ;
         va_start ( varArgs, format ) ;                       // Prepare parameters
@@ -142,24 +143,27 @@ void Genres::verbose ( int mode ) {
 }
 */
 
-bool Genres::begin() {
+bool Genres::begin(bool formatOnFail) {
     _wasBegun = true;
     if (_begun)                 // Already open?
         return true;
+    /*
     if (_isSD)
         _fs = &SD;
     else
+    */
         _fs = &LITTLEFS;
     if (_fs == &LITTLEFS)
     {
         if (!(_begun = LITTLEFS.begin()))
             {
-            if (!(_begun = this->format()))
+            if (formatOnFail)
+              if (!(_begun = this->format()))
                 {
                 dbgprint("LITTLEFS formatting failed! Can not play from genres!");
                 }
              }
-        else
+        if (_begun)
             _begun = openGenreIndex();
     }
     else    
@@ -485,6 +489,12 @@ bool ret = false;
                 }
         }
         _idx[id - 1].count = 0;
+        if (_cacheIdx == _knownGenres)
+            {
+              //force update of index file
+              writeIndexFile();
+            }
+
         sprintf(path, "%d/idx", id);
         String fnameStr = fileName(path);
         const char* s = fnameStr.c_str();
@@ -551,10 +561,16 @@ bool res = false;
             }
             idxFile.flush();
             count = idxFile.size() / 4;
+            invalidateUrlCache(id);
             release_spi_genre(_isSD);
             if (count >= 0xffff)
                 count = 0xfffe;
             _idx[id - 1].count = count;
+//            if (_knownGenres == _cacheIdx)
+            {
+              //Force update of index file 
+              writeIndexFile();
+            }
             if ((count == added) && (NULL != _gplaylist))
                 addToPlaylist(id);
             claim_spi_genre(_isSD);
@@ -566,6 +582,7 @@ bool res = false;
 }   
 
 
+#if defined(OBSOLETE)
 bool Genres::add(int id, const char *s) {
     bool res = false;
     if (_fs && (id > 0) && (id <= _knownGenres))
@@ -599,8 +616,7 @@ bool Genres::add(int id, const char *s) {
             return false;
         }
         sprintf(path, "%d/idx", id);
-        fnameStr = fileName(path);
-        fname = fnameStr.c_str();
+        fname = fileName(path).c_str();
         claim_spi_genre(_isSD);
         idxFile = _fs->open(fname, "a");
         if (!idxFile)
@@ -631,6 +647,7 @@ bool Genres::add(int id, const char *s) {
     }
     return true;
 }
+#endif
 
 bool Genres::deleteAll() {
     if (_fs)
@@ -648,12 +665,12 @@ void Genres::ls() {
 
 void Genres::test() {
     if (_fs == &LITTLEFS)
-    doprint("Genre Filesystem total bytes: %ld, used bytes: %ld (free=%ld)",
+    dbgprint("Genre Filesystem total bytes: %ld, used bytes: %ld (free=%ld)",
         LITTLEFS.totalBytes(), LITTLEFS.usedBytes(), LITTLEFS.totalBytes() - LITTLEFS.usedBytes());
     else if (_fs)
-        doprint("No information available for used Genre Filesystem!");
+        dbgprint("No information available for used Genre Filesystem!");
     else  
-        doprint("Genre Filesystem is not mounted!");
+        dbgprint("Genre Filesystem is not mounted!");
 }
 
 
@@ -665,7 +682,7 @@ String Genres::playList() {
     else
     {
         bool notFirst = false;
-        Serial.println("Building genre playlist from scratch!");
+        Serial.printf("Building genre playlist from scratch! Known genres=%d\r\n", _knownGenres);
         for(int i = 1;i <= _knownGenres;i++)
             if (count(i) > 0)
             {
@@ -684,11 +701,11 @@ String Genres::playList() {
 }
 
 void Genres::listDir(const char * dirname){
-    doprint("Listing directory: %s", dirname);
+    dbgprint("Listing directory: %s", dirname);
 
     if (!_fs)
     {
-        doprint("Genre Filesystem is not mounted!");
+        dbgprint("Genre Filesystem is not mounted!");
         return;
     }
     claim_spi_genre(_isSD);
@@ -696,12 +713,12 @@ void Genres::listDir(const char * dirname){
     release_spi_genre(_isSD);
     if(!root)
     {
-        doprint("- failed to open directory");
+        dbgprint("- failed to open directory");
         return;
     }
     if(!root.isDirectory())
     {
-        doprint(" - not a directory");
+        dbgprint(" - not a directory");
         return;
     }
     claim_spi_genre(_isSD);
@@ -719,12 +736,12 @@ void Genres::listDir(const char * dirname){
                 s = s + rootDirLen;
             else
                 s = "0";
-            doprint("  DIR : %s (GenreName[%s]: %s)", file.name(), s, getName(atoi(s)).c_str());
+            dbgprint("  DIR : %s (GenreName[%s]: %s)", file.name(), s, getName(atoi(s)).c_str());
             listDir(file.name());    
         } 
         else 
         {
-            doprint("  FILE: %s\tSize: %ld", file.name(), file.size());
+            dbgprint("  FILE: %s\tSize: %ld", file.name(), file.size());
         }
         claim_spi_genre(_isSD);
         file = root.openNextFile();
@@ -745,12 +762,12 @@ char s[100];
     release_spi_genre(_isSD);
     if(!root)
     {
-        doprint("- failed to open directory");
+        dbgprint("- failed to open directory");
         return;
     }
     if(!root.isDirectory())
     {
-        doprint(" - not a directory");
+        dbgprint(" - not a directory");
         return;
     }
     claim_spi_genre(_isSD);
@@ -816,6 +833,7 @@ uint32_t res = 0;
 //char path[30];
 String fnameStr;
 const char *fname;
+bool idxFileChanged = false;
 
     if (_fs && (id > 0) && (id <= _knownGenres))
     {
@@ -836,6 +854,7 @@ const char *fname;
                     file.read((uint8_t *)&_idx, sizeof(_idx[0]) * _knownGenres);
                     file.close();
                     release_spi_genre(_isSD);
+                    dbgprint("Idx cache file opened (%s)", fname); 
                     _cacheIdx = _knownGenres;
                 }
                 else
@@ -843,6 +862,7 @@ const char *fname;
                     claim_spi_genre(_isSD);
                     file.close();
                     _fs->remove(fname);
+                    dbgprint("Idx cache file corrupt (%s), has been removed!", fname); 
                     release_spi_genre(_isSD);
                 }
             }
@@ -850,10 +870,14 @@ const char *fname;
                 release_spi_genre(_isSD);
         }
         if (_idx[id-1].count != 0xffff)
+        {
             res = _idx[id - 1].count;
-        else
+            dbgprint("Got count for id: %d from cached idx-File as: %d (CacheIdx=%d)", id, res, _cacheIdx);
+        }
+        if (0 == res)
         {
             char pathId[20];
+            idxFileChanged = true;
             sprintf(pathId, "%d/idx", id);
             fnameStr = fileName(pathId);
             fname = fnameStr.c_str();
@@ -869,46 +893,162 @@ const char *fname;
             else
                 release_spi_genre(_isSD);
             if (res <= 0xfffe)
-                _idx[id - 1].count = res;
-            else
-                _idx[id - 1].count = 0xfffe;
-            if (_cacheIdx == id - 1)
             {
-                _cacheIdx = id;
-                if (id == _knownGenres)
-                {
-                    //strcpy(path, "/genres/idx");
-                    fnameStr = fileName("idx");
-                    fname = fnameStr.c_str();
-                    claim_spi_genre(_isSD);
-                    File file = _fs->open(fname, "w");
-                    file.write((uint8_t *)&_idx, sizeof(_idx[0]) * _knownGenres);
-                    file.close();
-                    release_spi_genre(_isSD);
-                }
+                _idx[id - 1].count = res;
             }
+            else
+                res = _idx[id - 1].count = 0xfffe;
+            dbgprint("Calculated count for id: %d as: %d", id, res);
+
         }
+    //force writeout of index file
+      if ((_cacheIdx == id - 1) || (idxFileChanged))
+      {
+        dbgprint("CacheIDX=%d is id-1, KnownGenres = %d", _cacheIdx, _knownGenres);
+        _cacheIdx = id;
+        if (id == _knownGenres)
+        {
+          writeIndexFile();
+        }
+      }
     }
+    
+
+
     if (res >= 0xfffe)
         res = 0;
     return res;
 }
 
-void Genres::cacheStep()
+
+void Genres::doWriteIndexFile()
+{
+    if (_idxFileWriteRequestTime)
+    {
+          _idxFileWriteRequestTime = 0;  
+          String fnameStr = fileName("idx");
+          const char *fname = fnameStr.c_str();
+          claim_spi_genre(_isSD);
+          File file = _fs->open(fname, "w");
+          file.write((uint8_t *)&_idx, sizeof(_idx[0]) * _knownGenres);
+          file.close();
+          release_spi_genre(_isSD);
+          dbgprint("Updated idx-File on filesystem: %s", fname);
+    }
+}
+
+
+void Genres::writeIndexFile(bool force)
+{
+    _idxFileWriteRequestTime = millis();
+    if (force)
+        doWriteIndexFile();
+}
+
+bool Genres::cacheStep()
 {
     if (_knownGenres > _cacheIdx) {
         count(_cacheIdx + 1);
         if (((_cacheIdx % 10) == 0) || (_cacheIdx == _knownGenres)) 
             dbgprint("CacheStep: %d (knownGenres: %d)", _cacheIdx, _knownGenres);
     }
+  return _knownGenres == _cacheIdx;
+}
+
+bool Genres::loop()
+{
+bool ret = false;
+    if (_begun)    
+        if (cacheStep())
+        {
+            if (_idxFileWriteRequestTime != 0)
+                if (millis() - _idxFileWriteRequestTime > 2000)
+                    doWriteIndexFile();
+        ret = true;
+        }
+    return ret;
 }
 
 String Genres::getUrl(int id, uint16_t number, bool cutName) {
 String res = "";
+    
     if (_fs && (count(id) > number))
     {
-        char path[20];
         File fileIdx, fileUrls;
+        size_t seekPosition = number;
+        size_t chunkStart;
+        size_t chunkSize, idxSize, urlSize;
+        seekPosition = seekPosition * 4;
+        uint8_t *idxCache;
+        uint8_t *urlCache = getUrlCache(id, urlSize, fileUrls, fileIdx, &idxCache, idxSize);
+        if (NULL != idxCache)
+        {
+          idxCache = idxCache + seekPosition;
+          memcpy(&chunkStart, idxCache, 4);
+          if (seekPosition + 4 < idxSize)
+          {
+            memcpy(&chunkSize, idxCache + 4, 4);
+          }
+            else
+                chunkSize = urlSize;
+        }
+        else if (fileIdx)
+        {
+          claim_spi_genre(_isSD);
+          fileIdx.seek(seekPosition);
+          fileIdx.read((uint8_t *)&chunkStart, 4);
+          if (seekPosition + 4 < fileIdx.size())
+          {
+              fileIdx.read((uint8_t *)&chunkSize, 4);
+          }
+          else
+              chunkSize = urlSize;
+          fileIdx.close();
+          release_spi_genre(_isSD);
+        }
+        dbgprint("About to seek: %ld..%ld (urlSize: %ld) fileUrls=%d", chunkStart, chunkSize, urlSize, fileUrls);
+        if ((chunkSize > chunkStart) && (chunkSize <= urlSize) && (fileUrls || (NULL != urlCache)))
+        {
+          // chunkSize now contains the start index of next chunk, make it chunkSize with next expression
+          chunkSize = chunkSize - chunkStart;
+          char *s = (char *)malloc(chunkSize);
+          if (s)
+          {
+            dbgprint("Ready to locate url in %s, chunkStart=%ld, chunkSize=%ld, idx=%d", 
+                        (urlCache?"cache":"file"), chunkStart, chunkSize, number);
+            if (NULL != urlCache)
+            {
+              urlCache = urlCache + chunkStart;
+              memcpy(s, urlCache, chunkSize);
+            }
+            else   // not cached, get URL from file.
+            {
+                claim_spi_genre(_isSD);
+                fileUrls.seek(chunkStart);
+                fileUrls.read((uint8_t *)s, chunkSize);
+                fileUrls.close();
+                release_spi_genre(_isSD);
+            }
+            char *p;
+            if (cutName)
+              if (NULL != (p = strchr(s, '#')))
+                *p = 0;
+            res = String(s);
+            free(s);
+          }
+        }
+        if (fileUrls)  
+        {
+          claim_spi_genre(_isSD);
+          fileUrls.close();
+          release_spi_genre(_isSD);
+        }
+    }
+    return res;
+}
+
+#if defined(OBSOLETE)    
+        char path[20];
         sprintf(path, "%d/idx", id);
         claim_spi_genre(_isSD);
         fileIdx = _fs->open(fileName(path).c_str(), "r");
@@ -952,9 +1092,12 @@ String res = "";
         fileIdx.close();
         fileUrls.close();
         release_spi_genre(_isSD);
+   
     }
     return res;
+
 }
+#endif 
 
 
 void Genres::cleanLinks(int id){
@@ -1013,7 +1156,6 @@ String ret ="";
             ret = String(s);
             dbgprint("Returning links for genre[%d]=%s", id, ret.c_str());
         }
-        else
             release_spi_genre(_isSD);
     }
     return ret;
@@ -1035,6 +1177,11 @@ void Genres::cleanGenre(int id, bool deleteLinks)
                 _gplaylist = NULL;
             }
             _idx[id - 1].count = 0;
+            if (_cacheIdx == _knownGenres)
+            {
+              writeIndexFile();
+              //force update of index file
+            }
             Serial.println("gplaylist deleted!");
         }
         //TODO delete specific files for Genre
@@ -1150,13 +1297,14 @@ bool ret = false;
 }
 
 
-void *Genres::gmalloc(size_t size)
+void *Genres::gmalloc(size_t size, bool forcePSRAM)
 {
     void *p = NULL;           
 #if defined(BOARD_HAS_PSRAM)
     p = (uint8_t *)ps_malloc(size);
 #endif
-    if (!p)
+    if (!forcePSRAM)
+      if (!p)
         if (ESP.getFreeHeap() > size)
             if (ESP.getFreeHeap() - size > 80000)
                 p = malloc(size);
@@ -1190,4 +1338,90 @@ void Genres::addToPlaylist(int idx){
         }
     }
 
+}
+
+uint8_t * Genres::getUrlCache(int id, size_t &urlSize, File& fileUrls, File& fileIdx, uint8_t **idxCache, size_t &idxSize)
+{
+char path[20];
+
+  *idxCache = NULL;
+  if (0 == count(id))
+    return NULL;
+  if (_urlCache)
+    if (_urlId == id)
+    {
+      urlSize = _urlSize;
+      if (_idxCache)
+      {
+        *idxCache = _idxCache;
+        idxSize = _idxSize;
+      }
+      else
+      {
+        sprintf(path, "%d/idx", id);
+        claim_spi_genre(_isSD);
+        fileIdx = _fs->open(fileName(path).c_str(), "r");        
+        release_spi_genre(_isSD);
+        idxSize = fileIdx.size();  
+      }
+      return _urlCache;          
+    }
+    else
+      invalidateUrlCache(-1);
+  sprintf(path, "%d/idx", id);
+  claim_spi_genre(_isSD);
+  fileIdx = _fs->open(fileName(path).c_str(), "r");        
+  sprintf(path, "%d/urls", id);
+  fileUrls = _fs->open(fileName(path).c_str(), "r");        
+  release_spi_genre(_isSD);
+  idxSize = fileIdx.size();  
+  urlSize = fileUrls.size();  
+  if (fileUrls && fileIdx && urlSize && idxSize)
+  {
+    uint32_t startTime = millis();
+    _urlCache = (uint8_t *)gmalloc(urlSize);
+    if (NULL != _urlCache)
+    {
+      claim_spi_genre(_isSD);
+      fileUrls.read(_urlCache, urlSize);
+      fileUrls.close();
+      _urlSize = urlSize;
+      if (NULL != (_idxCache = (uint8_t *)gmalloc(idxSize)))
+      {
+        fileIdx.read(_idxCache, idxSize);
+        fileIdx.close();
+        *idxCache = _idxCache;
+        _idxSize = idxSize;
+      }
+      release_spi_genre(_isSD);       
+      _urlId = id;
+      startTime = millis() - startTime;
+      dbgprint("Cached genre %d: UrlFileSize = %ld (IdxFileSize = %ld), CPU-Time: %ld",  id, _urlSize, _idxSize, startTime);
+    }
+  }
+  else
+  {
+    dbgprint("Closing because UrlSize (open: %d): %ld, IdxSize (open: %d): %ld", fileUrls?1:0, urlSize, fileIdx?1:0, idxSize);
+    claim_spi_genre(_isSD);
+    fileIdx.close();
+    fileUrls.close();
+    release_spi_genre(_isSD);
+    idxSize = urlSize = 0;
+  }
+  return _urlCache;
+}
+        
+void Genres::invalidateUrlCache(int id)
+{
+  if (_urlCache)
+    if ((_urlId == id) || (id == -1))
+    {
+      free(_urlCache);
+      _urlCache = NULL;
+      if (_idxCache)
+        _idxCache = NULL;
+      _urlId = -1;
+      _idxSize = 0;
+      _urlSize = 0;
+    }
 }

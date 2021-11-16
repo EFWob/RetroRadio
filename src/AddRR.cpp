@@ -112,7 +112,8 @@ class RetroRadioInput {
 void doGenre ( String param, String value );
 void doGenreConfig ( String param, String value );
 void doGpreset ( String value );
-
+void doFavorite ( String param, String value );
+void setupReadFavorites ( void );
 
 
 std::vector<int16_t> channelList;     // The channels defined currently (by command "channels")
@@ -125,6 +126,8 @@ String readInt16(void *);                // Takes a void pointer and returns the
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
 String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
+String readStationURL(void *);          // Returns the URL (followed by #stationName) of current station
+
 
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
@@ -161,6 +164,7 @@ struct {                           // A table of known internal variables that c
   {"gpresets", &genrePresets, readInt16},
   {"gpreset", &genrePreset, readInt16},
   {"glist", NULL, readGenrePlaylist},
+  {"url", NULL, readStationURL},
 };
 
 
@@ -3240,6 +3244,7 @@ void setupRR(uint8_t setupLevel) {
     touch_pad_filter_start(16);
     //adc_power_on();
     readprogbuttonsRetroRadio();
+    setupReadFavorites ();
     setupIR();
     if (nvssearch("pin_reset"))
     {
@@ -3336,7 +3341,7 @@ void loopRR() {
     }
     DEBUG = deb;
   }
-  genres.cacheStep();
+  genres.loop();
 }
 
 
@@ -3512,9 +3517,13 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     currentpreset = ini_block.newpreset = -1;
     ret = true;
   }
-  else if ( param.startsWith("gcfg.") )
+  else if ( ret = param.startsWith("gcfg.") )
   {
     doGenreConfig(param.substring(5), value);
+  }
+  else if (ret = param.startsWith("fav"))
+  {
+    doFavorite(param, value);
   }
   if ( ret ) 
   {
@@ -3715,8 +3724,8 @@ void doGenreConfig(String param, String value)
     genres.config.showId(value.toInt());
   else if (param == "verbose")
     genres.config.verbose(value.toInt());
-//  else if (param == "usesd")
-//    genres.config.useSD(value.toInt());
+  else if (param == "usesd")
+    genres.config.useSD(value.toInt());
   else if (param == "path")
     genres.nameSpace(value.c_str());
   else if (param == "store")
@@ -3828,6 +3837,7 @@ void doGenre(String param, String value)
     {
       genres.format(value.toInt());
     }
+/*   
     else if (param == "add")
     {
       char *s = strchr(value.c_str(), ',');
@@ -3835,6 +3845,7 @@ void doGenre(String param, String value)
         s = s+1;
       genres.add(value.toInt(), s);
     }
+*/
     else if (param == "count")
     {
       int ivalue = value.toInt();
@@ -3957,6 +3968,10 @@ String readGenreName(void *)
   return genres.getName( genreId );
 }
 
+String readStationURL(void *)
+{
+  return lastStation;
+} 
 
 
 void doGpreset(String value)
@@ -3972,12 +3987,12 @@ void doGpreset(String value)
     if (ivalue < genrePresets) 
     {
       char key[20];
-      String s, s1;
+      String s, s1, temp;
       int idx;
       sprintf(key, "%d_%d", genreId, ivalue);
       genrePreset = ivalue;
       //s = gnvsgetstr(key);
-      s = genres.getUrl(genreId, ivalue, false);
+      temp = s = genres.getUrl(genreId, ivalue, false);
       idx = s.indexOf('#');
       if (idx >= 0)
       {
@@ -4000,6 +4015,7 @@ void doGpreset(String value)
         sprintf(cmd, "station=%s", s.c_str());
         ini_block.newpreset = currentpreset;
         analyzeCmd(cmd);
+        lastStation = temp;
 //        host = s;
 //        connecttohost();
       }
@@ -4502,6 +4518,228 @@ String sndstr = "";
   }
   cmdclient.stop();
 }
+
+bool favPresent[101];
+int mqttfavidx = 0;
+int mqttfavendidx = 0;
+
+void setmqttfavidx(int idx, int rangeEndIndex) 
+{
+        if (mqttfavidx == 0)
+        {
+          mqttfavidx=idx;
+          mqttfavendidx=rangeEndIndex;
+        }
+        else
+        {
+          if (mqttfavidx > idx)
+            mqttfavidx = idx;
+          if (mqttfavendidx < rangeEndIndex)
+            mqttfavendidx = rangeEndIndex;
+        }
+}
+
+String readfavfrompref ( int16_t idx )
+{
+  String s;
+  char           tkey[12] ;                            // Key as an array of char
+  if ((idx < 1) || (idx > 100))
+    return "";
+  favPresent[idx] = false;
+  sprintf ( tkey, "fav_%02d", idx ) ;              // Form the search key
+  if ( !nvssearch ( tkey ) )                           // Does _x[x[x]] exists?
+  {
+      return String ( "" ) ;                           // Not found
+  }
+  // Get the contents
+  
+  s = nvsgetstr ( tkey ) ;                          // Get the station (or empty sring)
+  s.trim();
+  favPresent[idx] = s.length() > 0;
+  return s;
+}
+
+
+void setupReadFavorites()
+{
+  for(int i = 1;i < 101;i++)
+    readfavfrompref(i);
+}
+
+void doFavorite (String param, String value)
+{
+  char c;
+  if (param != "favorite")
+    return;
+  c = *value.c_str();
+  if (isDigit(c))
+  {
+    int idx = atoi(value.c_str());
+    if ((idx > 0) && (idx <= 100))
+    {
+      if (!favPresent[idx])
+        dbgprint("Favorite[%d] is not defined!", idx);
+      else
+      {
+        String s = readfavfrompref(idx);
+        String temp = s;
+        chomp(s);
+        s = "station=" + s;
+        ini_block.newpreset = currentpreset;
+        analyzeCmd(s.c_str());
+        lastStation = temp;
+      }  
+      setmqttfavidx(idx, idx);
+    }
+    else
+      dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
+  }
+  else if (('+' == c) || ('-' == c))
+  {
+    char cmd[50];
+    int idx = atoi(value.c_str() + 1);
+    if ((idx > 0) && (idx <= 100))
+    {
+      char           tkey[12] ;                            // Key as an array of char
+      sprintf ( tkey, "fav_%02d", idx ) ;              // Form the search key
+      String url = ('+' == c)?lastStation:String("");
+      url.trim();
+      if (url.length() == 0)
+      {
+        nvsdelkey(tkey);
+        favPresent[idx] = false;    
+      }
+      else
+      {
+        nvssetstr ( tkey, url ) ;
+        favPresent[idx] = true;
+      }
+      sprintf(cmd, "favorite=m%d", idx);
+      analyzeCmd(cmd);
+    }
+    else if ((idx >= -100))
+    {
+      char tkey[12];
+      String url = lastStation;
+      int searchRange = -idx;
+      bool done = false;
+      String chompedUrl = url;
+      int i = 1;
+      chomp(chompedUrl);
+      if (0 == searchRange)
+        searchRange = 100;
+      if ('+' == c)
+      {
+        int freeIndex = 0;
+        int foundIndex = 0;
+        while (!done && (i <= searchRange))
+        {
+          String storedUrl = readfavfrompref(i);
+          chomp(storedUrl);
+          if (storedUrl.length() == 0)
+          {
+            if (0 == freeIndex)
+              freeIndex = i;
+          }
+          else if (0 == foundIndex)
+            if (done = (chompedUrl == storedUrl))
+              foundIndex = i;
+          i++;
+        }
+        if (freeIndex && (0 == foundIndex))
+        {
+          sprintf(tkey, "fav_%02d", freeIndex);
+          nvssetstr ( tkey, url ) ;
+          favPresent[idx] = true;
+          sprintf(cmd, "favorite=m%d", freeIndex);
+          analyzeCmd(cmd);
+        }
+      }
+      else if ('-' == c)
+      {
+        for(int i = 1;i <= searchRange;i++)
+        {
+          String storedUrl = readfavfrompref(i);
+          chomp(storedUrl);
+          if (chompedUrl == storedUrl)
+          {
+            sprintf(tkey, "fav_%02d", i);
+            nvsdelkey ( tkey ) ;
+            favPresent[i] = false;
+            sprintf(cmd, "favorite=m%d", i);
+            analyzeCmd(cmd);
+          }
+        }
+
+      }
+    } 
+    else
+    {
+      dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
+    }
+  }
+  else if (('l' == c) || ('m' == c) || ('u' == c) || ('s' == c))
+  {
+    String rangeEnd;
+    value = value.substring(1);
+    value.trim();
+    int rangeIndex = value.indexOf('-');
+    int rangeEndIndex = 0;
+    int idx;
+    if (rangeIndex > 0)
+    {
+      rangeEnd = value.substring(rangeIndex + 1);
+      rangeEndIndex = atoi(rangeEnd.c_str());
+      if (rangeEndIndex > 100)
+        rangeEndIndex = 100;
+      value = value.substring(0, rangeIndex);
+    }
+    idx = atoi(value.c_str());
+    if ((idx > 0) && (idx <= 100))
+    {
+      if (rangeEndIndex < idx)
+        rangeEndIndex = idx;
+      if (('l' == c) || ('s' == c) || ('u' == c))
+      {
+        for (int i = idx;i <= rangeEndIndex;i++)
+        {
+          int idx;
+          String s = readfavfrompref(i);
+          if ('u' == c)
+            chomp(s);
+          else if ('s' == c)
+            if ((idx = (s.indexOf('#')))> -1)
+              s = s.substring(idx+1);
+          dbgprint("favorite<%c>[%02d]=%s", c, i, s.c_str());
+        }
+      }
+      else if ('m' == c)
+      {
+        dbgprint("MQTT publish favinfo from %02d to %02d", idx, rangeEndIndex);
+        setmqttfavidx(idx, rangeEndIndex);
+        /*
+        if (mqttfavidx == 0)
+        {
+          mqttfavidx=idx;
+          mqttfavendidx=rangeEndIndex;
+        }
+        else
+        {
+          if (mqttfavidx > idx)
+            mqttfavidx = idx;
+          if (mqttfavendidx < rangeEndIndex)
+            mqttfavendidx = rangeEndIndex;
+        }
+        */
+      }
+    }
+    else
+      dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
+
+  }
+
+}
+
 
 
 #else

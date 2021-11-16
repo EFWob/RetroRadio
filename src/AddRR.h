@@ -8,6 +8,8 @@ extern void loopRR();
 //extern const char* analyzeCmdsRR ( const char* commands );
 extern const char* analyzeCmdsRR ( String commands );
 extern void httpHandleGenre ( String http_rqfile, String http_getcmd );
+extern String readfavfrompref ( int16_t idx );
+
 
 #if defined(NORETRORADIO)
 #warning "NORETRORADIO IS DEFINED!"
@@ -217,6 +219,7 @@ class VS1053
 
 // prototypes for functions/global data in main.cpp()
 extern String            host;                                  // host to connect to
+extern String            lastStation ;                          // URL [optional #name] of last host request (not chomped)
 extern String            ipaddress ;                            // Own IP-address
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data
@@ -232,7 +235,9 @@ extern TaskHandle_t      maintask ;                             // Taskhandle fo
 extern TaskHandle_t      xplaytask ;                            // Task handle for playtask
 extern TaskHandle_t      xspftask ;                             // Task handle for special functions
 extern uint8_t           gmaintain ;                            // Genre-Maintenance-mode? (play is suspended)
-extern int16_t           currentpreset ;                   // Preset station playing
+extern int16_t           currentpreset ;                        // Preset station playing
+extern int               mqttfavidx;                            // idx of favorite info to publish on MQTT
+extern int               mqttfavendidx;                         // last idx of favorite info to publish on MQTT
 
 
 char*       dbgprint( const char* format, ... ) ;

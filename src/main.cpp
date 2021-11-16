@@ -427,6 +427,7 @@ int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
 int16_t           currentpreset = -1 ;                   // Preset station playing
 String            host ;                                 // The URL to connect to or file to play
+String            lastStation ;                          // The URL to connect to or file to play (incl. name)
 String            playlist ;                             // The URL of the specified playlist
 bool              hostreq = false ;                      // Request for new host
 bool              reqtone = false ;                      // New tone setting requested
@@ -691,6 +692,44 @@ void mqttpubc::publishtopic()
     }
     i++ ;                                                     // Next entry
   }
+  if (mqttfavidx)
+  {
+    String favinfo = String("{\"idx\": \"") + mqttfavidx;
+    String url = readfavfrompref ( mqttfavidx );
+    String name;
+    int delim = url.indexOf('#');
+    Serial.flush();
+    if (delim >= 0)
+    {
+      name = url.substring(delim + 1);
+      url = url.substring(0, delim );
+    }
+    else
+      name = url;
+    name.trim();url.trim();
+    delim = name.indexOf('"');
+    while (delim >= 0)
+    {
+      name = name.substring(0, delim) + "'" + name.substring(delim + 1);
+      delim = name.indexOf('"');
+      Serial.printf("Name replacement step: %s\r\n", name.c_str());
+    }
+    favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\"}"; 
+    sprintf ( topic, "%s/favinfo", ini_block.mqttprefix.c_str());
+    payload = favinfo.c_str();
+    if ( !mqttclient.publish ( topic, payload ) )           // Publish!
+    {
+        dbgprint ( "MQTT publish failed!" ) ;                 // Failed
+    }
+
+    mqttfavidx++;
+    if (mqttfavidx > mqttfavendidx)
+    {
+      mqttfavidx = 0;
+      dbgprint("MQTT favinfo published.");
+    }
+  }
+
 }
 
 mqttpubc         mqttpub ;                                    // Instance for mqttpubc
@@ -4471,6 +4510,7 @@ void mp3loop()
       else
       {
         host = readhostfrompref() ;                       // Lookup preset in preferences
+        lastStation = host;
         chomp ( host ) ;                                  // Get rid of part after "#"
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
@@ -5335,6 +5375,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     ///{
     ///  setdatamode ( STOPREQD ) ;                      // Request STOP
     ///}
+    lastStation = value;
     host = value ;                                    // Save it for storage and selection later
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
