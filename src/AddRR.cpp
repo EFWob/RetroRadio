@@ -3327,6 +3327,8 @@ void setupRR(uint8_t setupLevel) {
 }
 
 
+void favplayinfoloop();
+
 
 void loopRR() {
   scanIRRR();
@@ -3342,6 +3344,7 @@ void loopRR() {
     DEBUG = deb;
   }
   genres.loop();
+  favplayinfoloop();
 }
 
 
@@ -4738,6 +4741,58 @@ void doFavorite (String param, String value)
 
   }
 
+}
+
+
+String favreported;
+int favreportindex = 0;
+
+void favplayreport(String url) {
+  favreported = url;
+  favreportindex = 0;
+  Serial.printf("FAVPLAYREPORT: %s\r\n", url.c_str());
+}
+
+void favplayrequestinfo(String url) {
+  Serial.printf("FAVPLAYREQUEST[%s]:", url.c_str());
+  if (url != favreported) 
+  {
+    favreportindex = 1;
+    favreported = url;
+    Serial.println(" started!");
+  }
+  else
+    Serial.println("OK, same as last reported!");
+}
+
+void favplayinfoloop() {
+  if (favreportindex)
+    if (favreportindex <= 100)
+    {
+      if (favPresent[favreportindex])
+      {
+        String url = readfavfrompref(favreportindex);
+        chomp(url);
+        Serial.printf("FAVCOMPARE[%d]:'%s' ?? '%s'\r\n", favreportindex, 
+          url.c_str(), favreported.c_str());
+        if (url == favreported)
+        {
+          setmqttfavidx(favreportindex, favreportindex); 
+          Serial.printf("FAVINDEX found: %d\r\n", favreportindex);
+          favreportindex = 0;
+        }
+        else
+          favreportindex++;
+      }
+      else 
+        favreportindex++;
+    }
+    else
+    {
+      //mqttpubFavNotPlaying();
+      favreportindex = 0;
+      Serial.printf("FAVINDEX not found: Station is not in favorites\r\n");
+    }
 }
 
 

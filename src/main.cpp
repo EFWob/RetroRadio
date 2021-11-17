@@ -696,6 +696,8 @@ void mqttpubc::publishtopic()
   {
     String favinfo = String("{\"idx\": \"") + mqttfavidx;
     String url = readfavfrompref ( mqttfavidx );
+    String lastHost = lastStation;
+    chomp(lastHost);
     String name;
     int delim = url.indexOf('#');
     Serial.flush();
@@ -714,9 +716,12 @@ void mqttpubc::publishtopic()
       delim = name.indexOf('"');
       Serial.printf("Name replacement step: %s\r\n", name.c_str());
     }
-    favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\"}"; 
+    bool play = (url == lastHost);
+    favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":" + (play?1:0) + "}"; 
     sprintf ( topic, "%s/favinfo", ini_block.mqttprefix.c_str());
     payload = favinfo.c_str();
+    if (play)
+      favplayreport(url);
     if ( !mqttclient.publish ( topic, payload ) )           // Publish!
     {
         dbgprint ( "MQTT publish failed!" ) ;                 // Failed
@@ -2111,6 +2116,10 @@ bool connecttohost()
   displaytime ( "" ) ;                              // Clear time on TFT screen
   setdatamode ( INIT ) ;                            // Start default in metamode
   chunked = false ;                                 // Assume not chunked
+
+  //favplayrequestinfo(host);
+
+
   if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
   {
     playlist = host ;                               // Save copy of playlist URL
@@ -2833,7 +2842,8 @@ bool mqttreconnect()
             NAME, (int) random ( 10000 ) % 10000 ) ;
   res = mqttclient.connect ( clientid,                    // Connect to broker
                              ini_block.mqttuser.c_str(),
-                             ini_block.mqttpasswd.c_str()
+                             ini_block.mqttpasswd.c_str(),
+                             (ini_block.mqttprefix + "/icy/name").c_str(), 2, true, "Offline"
                            ) ;
   if ( res )
   {
@@ -2846,6 +2856,7 @@ bool mqttreconnect()
       dbgprint ( "MQTT subscribe failed!" ) ;             // Failure
     }
     mqttpub.trigger ( MQTT_IP ) ;                         // Publish own IP
+    mqttcount=0;
   }
   else
   {
@@ -4512,6 +4523,7 @@ void mp3loop()
         host = readhostfrompref() ;                       // Lookup preset in preferences
         lastStation = host;
         chomp ( host ) ;                                  // Get rid of part after "#"
+        favplayrequestinfo ( host );
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
                  ini_block.newpreset, playlist_num, host.c_str() ) ;
@@ -5377,6 +5389,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     ///}
     lastStation = value;
     host = value ;                                    // Save it for storage and selection later
+    favplayrequestinfo ( host );
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "Select %s",                            // Format reply

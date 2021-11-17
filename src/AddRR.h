@@ -252,6 +252,10 @@ const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
 
+void favplayreport(String url);
+void favplayrequestinfo(String url);
+
+
 
 #endif
 #endif
