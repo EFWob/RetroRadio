@@ -761,7 +761,7 @@ void mqttpubc::publishtopic()
 }
 
 mqttpubc         mqttpub ;                                    // Instance for mqttpubc
-extern 
+
 void mqttpubFavNotPlaying()
 {
   mqttpub.trigger ( MQTT_FAVNOTPLAYING );

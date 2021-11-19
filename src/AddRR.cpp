@@ -4587,18 +4587,20 @@ void setupReadFavorites()
     readfavfrompref(i);
 }
 
-bool getFavRange(const char *s, int& rmin, int& rmax)
+bool getFavRange(const char *s, int& rmin, int& rmax, bool& haveNumber)
 {
   rmin = 1;
   rmax = 100;
+  haveNumber = false;
   const char *s1 = s+1;
   while (*s1 && (*s1 <= ' '))
     s1++;
-  if (!isdigit(*s1))
+  if (!(haveNumber = isdigit(*s1)))
     return true;
   rmin=atoi(s1);
   if ((rmin < 1) || (rmin > 100))
     return false;
+  rmax=rmin;
   while(isdigit(*s1))
     s1++;
   while (*s1 && (*s1 <= ' '))
@@ -4617,14 +4619,75 @@ bool getFavRange(const char *s, int& rmin, int& rmax)
   return (rmax >= rmin) && (rmax <= 100);
 }
 
+void deleteFavorite(int i)
+{
+char tkey[12];
+  if (!favPresent[i])
+    return;
+  //decrease favorite count if needed
+  favPresent[i] = false;
+  if (currentFavorite == i)
+  {
+    currentFavorite = 0;
+    mqttpubFavNotPlaying();
+  }
+  sprintf(tkey, "fav_%02d", i);
+  nvsdelkey ( tkey ) ;
+  setmqttfavidx(i, i);
+  dbgprint("Favorite number %d deleted!", i);
+  favplayrequestinfo("Rescan after delete!", true);
+}
+
+void addFavorite(int i)
+{
+char tkey[12];
+  if (!favPresent[i])
+    ;       // increase favcount if needed...
+  favPresent[i] = true;
+  sprintf(tkey, "fav_%02d", i);
+  nvssetstr ( tkey, lastStation ) ;
+  setmqttfavidx(i, i);
+  dbgprint("Added Favorite number %d!", i);
+}
+
+String getFavoriteJson(int idx)
+{
+  if ((idx < 0) || (idx > 100))
+    return "";
+  String favinfo = String("{\"idx\": \"") + idx;
+  String url = readfavfrompref ( idx );
+  String lastHost = lastStation;
+  chomp(lastHost);
+  String name;
+  int delim = url.indexOf('#');
+  if (delim >= 0)
+  {
+    name = url.substring(delim + 1);
+    url = url.substring(0, delim );
+  }
+  else
+    name = url;
+  name.trim();url.trim();
+  delim = name.indexOf('"');
+  while (delim >= 0)
+  {
+    name = name.substring(0, delim) + "'" + name.substring(delim + 1);
+    delim = name.indexOf('"');
+  }
+  bool play = (url == lastHost) || ((0 == idx) && (0 == currentFavorite));
+  favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":\"" + (play?"1":"0") + "\"}"; 
+  return favinfo;  
+}
+
 void doFavorite (String param, String value)
 {
   char c;
   int rMin, rMax;
+  bool numberGiven;
   const char* value_cstr = value.c_str();
   if (param != "favorite")
     return;
-  c = *value_cstr;
+  c = tolower(*value_cstr);
   if (isDigit(c))
   {
     int idx = atoi(value.c_str());
@@ -4649,7 +4712,7 @@ void doFavorite (String param, String value)
       dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
     return;
   }
-  if (!getFavRange(value.c_str(), rMin, rMax))
+  if (!getFavRange(value.c_str(), rMin, rMax, numberGiven))
   {
     Serial.printf("Illegal fav Range in '%s'!\r\n", value_cstr + 1);
     return;
@@ -4659,6 +4722,76 @@ void doFavorite (String param, String value)
 
   if (('+' == c) || ('-' == c))
   {
+    int emptyIndex = 0;
+    int foundIndex = 0;
+    String currentUrl = lastStation;
+    chomp(currentUrl);
+    bool deleted = false;
+    for(int i = rMin;i <= rMax;i++)
+    {
+      if (!favPresent[i])
+      {
+        if (0 == emptyIndex)
+          emptyIndex = i;
+      }
+      else
+      {
+        String favUrl = readfavfrompref(i);
+        chomp(favUrl);
+        if (favUrl == currentUrl)
+        {
+          if ('-' == c)
+          {
+            deleted = true;
+            deleteFavorite(i);
+          }
+          else
+            if (0 == foundIndex)
+              foundIndex = i;
+        }
+      }
+    }
+    if ('-' == c)
+    {
+      if (!deleted)
+        dbgprint("Current station is not in favorites (range[%d-%d])", rMin, rMax);
+    }
+    else
+    {
+      if (0 != foundIndex)
+        dbgprint("Current station already stored to favorites (range[%d-%d]) as %d", rMin, rMax, foundIndex);
+      else if (0 == emptyIndex)
+        dbgprint("No free slot (in range [%d-%d]) to store new favorite!", rMin, rMax);
+      else
+        {
+        addFavorite(emptyIndex);
+        }
+    }
+  }
+  else if ('s' == c)
+  {
+    if (numberGiven)
+      addFavorite(rMin);
+    else
+      dbgprint("Favorite not stored: no valid number given!");
+  }
+  else if ('r' == c)
+  {
+    if (numberGiven)
+      deleteFavorite(rMin);
+    else
+      dbgprint("Favorite not deleted: no valid number given!");
+  }
+  else if ('m' == c)
+  {
+    setmqttfavidx(rMin, rMax);
+  }
+  else if ('l' == c)
+  {
+    for(int i = rMin;i <= rMax;i++)
+      dbgprint("fav_%02d=%s", i, getFavoriteJson(i).c_str());
+  }
+/*
     char cmd[50];
     int idx = atoi(value.c_str() + 1);
     if ((idx > 0) && (idx <= 100))
@@ -4743,6 +4876,7 @@ void doFavorite (String param, String value)
       dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
     }
   }
+
   else if (('l' == c) || ('m' == c) || ('u' == c) || ('s' == c))
   {
     String rangeEnd;
@@ -4782,27 +4916,13 @@ void doFavorite (String param, String value)
       {
         dbgprint("MQTT publish favinfo from %02d to %02d", idx, rangeEndIndex);
         setmqttfavidx(idx, rangeEndIndex);
-        /*
-        if (mqttfavidx == 0)
-        {
-          mqttfavidx=idx;
-          mqttfavendidx=rangeEndIndex;
-        }
-        else
-        {
-          if (mqttfavidx > idx)
-            mqttfavidx = idx;
-          if (mqttfavendidx < rangeEndIndex)
-            mqttfavendidx = rangeEndIndex;
-        }
-        */
       }
     }
     else
       dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
 
   }
-
+*/
 }
 
 

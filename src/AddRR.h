@@ -256,6 +256,7 @@ void mqttpubFavNotPlaying();
 
 void favplayreport(String url);
 void favplayrequestinfo(String url, bool rescan = false);
+String getFavoriteJson(int idx);
 
 
 
