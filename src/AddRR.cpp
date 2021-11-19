@@ -114,20 +114,22 @@ void doGenreConfig ( String param, String value );
 void doGpreset ( String value );
 void doFavorite ( String param, String value );
 void setupReadFavorites ( void );
-
+extern int8_t playingstat;
 
 std::vector<int16_t> channelList;     // The channels defined currently (by command "channels")
 int16_t currentChannel = 0;           // The channel that has been set by command "channel" (0 if not set, 1..numChannels else)
 int16_t numChannels = 0;              // Number of channels defined in current channellist
 bool setupDone = false;               // All setup for RetroRadio finished?
+int16_t currentFavorite = 0;              // currently playing favorite
 
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
+String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
 String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
 String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
 String readStationURL(void *);          // Returns the URL (followed by #stationName) of current station
-
+String readMqttStatus(void *);          // Returns "1" if MQTT is connected, "0" else
 
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
@@ -140,6 +142,8 @@ uint8_t gmaintain = 0;                 // Genre-Maintenance-mode? (play is suspe
 
 extern WiFiClient        cmdclient ;                        // An instance of the client for commands
 extern String httpheader ( String contentstype );           // get httpheader for OK response with contentstype
+extern WiFiClient        wmqttclient ;                          // An instance for mqtt
+extern bool mqtt_on;
 
 #define KNOWN_SYSVARIABLES   (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
 
@@ -165,6 +169,9 @@ struct {                           // A table of known internal variables that c
   {"gpreset", &genrePreset, readInt16},
   {"glist", NULL, readGenrePlaylist},
   {"url", NULL, readStationURL},
+  {"mqtt_on", NULL, readMqttStatus},
+  {"playing", &playingstat, readInt8},
+  {"favorite", &currentFavorite, readInt16}
 };
 
 
@@ -263,12 +270,23 @@ String readUint8(void *ref) {
   return String( (*((uint8_t*)ref)));
 }
 
+String readInt8(void *ref) {
+  return String( (*((int8_t*)ref)));
+}
+
 String readInt16(void *ref) {
   return String( (*((int16_t*)ref)));
 }
 
 String readVolume(void* ref) {
   return String(vs1053player->getVolume (  )) ;
+}
+
+String readMqttStatus(void *) {
+  if (mqtt_on)
+    if (wmqttclient.connected())
+      return "1";
+  return "0";
 }
 
 void doSysList(const char* p) {
@@ -3625,7 +3643,7 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
         }
       else
         {
-          analyzeCmdRR ( reply, s, "0", returnFlag ) ;              // No value, assume zero
+          analyzeCmdRR ( reply, s, "", returnFlag ) ;              // No value, assume zero
         }
       yield();
       commands_executed++ ;
@@ -4569,12 +4587,44 @@ void setupReadFavorites()
     readfavfrompref(i);
 }
 
+bool getFavRange(const char *s, int& rmin, int& rmax)
+{
+  rmin = 1;
+  rmax = 100;
+  const char *s1 = s+1;
+  while (*s1 && (*s1 <= ' '))
+    s1++;
+  if (!isdigit(*s1))
+    return true;
+  rmin=atoi(s1);
+  if ((rmin < 1) || (rmin > 100))
+    return false;
+  while(isdigit(*s1))
+    s1++;
+  while (*s1 && (*s1 <= ' '))
+    s1++;
+  //Serial.printf("Next part of range: %s\r\n", s1);
+  if (*s1 != '-')
+    return true;  
+  s1++;
+  //Serial.printf("Search for number in remaining: %s\r\n", s1);
+  while (*s1 && (*s1 <= ' '))
+    s1++;
+  if (!isdigit(*s1))
+    return true;
+  //Serial.printf("Resolve to rmax number: %s\r\n", s1);
+  rmax = atoi(s1);
+  return (rmax >= rmin) && (rmax <= 100);
+}
+
 void doFavorite (String param, String value)
 {
   char c;
+  int rMin, rMax;
+  const char* value_cstr = value.c_str();
   if (param != "favorite")
     return;
-  c = *value.c_str();
+  c = *value_cstr;
   if (isDigit(c))
   {
     int idx = atoi(value.c_str());
@@ -4591,13 +4641,23 @@ void doFavorite (String param, String value)
         ini_block.newpreset = currentpreset;
         analyzeCmd(s.c_str());
         lastStation = temp;
+        currentFavorite = idx;
       }  
       setmqttfavidx(idx, idx);
     }
     else
       dbgprint("Favorite number must be between 1 and 100 (not %d)", idx);
+    return;
   }
-  else if (('+' == c) || ('-' == c))
+  if (!getFavRange(value.c_str(), rMin, rMax))
+  {
+    Serial.printf("Illegal fav Range in '%s'!\r\n", value_cstr + 1);
+    return;
+  }
+  else
+    Serial.printf("Valid fav Range found in '%s'=[%d-%d]!\r\n", value_cstr + 1, rMin, rMax);
+
+  if (('+' == c) || ('-' == c))
   {
     char cmd[50];
     int idx = atoi(value.c_str() + 1);
@@ -4657,6 +4717,7 @@ void doFavorite (String param, String value)
           sprintf(cmd, "favorite=m%d", freeIndex);
           analyzeCmd(cmd);
         }
+        favplayrequestinfo("rescan after add", true);
       }
       else if ('-' == c)
       {
@@ -4672,6 +4733,7 @@ void doFavorite (String param, String value)
             sprintf(cmd, "favorite=m%d", i);
             analyzeCmd(cmd);
           }
+          favplayrequestinfo("rescan after delete", true);
         }
 
       }
@@ -4753,12 +4815,13 @@ void favplayreport(String url) {
   Serial.printf("FAVPLAYREPORT: %s\r\n", url.c_str());
 }
 
-void favplayrequestinfo(String url) {
+void favplayrequestinfo(String url, bool rescan) {
   Serial.printf("FAVPLAYREQUEST[%s]:", url.c_str());
-  if (url != favreported) 
+  if ((url != favreported) || rescan)
   {
     favreportindex = 1;
-    favreported = url;
+    if (!rescan)
+      favreported = url;
     Serial.println(" started!");
   }
   else
@@ -4777,6 +4840,7 @@ void favplayinfoloop() {
           url.c_str(), favreported.c_str());
         if (url == favreported)
         {
+          currentFavorite = favreportindex;
           setmqttfavidx(favreportindex, favreportindex); 
           Serial.printf("FAVINDEX found: %d\r\n", favreportindex);
           favreportindex = 0;
@@ -4789,7 +4853,8 @@ void favplayinfoloop() {
     }
     else
     {
-      //mqttpubFavNotPlaying();
+      currentFavorite = 0;
+      mqttpubFavNotPlaying();
       favreportindex = 0;
       Serial.printf("FAVINDEX not found: Station is not in favorites\r\n");
     }

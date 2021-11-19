@@ -422,6 +422,8 @@ int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icyname ;                              // Icecast station name
 String            ipaddress ;                            // Own IP-address
+String            favnotplaymsg =
+              "{\"idx\":\"0\", \"name\":\"\", \"url\":\"\", \"play\":\"1\"}";
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
@@ -597,9 +599,11 @@ touchpin_struct   touchpin[] =                           // Touch pins and progr
 //**************************************************************************************************
 // ID's for the items to publish to MQTT.  Is index in amqttpub[]
 enum { MQTT_IP,     MQTT_ICYNAME, MQTT_STREAMTITLE, MQTT_NOWPLAYING,
-       MQTT_PRESET, MQTT_VOLUME, MQTT_PLAYING, MQTT_PLAYLISTPOS
+       MQTT_PRESET, MQTT_VOLUME, MQTT_PLAYING, MQTT_PLAYLISTPOS, MQTT_FAVNOTPLAYING, MQTT_MUTE
      } ;
 enum { MQSTRING, MQINT8, MQINT16 } ;                     // Type of variable to publish
+
+
 
 class mqttpubc                                           // For MQTT publishing
 {
@@ -613,7 +617,7 @@ class mqttpubc                                           // For MQTT publishing
     // Publication topics for MQTT.  The topic will be pefixed by "PREFIX/", where PREFIX is replaced
     // by the the mqttprefix in the preferences.
   protected:
-    mqttpub_struct amqttpub[9] =                   // Definitions of various MQTT topic to publish
+    mqttpub_struct amqttpub[11] =                   // Definitions of various MQTT topic to publish
     { // Index is equal to enum above
       { "ip",              MQSTRING, &ipaddress,        false }, // Definition for MQTT_IP
       { "icy/name",        MQSTRING, &icyname,          false }, // Definition for MQTT_ICYNAME
@@ -623,6 +627,8 @@ class mqttpubc                                           // For MQTT publishing
       { "volume" ,         MQINT8,   &ini_block.reqvol, false }, // Definition for MQTT_VOLUME
       { "playing",         MQINT8,   &playingstat,      false }, // Definition for MQTT_PLAYING
       { "playlist/pos",    MQINT16,  &playlist_num,     false }, // Definition for MQTT_PLAYLISTPOS
+      { "favinfo",         MQSTRING, &favnotplaymsg,    false }, // Definition for MQTT_FAVNOTPLAYING
+      { "mute",            MQINT8,   &muteflag,         false }, // Definition for MQTT_MUTE
       { NULL,              0,        NULL,              false }  // End of definitions
     } ;
   public:
@@ -645,6 +651,7 @@ void mqttpubc::trigger ( uint8_t item )                    // Trigger publishig 
   amqttpub[item].topictrigger = true ;                     // Request re-publish for an item
 }
 
+
 //**************************************************************************************************
 //                                     P U B L I S H T O P I C                                     *
 //**************************************************************************************************
@@ -656,11 +663,23 @@ void mqttpubc::publishtopic()
   char        topic[80] ;                                     // Topic to send
   const char* payload ;                                       // Points to payload
   char        intvar[10] ;                                    // Space for integer parameter
+  static uint32_t lastMqttPublish = 0;
+
+  if (0 != ini_block.mqttdelay)
+    if (0 != lastMqttPublish)  
+    {
+      if (millis() - lastMqttPublish > ini_block.mqttdelay)
+        lastMqttPublish = 0;
+      else
+        return;
+    }
   while ( amqttpub[i].topic )
   {
     if ( amqttpub[i].topictrigger )                           // Topic ready to send?
     {
       amqttpub[i].topictrigger = false ;                      // Success or not: clear trigger
+      if (i == MQTT_VOLUME)                                   // With volume, also trigger mute
+        amqttpub[MQTT_MUTE].topictrigger = true;
       sprintf ( topic, "%s/%s", ini_block.mqttprefix.c_str(),
                 amqttpub[i].topic ) ;                         // Add prefix to topic
       switch ( amqttpub[i].type )                             // Select conversion method
@@ -688,6 +707,7 @@ void mqttpubc::publishtopic()
       {
         dbgprint ( "MQTT publish failed!" ) ;                 // Failed
       }
+      lastMqttPublish = millis();
       return ;                                                // Do the rest later
     }
     i++ ;                                                     // Next entry
@@ -717,11 +737,13 @@ void mqttpubc::publishtopic()
       Serial.printf("Name replacement step: %s\r\n", name.c_str());
     }
     bool play = (url == lastHost);
-    favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":" + (play?1:0) + "}"; 
+    favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":\"" + (play?"1":"0") + "\"}"; 
     sprintf ( topic, "%s/favinfo", ini_block.mqttprefix.c_str());
     payload = favinfo.c_str();
     if (play)
       favplayreport(url);
+    dbgprint ( "Publish to topic %s : %s",                  // Show for debug
+                 topic, payload ) ;
     if ( !mqttclient.publish ( topic, payload ) )           // Publish!
     {
         dbgprint ( "MQTT publish failed!" ) ;                 // Failed
@@ -733,11 +755,18 @@ void mqttpubc::publishtopic()
       mqttfavidx = 0;
       dbgprint("MQTT favinfo published.");
     }
+    lastMqttPublish = millis();
   }
 
 }
 
 mqttpubc         mqttpub ;                                    // Instance for mqttpubc
+extern 
+void mqttpubFavNotPlaying()
+{
+  mqttpub.trigger ( MQTT_FAVNOTPLAYING );
+}
+
 
 #if !defined(RETRORADIO)
 //
@@ -2843,7 +2872,7 @@ bool mqttreconnect()
   res = mqttclient.connect ( clientid,                    // Connect to broker
                              ini_block.mqttuser.c_str(),
                              ini_block.mqttpasswd.c_str(),
-                             (ini_block.mqttprefix + "/icy/name").c_str(), 2, true, "Offline"
+                             (ini_block.mqttprefix + "/icy/name").c_str(), 2, false, "Offline"
                            ) ;
   if ( res )
   {
@@ -2853,8 +2882,16 @@ bool mqttreconnect()
     res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
     if ( !res )
     {
-      dbgprint ( "MQTT subscribe failed!" ) ;             // Failure
+      dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
     }
+    sprintf ( subtopic, "%s/icy/name",                          // Add prefix to subtopic
+              ini_block.mqttprefix.c_str());
+    res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
+    if ( !res )
+    {
+      dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
+    }
+
     mqttpub.trigger ( MQTT_IP ) ;                         // Publish own IP
     mqttcount=0;
   }
@@ -2890,6 +2927,17 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
     dbgprint ( "MQTT message arrived [%s], lenght = %d, %s", topic, len, cmd ) ;
     reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
     dbgprint ( reply ) ;                              // Result for debugging
+  }
+  else 
+  {
+    const char* lwmsg = "Offline";
+    if (len == strlen (lwmsg))
+    {
+      strncpy ( cmd, (char*)payload, len ) ;            // Make copy of message
+      cmd[len] = '\0' ;                                 // Take care of delimeter
+      if (0 == strcmp(cmd, lwmsg))
+          mqttpub.trigger ( MQTT_ICYNAME ) ;            // Publish /icy/name to override "Offline"
+    }
   }
 }
 
@@ -4154,10 +4202,10 @@ void handleIpPub()
 //**************************************************************************************************
 void handleVolPub()
 {
-  static uint32_t pubtime = 10000 ;                        // Limit save to once per 10 seconds
+  static uint32_t pubtime = 500 ;                          // Limit save to twice per second
   static uint8_t  oldvol = -1 ;                            // For comparison
 
-  if ( ( millis() - pubtime ) < 10000 )                    // 10 seconds
+  if ( ( millis() - pubtime ) < 500 )                      // 0.5 seconds
   {
     return ;
   }
@@ -5181,7 +5229,7 @@ const char* analyzeCmd ( const char* str )
   }
   else
   {
-    res = analyzeCmd ( str, "0" ) ;              // No value, assume zero
+    res = analyzeCmd ( str, "" ) ;              // No value, assume zero
   }
   return res ;
 }
@@ -5304,7 +5352,19 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "mute" )                      // Mute/unmute request
   {
-    muteflag = !muteflag ;                            // Request volume to zero/normal
+    bool newMuteflag;
+    if (value.length() > 0)
+    {
+      Serial.printf("Mute with value: '%s'=%d\r\n", value.c_str(), ivalue);
+      newMuteflag = ivalue;
+    }
+    else
+      newMuteflag = !muteflag;
+    if (newMuteflag != muteflag)
+    {
+      muteflag = !muteflag ;                            // Request volume to zero/normal
+      mqttpub.trigger(MQTT_MUTE);
+    }
   }
   else if ( argument.indexOf ( "ir_" ) >= 0 )         // Ir setting?
   { // Do not handle here
@@ -5496,6 +5556,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     else if ( argument.indexOf ( "passwd" ) > 0 )     // Password specified?
     {
       ini_block.mqttpasswd = value.c_str() ;          // Yes, set broker password accordingly
+    }
+    else if ( argument.indexOf ( "delay" ) > 0 )     // Delay specified?
+    {
+      ini_block.mqttdelay = ivalue ;                 // Yes, set publish delay accordingly
     }
   }
   else if ( argument == "debug" )                     // debug on/off request?

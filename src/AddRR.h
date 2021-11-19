@@ -50,6 +50,7 @@ struct ini_struct
   uint16_t       mqttport ;                           // Port, default 1883
   String         mqttuser ;                           // User for MQTT authentication
   String         mqttpasswd ;                         // Password for MQTT authentication
+  uint16_t       mqttdelay ;                          // minimum delay (ms) between MQTT-messages
   uint8_t        reqvol ;                             // Requested volume
   uint8_t        rtone[4] ;                           // Requested bass/treble settings
   int16_t        newpreset ;                          // Requested preset
@@ -251,9 +252,10 @@ const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
+void mqttpubFavNotPlaying();
 
 void favplayreport(String url);
-void favplayrequestinfo(String url);
+void favplayrequestinfo(String url, bool rescan = false);
 
 
 
