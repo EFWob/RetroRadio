@@ -415,7 +415,7 @@ To remove the current station from favorites, use
 ```
 favorite=-
 ```
-If the current station is not in favorites, this command will have no effect.
+If the current station is not in favorites, this command will have no effect. If the current station is stored to more then one favorite, all matching favorites will be deleted.
 
 Normally, both commands will be applied to the whole range of favorites (1-100). If you want to limit it to a subrange, you can define that subrange by adding a range specification after '+' or '-':
 - ranges are defined as one or two numbers
@@ -428,15 +428,15 @@ Normally, both commands will be applied to the whole range of favorites (1-100).
 
 If you want to store the current station to a specifc number, use the command
 ```
-favorite=s <number>
+favorite=s number
 ```
-whith number being in the range of 1 to 100. If a favorite has already been stored by that number, it will be overwritten. This command will store the current station to the given number, even if it has been stored to another favorite before.
+whith __number__ being in the range of 1 to 100. If a favorite has already been stored by that number, it will be overwritten. This command will store the current station to the given number, even if it has been stored to another favorite before.
 
 If you want to delete a favorite with a specific number, use the command
 ```
-favorite=d <number>
+favorite=d number
 ```
-whith number being in the range of 1 to 100. If a favorite by that number is not known, the command will have no effect.
+whith __number__ being in the range of 1 to 100. If a favorite by that number is not known, the command will have no effect.
 
 If you want to list the stored favorites on Serial, use the command
 ```
