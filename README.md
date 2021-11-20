@@ -64,6 +64,7 @@ Input Handling](#extended-input-handling) if you are not interested to use the f
  - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
  - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
  - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
+ - A [favorite concept](#favorite-concept) is introduced to allow users to maintain a list of favorite stations in addition to the standard preset list.
  - Radio can now play from [genre playlists](#genre-playlists) that can be downloaded from a internet radio database server.
  - [IR remote handling](#added-support-for-longpress-and-release-on-ir-remotes) has been extended to recognise longpress and release events
  - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
@@ -229,6 +230,7 @@ commands can be defined either by preference settings or through the Input chann
   	is not in the channel-list, i. e. if tuned to by other means, tune to ChannelMax).
   - The number -1. This will not do any change to the current playing, but can be useful to force the radio to switch to a specific channel (which would not happen if that channel was the same that has been set by the previous call to the channel-command). 
 
+
 ## Genre playlists
 ### General idea
 The main idea is to use a public radio database server (https://www.radio-browser.info/#/). This database has more
@@ -377,6 +379,80 @@ You will notice that in genre playlist mode this can happen (for remote stations
 
 When in genre play mode, you can still issue a _preset=n_ command and the radio will play the according preset from the preferences. However, genre playlist mode will not be stopped: the command _gpreset=n_ as well as _channel=m_ (if channellist is defined) will still operate on the current genre playlist.
 
+## Favorite concept
+### General idea
+Especially with the genre playlists you have virtually thousands of stations to play from. However, selecting a station is random. If you want to recall a currently playing station later, you can add that station to your favorites.
+
+The Favorites are another playlist in addition to the Preset-list. The main difference is, that the favorite list can be maintained using the command interface (no need to add them through the Webpage).
+
+In total 100 favorites can be stored, numbered from 1 to 100.
+
+The favorites are stored in nvs with the prefix "fav_", followed by a number between "01" to "100" (the leading "0" must be given if number is below 10).
+
+The syntax is the same as with presets:
+```
+fav_08 = stream.laut.fm/the-blitz-kids#The Blitz Kids
+```
+defines the favorite with index 8 to have the URL http://stream.laut.fm/the-blitz-kids and the name "The Blitz Kids"
+
+Preferably, Favorites should not be defined by the config settings, but using the command interface.
+
+### Command interface for favorites
+Maintenance/using the favorite list is done by the (new) command __"favorite"__
+
+In its simplest form, favorite takes a number (between 1 and 100) to play that favorite (if defined).
+
+The definition of a favorite (if not done from the configuration page via nvs) is always done from the current station.
+
+To add the current station to favorites, use
+```
+favorite=+
+```
+If DEBUG is on, you can see where this favorite is stored.
+If the current station is already in the favorite list, it will not be added again.
+
+To remove the current station from favorites, use
+```
+favorite=-
+```
+If the current station is not in favorites, this command will have no effect.
+
+Normally, both commands will be applied to the whole range of favorites (1-100). If you want to limit it to a subrange, you can define that subrange by adding a range specification after '+' or '-':
+- ranges are defined as one or two numbers
+- if no number is given, the range is 1-100
+- if one number is given, the range is thatNumber to thatNumber
+- if two numbers are given, the range is 1stNumber to 2ndNumber
+- numbers must be separated by whitespace. You can (or in addition) add a dash '-' for reading convenience.
+- again: if no number is given at all, the range will be assumed to be 1-100
+- if either the upper (100) or the lower (1) limit are exceeded by either parameter, or if the 2ndNumber is lower than the 1stNumber, the command will be ignored
+
+If you want to store the current station to a specifc number, use the command
+```
+favorite=s <number>
+```
+whith number being in the range of 1 to 100. If a favorite has already been stored by that number, it will be overwritten. This command will store the current station to the given number, even if it has been stored to another favorite before.
+
+If you want to delete a favorite with a specific number, use the command
+```
+favorite=d <number>
+```
+whith number being in the range of 1 to 100. If a favorite by that number is not known, the command will have no effect.
+
+If you want to list the stored favorites on Serial, use the command
+```
+favorite=l
+```
+that will list all favorites (from 1 to 100) on Serial (if DEBUG=1).  This command also accepts a range setting, hence
+```
+favorite=l 10-20
+```
+will limit the listings to favorites 10 to 20.
+
+The listing will be in JSON-Style with the following parameters:
+- "idx": the number of the favorite
+- "url": the url of the favorite
+- "name": the station name of the favorite
+- "play": set to 1 if currently playing that station, 0 if not
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)

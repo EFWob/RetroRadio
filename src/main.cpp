@@ -422,8 +422,8 @@ int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icyname ;                              // Icecast station name
 String            ipaddress ;                            // Own IP-address
-String            favnotplaymsg =
-              "{\"idx\":\"0\", \"name\":\"\", \"url\":\"\", \"play\":\"1\"}";
+String            favnotplaymsg ;
+//              "{\"idx\":\"0\", \"name\":\"\", \"url\":\"\", \"play\":\"1\"}";
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
@@ -714,7 +714,9 @@ void mqttpubc::publishtopic()
   }
   if (mqttfavidx)
   {
-    String favinfo = String("{\"idx\": \"") + mqttfavidx;
+    String favinfo = getFavoriteJson(mqttfavidx);
+/*    
+    String("{\"idx\": \"") + mqttfavidx;
     String url = readfavfrompref ( mqttfavidx );
     String lastHost = lastStation;
     chomp(lastHost);
@@ -738,17 +740,15 @@ void mqttpubc::publishtopic()
     }
     bool play = (url == lastHost);
     favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":\"" + (play?"1":"0") + "\"}"; 
-    sprintf ( topic, "%s/favinfo", ini_block.mqttprefix.c_str());
-    payload = favinfo.c_str();
     if (play)
       favplayreport(url);
-    dbgprint ( "Publish to topic %s : %s",                  // Show for debug
-                 topic, payload ) ;
+*/
+    sprintf ( topic, "%s/favinfo", ini_block.mqttprefix.c_str());
+    payload = favinfo.c_str();
     if ( !mqttclient.publish ( topic, payload ) )           // Publish!
     {
         dbgprint ( "MQTT publish failed!" ) ;                 // Failed
     }
-
     mqttfavidx++;
     if (mqttfavidx > mqttfavendidx)
     {
@@ -764,6 +764,7 @@ mqttpubc         mqttpub ;                                    // Instance for mq
 
 void mqttpubFavNotPlaying()
 {
+  favnotplaymsg = getFavoriteJson(0);
   mqttpub.trigger ( MQTT_FAVNOTPLAYING );
 }
 

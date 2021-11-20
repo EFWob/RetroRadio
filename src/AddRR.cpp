@@ -4606,12 +4606,13 @@ bool getFavRange(const char *s, int& rmin, int& rmax, bool& haveNumber)
   while (*s1 && (*s1 <= ' '))
     s1++;
   //Serial.printf("Next part of range: %s\r\n", s1);
-  if (*s1 != '-')
-    return true;  
-  s1++;
-  //Serial.printf("Search for number in remaining: %s\r\n", s1);
-  while (*s1 && (*s1 <= ' '))
+  if (*s1 == '-')
+  {
     s1++;
+    while (*s1 && (*s1 <= ' '))
+      s1++;
+  }
+  //Serial.printf("Search for number in remaining: %s\r\n", s1);
   if (!isdigit(*s1))
     return true;
   //Serial.printf("Resolve to rmax number: %s\r\n", s1);
@@ -4676,6 +4677,8 @@ String getFavoriteJson(int idx)
   }
   bool play = (url == lastHost) || ((0 == idx) && (0 == currentFavorite));
   favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":\"" + (play?"1":"0") + "\"}"; 
+  if (play)
+    favplayreport(url);
   return favinfo;  
 }
 
