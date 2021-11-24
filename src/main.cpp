@@ -2937,7 +2937,10 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
       strncpy ( cmd, (char*)payload, len ) ;            // Make copy of message
       cmd[len] = '\0' ;                                 // Take care of delimeter
       if (0 == strcmp(cmd, lwmsg))
+      {
+          mqttpub.trigger ( MQTT_IP ) ;
           mqttpub.trigger ( MQTT_ICYNAME ) ;            // Publish /icy/name to override "Offline"
+      }
     }
   }
 }
@@ -4570,9 +4573,10 @@ void mp3loop()
       else
       {
         host = readhostfrompref() ;                       // Lookup preset in preferences
-        lastStation = host;
+        //lastStation = host;
+        setLastStation(host);
         chomp ( host ) ;                                  // Get rid of part after "#"
-        favplayrequestinfo ( host );
+        //favplayrequestinfo ( host );
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
                  ini_block.newpreset, playlist_num, host.c_str() ) ;
@@ -4613,6 +4617,23 @@ void mp3loop()
       connecttohost() ;                                   // Switch to new host
     }
   }
+}
+
+
+void setLastStation(String latest)
+{
+  lastStation = latest;
+  int idx = latest.indexOf('#');
+  if (idx >= 0)
+  {
+    latest = latest.substring(idx + 1);
+    latest.trim();
+  }
+  else
+    latest = "No Name";
+  icyname = latest;
+  mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+  
 }
 
 
@@ -5448,9 +5469,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     ///{
     ///  setdatamode ( STOPREQD ) ;                      // Request STOP
     ///}
-    lastStation = value;
+    //lastStation = value;
+    setLastStation(value);
     host = value ;                                    // Save it for storage and selection later
-    favplayrequestinfo ( host );
+    //favplayrequestinfo ( host );
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "Select %s",                            // Format reply

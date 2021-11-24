@@ -253,11 +253,12 @@ const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
 void mqttpubFavNotPlaying();
-
+/*
 void favplayreport(String url);
 void favplayrequestinfo(String url, bool rescan = false);
-String getFavoriteJson(int idx);
-
+*/
+String getFavoriteJson(int idx, int rMin=1, int rMax=100);
+void setLastStation(String last);
 
 
 #endif

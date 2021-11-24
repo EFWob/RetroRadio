@@ -3352,7 +3352,14 @@ void loopRR() {
   scanIRRR();
   RetroRadioInput::checkAll();
   if (numLoops) {
+    static int step = 0;
     int deb = DEBUG;
+    DEBUG = 0;
+    analyzeCmdsRR(String(retroRadioLoops[step++]));
+    DEBUG = deb;
+    if (step >= numLoops)
+      step = 0;
+    /*
     for (int i = 0; i < numLoops; i++) 
     {
       DEBUG = 0;
@@ -3360,9 +3367,10 @@ void loopRR() {
       yield();
     }
     DEBUG = deb;
+    */
   }
   genres.loop();
-  favplayinfoloop();
+  //favplayinfoloop();
 }
 
 
@@ -4036,7 +4044,8 @@ void doGpreset(String value)
         sprintf(cmd, "station=%s", s.c_str());
         ini_block.newpreset = currentpreset;
         analyzeCmd(cmd);
-        lastStation = temp;
+        setLastStation(temp);
+        //lastStation = temp;
 //        host = s;
 //        connecttohost();
       }
@@ -4636,7 +4645,8 @@ char tkey[12];
   nvsdelkey ( tkey ) ;
   setmqttfavidx(i, i);
   dbgprint("Favorite number %d deleted!", i);
-  favplayrequestinfo("Rescan after delete!", true);
+  setLastStation(lastStation);
+  //favplayrequestinfo("Rescan after delete!", true);
 }
 
 void addFavorite(int i)
@@ -4651,9 +4661,10 @@ char tkey[12];
   dbgprint("Added Favorite number %d!", i);
 }
 
-String getFavoriteJson(int idx)
+String getFavoriteJson(int idx, int rMin, int rMax)
 {
-  if ((idx < 0) || (idx > 100))
+  if ((idx != 0) && ((idx < rMin) || (idx > rMax)))
+  //if ((idx < 0) || (idx > 100))
     return "";
   String favinfo = String("{\"idx\": \"") + idx;
   String url = readfavfrompref ( idx );
@@ -4675,10 +4686,10 @@ String getFavoriteJson(int idx)
     name = name.substring(0, delim) + "'" + name.substring(delim + 1);
     delim = name.indexOf('"');
   }
-  bool play = (url == lastHost) || ((0 == idx) && (0 == currentFavorite));
+  bool play = (url == lastHost) || ((0 == idx));// && ((currentFavorite < rMin) || (currentFavorite > rMax)));
   favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":\"" + (play?"1":"0") + "\"}"; 
-  if (play)
-    favplayreport(url);
+//  if (play)
+//    favplayreport(url);
   return favinfo;  
 }
 
@@ -4706,7 +4717,8 @@ void doFavorite (String param, String value)
         s = "station=" + s;
         ini_block.newpreset = currentpreset;
         analyzeCmd(s.c_str());
-        lastStation = temp;
+        setLastStation(temp);
+        //lastStation = temp;
         currentFavorite = idx;
       }  
       setmqttfavidx(idx, idx);
@@ -4723,7 +4735,7 @@ void doFavorite (String param, String value)
   else
     Serial.printf("Valid fav Range found in '%s'=[%d-%d]!\r\n", value_cstr + 1, rMin, rMax);
 
-  if (('+' == c) || ('-' == c))
+  if (('+' == c) || ('-' == c) || ('?' == c))
   {
     int emptyIndex = 0;
     int foundIndex = 0;
@@ -4759,16 +4771,32 @@ void doFavorite (String param, String value)
       if (!deleted)
         dbgprint("Current station is not in favorites (range[%d-%d])", rMin, rMax);
     }
-    else
+    else if ('+' == c)
     {
       if (0 != foundIndex)
         dbgprint("Current station already stored to favorites (range[%d-%d]) as %d", rMin, rMax, foundIndex);
       else if (0 == emptyIndex)
+      {
+        mqttpubFavNotPlaying();
         dbgprint("No free slot (in range [%d-%d]) to store new favorite!", rMin, rMax);
+      }
       else
         {
         addFavorite(emptyIndex);
         }
+    }
+    else if ('?' == c)
+    {
+      if (0 == foundIndex)
+      {
+        mqttpubFavNotPlaying();
+        dbgprint("Current station not in favorites (range[%d-%d])", rMin, rMax);
+      }
+      else
+      {
+        //currentFavorite = foundIndex;
+        setmqttfavidx(foundIndex, foundIndex);
+      }
     }
   }
   else if ('s' == c)
@@ -4778,7 +4806,7 @@ void doFavorite (String param, String value)
     else
       dbgprint("Favorite not stored: no valid number given!");
   }
-  else if ('r' == c)
+  else if ('x' == c)
   {
     if (numberGiven)
       deleteFavorite(rMin);
@@ -4792,9 +4820,24 @@ void doFavorite (String param, String value)
   else if ('l' == c)
   {
     for(int i = rMin;i <= rMax;i++)
-      dbgprint("fav_%02d=%s", i, getFavoriteJson(i).c_str());
+      dbgprint("fav_%02d=%s", i, getFavoriteJson(i, rMin, rMax).c_str());
   }
 /*
+  else if ('?' == c)
+  {
+    String info;
+    if ((rMin <= currentFavorite) && (rMax >= currentFavorite))
+    {
+      setmqttfavidx(currentFavorite, currentFavorite);
+      info = getFavoriteJson(currentFavorite, rMin, rMax);
+    }
+    else
+    {
+      mqttpubFavNotPlaying();
+      info = getFavoriteJson(0, rMin, rMax);
+    }
+    dbgprint("favinfo: %s", info.c_str());
+  }
     char cmd[50];
     int idx = atoi(value.c_str() + 1);
     if ((idx > 0) && (idx <= 100))
@@ -4928,7 +4971,7 @@ void doFavorite (String param, String value)
 */
 }
 
-
+/*
 String favreported;
 int favreportindex = 0;
 
@@ -4982,7 +5025,7 @@ void favplayinfoloop() {
       Serial.printf("FAVINDEX not found: Station is not in favorites\r\n");
     }
 }
-
+*/
 
 
 #else
