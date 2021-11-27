@@ -174,7 +174,7 @@
 //
 // Define type of local filesystem(s).  See documentation.
 //#define CH376                          // For CXH376 support (reading files from USB stick)
-//#define SDCARD                         // For SD card support (reading files from SD card)
+#define SDCARD                         // For SD card support (reading files from SD card)
 // Define (just one) type of display.  See documentation.
 //#define BLUETFT                        // Works also for RED TFT 128x160
 //#define OLED1306                     // 64x128 I2C OLED SSD1306
@@ -391,6 +391,7 @@ bool              connectDelay = false ;                 // Station with Connect
 #endif
 int               DEBUG = 1 ;                            // Debug on/off
 int               numSsid ;                              // Number of available WiFi networks
+int               bestSsid = -1 ;                        // Best (acceptable) SSID found
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
 ini_struct        ini_block ;                            // Holds configurable data
 WiFiServer        cmdserver ( 80 ) ;                     // Instance of embedded webserver, port 80
@@ -421,11 +422,14 @@ int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icyname ;                              // Icecast station name
 String            ipaddress ;                            // Own IP-address
+String            favnotplaymsg ;
+//              "{\"idx\":\"0\", \"name\":\"\", \"url\":\"\", \"play\":\"1\"}";
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
 int16_t           currentpreset = -1 ;                   // Preset station playing
 String            host ;                                 // The URL to connect to or file to play
+String            lastStation ;                          // The URL to connect to or file to play (incl. name)
 String            playlist ;                             // The URL of the specified playlist
 bool              hostreq = false ;                      // Request for new host
 bool              reqtone = false ;                      // New tone setting requested
@@ -595,9 +599,11 @@ touchpin_struct   touchpin[] =                           // Touch pins and progr
 //**************************************************************************************************
 // ID's for the items to publish to MQTT.  Is index in amqttpub[]
 enum { MQTT_IP,     MQTT_ICYNAME, MQTT_STREAMTITLE, MQTT_NOWPLAYING,
-       MQTT_PRESET, MQTT_VOLUME, MQTT_PLAYING, MQTT_PLAYLISTPOS
+       MQTT_PRESET, MQTT_VOLUME, MQTT_PLAYING, MQTT_PLAYLISTPOS, MQTT_FAVNOTPLAYING, MQTT_MUTE
      } ;
 enum { MQSTRING, MQINT8, MQINT16 } ;                     // Type of variable to publish
+
+
 
 class mqttpubc                                           // For MQTT publishing
 {
@@ -611,7 +617,7 @@ class mqttpubc                                           // For MQTT publishing
     // Publication topics for MQTT.  The topic will be pefixed by "PREFIX/", where PREFIX is replaced
     // by the the mqttprefix in the preferences.
   protected:
-    mqttpub_struct amqttpub[9] =                   // Definitions of various MQTT topic to publish
+    mqttpub_struct amqttpub[11] =                   // Definitions of various MQTT topic to publish
     { // Index is equal to enum above
       { "ip",              MQSTRING, &ipaddress,        false }, // Definition for MQTT_IP
       { "icy/name",        MQSTRING, &icyname,          false }, // Definition for MQTT_ICYNAME
@@ -621,6 +627,8 @@ class mqttpubc                                           // For MQTT publishing
       { "volume" ,         MQINT8,   &ini_block.reqvol, false }, // Definition for MQTT_VOLUME
       { "playing",         MQINT8,   &playingstat,      false }, // Definition for MQTT_PLAYING
       { "playlist/pos",    MQINT16,  &playlist_num,     false }, // Definition for MQTT_PLAYLISTPOS
+      { "favinfo",         MQSTRING, &favnotplaymsg,    false }, // Definition for MQTT_FAVNOTPLAYING
+      { "mute",            MQINT8,   &muteflag,         false }, // Definition for MQTT_MUTE
       { NULL,              0,        NULL,              false }  // End of definitions
     } ;
   public:
@@ -643,6 +651,7 @@ void mqttpubc::trigger ( uint8_t item )                    // Trigger publishig 
   amqttpub[item].topictrigger = true ;                     // Request re-publish for an item
 }
 
+
 //**************************************************************************************************
 //                                     P U B L I S H T O P I C                                     *
 //**************************************************************************************************
@@ -654,11 +663,23 @@ void mqttpubc::publishtopic()
   char        topic[80] ;                                     // Topic to send
   const char* payload ;                                       // Points to payload
   char        intvar[10] ;                                    // Space for integer parameter
+  static uint32_t lastMqttPublish = 0;
+
+  if (0 != ini_block.mqttdelay)
+    if (0 != lastMqttPublish)  
+    {
+      if (millis() - lastMqttPublish > ini_block.mqttdelay)
+        lastMqttPublish = 0;
+      else
+        return;
+    }
   while ( amqttpub[i].topic )
   {
     if ( amqttpub[i].topictrigger )                           // Topic ready to send?
     {
       amqttpub[i].topictrigger = false ;                      // Success or not: clear trigger
+      if (i == MQTT_VOLUME)                                   // With volume, also trigger mute
+        amqttpub[MQTT_MUTE].topictrigger = true;
       sprintf ( topic, "%s/%s", ini_block.mqttprefix.c_str(),
                 amqttpub[i].topic ) ;                         // Add prefix to topic
       switch ( amqttpub[i].type )                             // Select conversion method
@@ -686,13 +707,67 @@ void mqttpubc::publishtopic()
       {
         dbgprint ( "MQTT publish failed!" ) ;                 // Failed
       }
+      lastMqttPublish = millis();
       return ;                                                // Do the rest later
     }
     i++ ;                                                     // Next entry
   }
+  if (mqttfavidx)
+  {
+    String favinfo = getFavoriteJson(mqttfavidx);
+/*    
+    String("{\"idx\": \"") + mqttfavidx;
+    String url = readfavfrompref ( mqttfavidx );
+    String lastHost = lastStation;
+    chomp(lastHost);
+    String name;
+    int delim = url.indexOf('#');
+    Serial.flush();
+    if (delim >= 0)
+    {
+      name = url.substring(delim + 1);
+      url = url.substring(0, delim );
+    }
+    else
+      name = url;
+    name.trim();url.trim();
+    delim = name.indexOf('"');
+    while (delim >= 0)
+    {
+      name = name.substring(0, delim) + "'" + name.substring(delim + 1);
+      delim = name.indexOf('"');
+      Serial.printf("Name replacement step: %s\r\n", name.c_str());
+    }
+    bool play = (url == lastHost);
+    favinfo = favinfo + "\", \"url\":\"" + url + "\", \"name\":\"" + name + "\", \"play\":\"" + (play?"1":"0") + "\"}"; 
+    if (play)
+      favplayreport(url);
+*/
+    sprintf ( topic, "%s/favinfo", ini_block.mqttprefix.c_str());
+    payload = favinfo.c_str();
+    if ( !mqttclient.publish ( topic, payload ) )           // Publish!
+    {
+        dbgprint ( "MQTT publish failed!" ) ;                 // Failed
+    }
+    mqttfavidx++;
+    if (mqttfavidx > mqttfavendidx)
+    {
+      mqttfavidx = 0;
+      dbgprint("MQTT favinfo published.");
+    }
+    lastMqttPublish = millis();
+  }
+
 }
 
 mqttpubc         mqttpub ;                                    // Instance for mqttpubc
+
+void mqttpubFavNotPlaying()
+{
+  favnotplaymsg = getFavoriteJson(0);
+  mqttpub.trigger ( MQTT_FAVNOTPLAYING );
+}
+
 
 #if !defined(RETRORADIO)
 //
@@ -1576,6 +1651,10 @@ void listNetworks()
       if ( WiFi.SSID(i).indexOf ( winfo.ssid ) == 0 )    // Is this SSID acceptable?
       {
         acceptable = "Acceptable" ;
+        if (bestSsid == -1)
+          bestSsid = i;
+        else if (WiFi.RSSI(i) > WiFi.RSSI(bestSsid))
+          bestSsid = i;
         break ;
       }
     }
@@ -2067,6 +2146,10 @@ bool connecttohost()
   displaytime ( "" ) ;                              // Clear time on TFT screen
   setdatamode ( INIT ) ;                            // Start default in metamode
   chunked = false ;                                 // Assume not chunked
+
+  //favplayrequestinfo(host);
+
+
   if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
   {
     playlist = host ;                               // Save copy of playlist URL
@@ -2173,23 +2256,37 @@ bool connectwifi()
     if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
     {
       winfo = wifilist[0] ;                             // Get this entry
-      WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
+      if (bestSsid != -1)
+      {
+        dbgprint("Best WiFi SSID: %s, RSSI: %d, channel: %d, BSSID: %s", WiFi.SSID(bestSsid).c_str(), WiFi.RSSI(bestSsid), 
+                                  WiFi.channel(bestSsid), WiFi.BSSIDstr(bestSsid).c_str());
+        WiFi.begin(WiFi.SSID(bestSsid).c_str(), winfo.passphrase, 0, WiFi.BSSID(bestSsid));
+      }
+      else
+        WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
       dbgprint ( "Try WiFi %s", winfo.ssid ) ;          // Message to show during WiFi connect
     }
     else                                                // More AP to try
     {
       wifiMulti.run() ;                                 // Connect to best network
     }
-    if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect
+    int connectResult; 
+    if (  (connectResult = WiFi.waitForConnectResult()) != WL_CONNECTED ) // Try to connect
     {
 #if defined(RETRORADIO)
-      dbgprint("Wifi connect failed, try once again...");
+      dbgprint("Wifi connect failed, ressult = %d, try once again...", connectResult);
       WiFi.disconnect(true);
       WiFi.softAPdisconnect(true);
       if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
+      {
+        winfo = wifilist[0] ;                             // Get this entry
         WiFi.begin ( winfo.ssid, winfo.passphrase ) ;     // Connect to single SSID found in wifi_xx
+        dbgprint ( "Try WiFi %s AGAIN", winfo.ssid ) ;          // Message to show during WiFi connect
+      }
       else                                                // More AP to try
+      {
         wifiMulti.run() ;                                 // Connect to best network
+      }
       if (  WiFi.waitForConnectResult() != WL_CONNECTED ) // Try to connect      
 #endif
       localAP = true ;                                  // Error, setup own AP
@@ -2773,21 +2870,33 @@ bool mqttreconnect()
              ini_block.mqttbroker.c_str() ) ;
   sprintf ( clientid, "%s-%04d",                          // Generate client ID
             NAME, (int) random ( 10000 ) % 10000 ) ;
+  sprintf ( subtopic, "%s/%s",                          // Add prefix to subtopic
+              ini_block.mqttprefix.c_str(),
+              MQTT_SUBTOPIC ) ;
+
   res = mqttclient.connect ( clientid,                    // Connect to broker
                              ini_block.mqttuser.c_str(),
-                             ini_block.mqttpasswd.c_str()
+                             ini_block.mqttpasswd.c_str(),
+                             subtopic, 2, false, "Offline"
                            ) ;
   if ( res )
   {
-    sprintf ( subtopic, "%s/%s",                          // Add prefix to subtopic
-              ini_block.mqttprefix.c_str(),
-              MQTT_SUBTOPIC ) ;
     res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
     if ( !res )
     {
-      dbgprint ( "MQTT subscribe failed!" ) ;             // Failure
+      dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
     }
+    /*
+    sprintf ( subtopic, "%s/icy/name",                          // Add prefix to subtopic
+              ini_block.mqttprefix.c_str());
+    res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
+    if ( !res )
+    {
+      dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
+    }
+    */
     mqttpub.trigger ( MQTT_IP ) ;                         // Publish own IP
+    mqttcount=0;
   }
   else
   {
@@ -2822,6 +2931,22 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
     reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
     dbgprint ( reply ) ;                              // Result for debugging
   }
+/*
+  else 
+  {
+    const char* lwmsg = "Offline";
+    if (len == strlen (lwmsg))
+    {
+      strncpy ( cmd, (char*)payload, len ) ;            // Make copy of message
+      cmd[len] = '\0' ;                                 // Take care of delimeter
+      if (0 == strcmp(cmd, lwmsg))
+      {
+          mqttpub.trigger ( MQTT_IP ) ;
+          mqttpub.trigger ( MQTT_ICYNAME ) ;            // Publish /icy/name to override "Offline"
+      }
+    }
+  }
+*/
 }
 
 
@@ -3456,6 +3581,7 @@ void setup()
     pinMode ( ini_block.tft_blx_pin, OUTPUT ) ;          // Yes, enable output
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
+  dbgprint("SDCARD geht los\r\n\r\n\r\n\r\n");
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
 #if defined(RETRORADIO)
   if (false == NetworkFound) {                           // We have no (Ether-)Net yet...
@@ -3797,7 +3923,9 @@ void handlehttpreply()
           }
           else
           {
+            Serial.println("Hier kommen wir bei status hin..");
             p = analyzeCmd ( http_getcmd.c_str() ) ;        // Yes, do so
+            dbgprint("Command returned %s", p);
             sndstr += String ( p ) ;                        // Content of HTTP response follows the header
           }
           sndstr += String ( "\n" ) ;                       // The HTTP response ends with a blank line
@@ -3847,7 +3975,7 @@ void handlehttp()
   {
     c = rinbyt ( first ) ;                                   // Get a byte
     first = false ;                                          // No more first call
-    Serial.write(c);
+    //Serial.write(c);
     if ( c == '\n' )
     {
       // If the current line is blank, you got two newline characters in a row.
@@ -4084,10 +4212,10 @@ void handleIpPub()
 //**************************************************************************************************
 void handleVolPub()
 {
-  static uint32_t pubtime = 10000 ;                        // Limit save to once per 10 seconds
+  static uint32_t pubtime = 500 ;                          // Limit save to twice per second
   static uint8_t  oldvol = -1 ;                            // For comparison
 
-  if ( ( millis() - pubtime ) < 10000 )                    // 10 seconds
+  if ( ( millis() - pubtime ) < 500 )                      // 0.5 seconds
   {
     return ;
   }
@@ -4451,7 +4579,10 @@ void mp3loop()
       else
       {
         host = readhostfrompref() ;                       // Lookup preset in preferences
+        //lastStation = host;
+        setLastStation(host);
         chomp ( host ) ;                                  // Get rid of part after "#"
+        //favplayrequestinfo ( host );
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
                  ini_block.newpreset, playlist_num, host.c_str() ) ;
@@ -4492,6 +4623,23 @@ void mp3loop()
       connecttohost() ;                                   // Switch to new host
     }
   }
+}
+
+
+void setLastStation(String latest)
+{
+  lastStation = latest;
+  int idx = latest.indexOf('#');
+  if (idx >= 0)
+  {
+    latest = latest.substring(idx + 1);
+    latest.trim();
+  }
+  else
+    latest = "No Name";
+  icyname = latest;
+  mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+  scanFavorite();
 }
 
 
@@ -5109,7 +5257,7 @@ const char* analyzeCmd ( const char* str )
   }
   else
   {
-    res = analyzeCmd ( str, "0" ) ;              // No value, assume zero
+    res = analyzeCmd ( str, "" ) ;              // No value, assume zero
   }
   return res ;
 }
@@ -5232,7 +5380,24 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "mute" )                      // Mute/unmute request
   {
-    muteflag = !muteflag ;                            // Request volume to zero/normal
+    bool newMuteflag;
+    if (value.length() > 0)
+    {
+      Serial.printf("Mute with value: '%s'=%d\r\n", value.c_str(), ivalue);
+      newMuteflag = ivalue;
+    }
+    else
+      newMuteflag = !muteflag;
+    if (newMuteflag != muteflag)
+    {
+      muteflag = !muteflag ;                            // Request volume to zero/normal
+      mqttpub.trigger(MQTT_MUTE);
+    }
+  }
+  else if ( argument == "offline")
+  {
+        mqttpub.trigger ( MQTT_IP ) ;                 // Publish own IP
+        mqttpub.trigger ( MQTT_VOLUME ) ;            // Publish ICY Name
   }
   else if ( argument.indexOf ( "ir_" ) >= 0 )         // Ir setting?
   { // Do not handle here
@@ -5315,7 +5480,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     ///{
     ///  setdatamode ( STOPREQD ) ;                      // Request STOP
     ///}
+    //lastStation = value;
+    setLastStation(value);
     host = value ;                                    // Save it for storage and selection later
+    //favplayrequestinfo ( host );
     hostreq = true ;                                  // Force this station as new preset
     sprintf ( reply,
               "Select %s",                            // Format reply
@@ -5366,6 +5534,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     dbgprint ( "%d IR interrupts seen", ir_intcount ) ;
     dbgprint ( "Total PSRAM: %d", ESP.getPsramSize());
     dbgprint ( "Free PSRAM: %d", ESP.getFreePsram());    
+    dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
+    dbgprint ( "WiFi RSSI: %d", WiFi.RSSI());
+    dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+
     dbgprint ( reply );
     max_mp3loop_time = 0 ;                            // Start new check
   }
@@ -5418,6 +5590,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     else if ( argument.indexOf ( "passwd" ) > 0 )     // Password specified?
     {
       ini_block.mqttpasswd = value.c_str() ;          // Yes, set broker password accordingly
+    }
+    else if ( argument.indexOf ( "delay" ) > 0 )     // Delay specified?
+    {
+      ini_block.mqttdelay = ivalue ;                 // Yes, set publish delay accordingly
     }
   }
   else if ( argument == "debug" )                     // debug on/off request?

@@ -8,6 +8,8 @@ extern void loopRR();
 //extern const char* analyzeCmdsRR ( const char* commands );
 extern const char* analyzeCmdsRR ( String commands );
 extern void httpHandleGenre ( String http_rqfile, String http_getcmd );
+extern String readfavfrompref ( int16_t idx );
+
 
 #if defined(NORETRORADIO)
 #warning "NORETRORADIO IS DEFINED!"
@@ -26,10 +28,19 @@ extern void httpHandleGenre ( String http_rqfile, String http_getcmd );
 
 
 
+#if defined(DEBUG_BUFFER_SIZE)
+#undef DEBUG_BUFFER_SIZE
+#endif
+#if defined(NVSBUFSIZE)
+#undef NVSBUFSIZE
+#endif
+#if defined(MAXKEYS)
+#undef MAXKEYS
+#endif
 
 #define DEBUG_BUFFER_SIZE 500
 #define NVSBUFSIZE 500
-#define MAXKEYS 300
+#define MAXKEYS 500
 
 
 struct ini_struct
@@ -39,6 +50,7 @@ struct ini_struct
   uint16_t       mqttport ;                           // Port, default 1883
   String         mqttuser ;                           // User for MQTT authentication
   String         mqttpasswd ;                         // Password for MQTT authentication
+  uint16_t       mqttdelay ;                          // minimum delay (ms) between MQTT-messages
   uint8_t        reqvol ;                             // Requested volume
   uint8_t        rtone[4] ;                           // Requested bass/treble settings
   int16_t        newpreset ;                          // Requested preset
@@ -208,6 +220,7 @@ class VS1053
 
 // prototypes for functions/global data in main.cpp()
 extern String            host;                                  // host to connect to
+extern String            lastStation ;                          // URL [optional #name] of last host request (not chomped)
 extern String            ipaddress ;                            // Own IP-address
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data
@@ -223,7 +236,9 @@ extern TaskHandle_t      maintask ;                             // Taskhandle fo
 extern TaskHandle_t      xplaytask ;                            // Task handle for playtask
 extern TaskHandle_t      xspftask ;                             // Task handle for special functions
 extern uint8_t           gmaintain ;                            // Genre-Maintenance-mode? (play is suspended)
-extern int16_t           currentpreset ;                   // Preset station playing
+extern int16_t           currentpreset ;                        // Preset station playing
+extern int               mqttfavidx;                            // idx of favorite info to publish on MQTT
+extern int               mqttfavendidx;                         // last idx of favorite info to publish on MQTT
 
 
 char*       dbgprint( const char* format, ... ) ;
@@ -237,6 +252,15 @@ const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
+void mqttpubFavNotPlaying();
+/*
+void favplayreport(String url);
+void favplayrequestinfo(String url, bool rescan = false);
+*/
+String getFavoriteJson(int idx, int rMin=1, int rMax=100);
+void setLastStation(String last);
+void scanFavorite();
+
 
 
 #endif

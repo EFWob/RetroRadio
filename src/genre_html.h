@@ -13,13 +13,13 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   <ul>
    <li><a class="pull-left" href="#">ESP32 Radio</a></li>
    <li><a class="pull-left" href="/index.html">Control</a></li>
-   <li><a class="pull-left active" href="/genre.html">Genre</a></li>
+   <li><a class="pull-left active" href="/genre.html">Genres</a></li>
    <li><a class="pull-left" href="/config.html">Config</a></li>
-   <li><a class="pull-left" href="/mp3play.html">MP3 player</a></li>
    <li><a class="pull-left" href="/about.html">About</a></li>
   </ul>
   <br><br><br>
   <center>
+   <div id="genreMain">
    <h1>** ESP32 Radio Genre Manager **</h1>
    <h3> Maintain loaded Genres </h3>
    <div id="genreArea">
@@ -36,7 +36,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
           genres with that other radio with the IP: 
           <input type="text" id="inputOtherRadio" placeholder="192.168.x.y">
       </div>
-      <div id="syncRunning" hidden=true>
+      <div id="syncRunning" hidden>
           Sync is running....
       </div>
       <hr>
@@ -45,6 +45,108 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
    
       </div>
       <table class="table2" id="filterTable" width="800">
+      </table>
+      <br><hr><br>
+        Or <button class="button" onclick=startEditSettings()>Edit settings here!</button>  
+     </div>
+   </div>
+   <div id="genreSet" hidden>
+    <h1>** ESP32 Radio Genre Settings **</h1>
+    <table class="pull-left">    
+        <tr>
+          <td colspan=2 style="text-align:center">
+            <hr>
+            Functional settings<br><hr>
+          </td>
+        </tr>
+        <tr hidden id="fsNotOpen">
+          <td colspan=2 style="text-align:center">
+            Directory or Filesystem for Genre Playlists could not be opened.<br>
+            So probably something is wrong with the Path-setting below!<hr>
+          </td>
+        </tr>
+    
+        <tr>
+          <td style="text-align:right">
+            IP address of RDBS Server:
+          </td>
+          <td style="text-align:left">
+            <input type="text" id="cfgRdbs">
+          </td>
+        </tr>
+        <!--
+        <tr>
+          <td style="text-align:right">
+            Use SD-Card (not Flash):
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgIsSD">
+          </td>
+        </tr>
+        -->
+        <tr>
+          <td style="text-align:right" 
+          title="Path must be given with leading slash '/'.&#013;Preceed with literal 'sd:' to store playlists on SD card.">
+            Full path to genre storage directory:
+          </td>
+          <td style="text-align:left">
+            <input type="text" id="cfgPath">
+          </td>
+        </tr>
+        <tr>
+          <td style="text-align:right">
+            Do not store Station Names:
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgNoname">
+          </td>
+        </tr>
+        <tr>
+          <td colspan=2 style="text-align:center">
+            <br>
+            <hr>
+            Debug support<br><hr>
+          </td>
+        </tr>
+
+        <tr>
+          <td style="text-align:right">
+            Verbose output on Serial:
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgVerbose">
+          </td>
+        </tr>
+
+
+        <tr>
+          <td style="text-align:right">
+            Show internal ID-Number:
+          </td>
+          <td style="text-align:left">
+            <input type="checkbox" id="cfgShowID">
+          </td>
+        </tr>
+       <tr>
+          <td colspan=2 style="text-align:center">
+            <hr>
+          </td>
+        </tr>
+        <tr>
+          <td style="text-align:center">
+            <button class="button" onclick=cancelEditSettings()>Cancel</button>  
+          </td>
+          <td style="text-align:center">
+            <button class="button" onclick=useEditSettings(0)>Apply</button>  
+          </td>
+        </tr>
+       <tr>
+          <td colspan=2 style="text-align:center">
+            <hr>Store the settings to NVS-preferences.<br>
+            <button class="button" onclick=useEditSettings(1)>Store to NVS preferences</button>  
+
+          </td>
+        </tr>
       </table>
    </div>
   </center>
@@ -70,6 +172,55 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
  var loadIdx = 0;
  var progressAlert;
 
+  function startEditSettings()
+  {
+    document.getElementById("genreSet").hidden = false;
+    document.getElementById("genreMain").hidden = true;
+  }
+
+  function locationReload()
+  {
+    location.reload();
+  }
+
+  function setConfig()
+  {
+    config.rdbs = document.getElementById("cfgRdbs").value;
+    config.path = document.getElementById("cfgPath").value;
+    if (document.getElementById("cfgVerbose").checked == true)
+      config.verbose = 1;
+    else
+      config.verbose = 0;
+    if (document.getElementById("cfgNoname").checked == true)
+      config.noname = 1;
+    else
+      config.noname = 0;
+    if (document.getElementById("cfgShowID").checked == true)
+      config.showid = 1;
+    else
+      config.showid = 0;
+  }
+
+  function useEditSettings(store)
+  {
+    if (store)
+      if (!confirm("Are you sure you want to save these settings to NVS preferences?"))
+        return;
+    document.getElementById("genreSet").hidden = true;
+    document.getElementById("southArea").hidden = true;
+    document.getElementById("genreMain").hidden = false;
+    document.getElementById("genreDir").innerHTML = "<tr><td>Loading...</td></tr>";
+    setConfig();
+    config.save = store;
+    sendConfig();
+  }
+
+  function cancelEditSettings()
+  {
+    document.getElementById("genreSet").hidden = true;
+    document.getElementById("genreMain").hidden = false;
+
+  }
 
   function getAction ( actionId, actions )
   {
@@ -266,7 +417,7 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   xhr.send() ;
  } 
 
- function listDir ( callback )
+ function listDir (  )
  {
   var table = document.getElementById('genreDir') ;
   table.innerHTML = "Please wait for the list of stored genres to load...";
@@ -499,7 +650,7 @@ function drawFilterTable()
 
       cell1.innerHTML = '<input type="text" id="inputGenre" placeholder="Enter substring here">' ;
       cell2.innerHTML = '<input type="number" id="inputPresets" placeholder="Minimum">' ;
-      cell3.innerHTML = '<button class="button" onclick=loadGenres()>Apply Filter</button>' ;
+      cell3.innerHTML = '<button class="button" onclick=getConfig(loadGenres)>Apply Filter</button>' ;
 //      cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" onchange="setAddGenre()">' ;
       cell4.innerHTML = '<input type="text" id="inputAdd" value="' + lastAdd + '" placeholder="Clustername" onchange="setAddGenre()">' ;
       var idx;
@@ -849,6 +1000,7 @@ function runActionRequest (id, theUrl, timeout, callback)
     }
   }  
   clearTimeout(resultTimeout);resultTimeout = null;
+  timeout=0;
   if (timeout)
     if (id > 0)
       resultTimeout = setTimeout(actionDone, timeout, id, `ERR: Timeout for URL: ${theUrl}`);
@@ -919,6 +1071,24 @@ function runActionRequest (id, theUrl, timeout, callback)
     reloadOneGenre(idx);
   }
 
+  function sendConfig()
+  {
+    var theUrl = "setconfig=" + JSON.stringify(config);
+    xhr = new XMLHttpRequest() ;
+    theUrl="genreaction?" + 
+      encodeUnicode(theUrl)
+      + "&version=" + Math.random();
+    xhr.onreadystatechange = function() 
+    {
+      if ( this.readyState == XMLHttpRequest.DONE )
+      {
+        location.reload();
+      }
+    }  
+    xhr.open ( "GET", theUrl ) ;
+    xhr.send() ;  
+  }
+
   function reloadPresets(idx)
   {
     var theUrl = "link64=" + actionArray[idx].id +",genre=" + actionArray[idx].name ; 
@@ -983,6 +1153,11 @@ function runActionRequest (id, theUrl, timeout, callback)
      }
  }
 
+ function startActionRunCB()
+ {
+   runAction(0);
+ }
+
  function runActions(newActions)
  {
     if (actionArray.length > 0)
@@ -1006,9 +1181,9 @@ function runActionRequest (id, theUrl, timeout, callback)
     cell1.colSpan = 2;
     cell1.innerHTML = "Please wait for page to reload. Do not load any other page now!"; 
     loadIdx = 0;
-    runAction (0) ;
+    getConfig(startActionRunCB);
+    //runAction (0) ;
  }
-
 
 
  // Get info from a radiobrowser.  Working servers are:
@@ -1019,9 +1194,7 @@ function runActionRequest (id, theUrl, timeout, callback)
  // callback: to be called on either timeout (empty stationArr) or success (filled stationArr)
  function listStats ( id, genre, timeout, callback, deleteFirst )
  {
-  var theUrl = "https://" + config.rdbs + "/json/stations/bytagexact/" +
-               genre +
-               "?hidebroken=true" ;
+  var theUrl = "https://" + config.rdbs + "/json/stations/search" ;
   //alert(theUrl);
   xhr = new XMLHttpRequest() ;
   //stationArr = [];
@@ -1050,14 +1223,16 @@ function runActionRequest (id, theUrl, timeout, callback)
       }
     }
     stationArr = stationArr.concat(thisStationArr);
-    //alert ("RDBS done for genre " + genre + " nb. stations found: " + stationArr.length);
     callback(id, genre, true, deleteFirst);
    }
   }
-  xhr.open ( "GET", theUrl ) ;
+  xhr.open ( "POST", theUrl ) ;
+  xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+  xhr.send("tag=" + genre + "&tagExact=true&hidebroken=true");
   resultTimeout = setTimeout(callback, timeout, id, genre, false, deleteFirst);
-  xhr.send() ;
  }
+
+
 
  function encodeUnicode(str) {
   // first we use encodeURIComponent to get percent-encoded UTF-8,
@@ -1100,7 +1275,7 @@ function decodeUnicode(str) {
   xhr.send() ;
  }
    
-  function getConfig()
+  function getConfig(callback)
   {
     var theUrl="/genreconfig&version=" + Math.random();
     var xhr = new XMLHttpRequest();
@@ -1109,14 +1284,31 @@ function decodeUnicode(str) {
       if ( this.readyState == XMLHttpRequest.DONE )
       {
       config = JSON.parse ( this.responseText ) ;
-      listDir ( null );
+      config.store = false;
+      var path = config.path;
+      document.getElementById("cfgRdbs").value = config.rdbs;
+      //document.getElementById("cfgIsSD").checked = config.isSD;
+      if (config.isSD)
+        path = "sd:" + path;
+      document.getElementById("cfgPath").value = path;
+      document.getElementById("cfgNoname").checked = config.noname;
+      document.getElementById("cfgShowID").checked = config.showid;      
+      document.getElementById("cfgVerbose").checked = config.verbose;      
+      document.getElementById("fsNotOpen").hidden = (config.open != 0);
+      callback();
+/*
+      if (actionArray.length == 0)
+        listDir ( null );
+      else
+        runAction ( 0 );
+*/
       }
     }
   xhr.open ( "GET", theUrl ) ;
   xhr.send() ;
   }
 
-   getConfig();
+   getConfig(listDir);
    //listDir( null ) ;
 </script>
 

@@ -64,6 +64,7 @@ Input Handling](#extended-input-handling) if you are not interested to use the f
  - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
  - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
  - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
+ - A [favorite concept](#favorite-concept) is introduced to allow users to maintain a list of favorite stations in addition to the standard preset list.
  - Radio can now play from [genre playlists](#genre-playlists) that can be downloaded from a internet radio database server.
  - [IR remote handling](#added-support-for-longpress-and-release-on-ir-remotes) has been extended to recognise longpress and release events
  - When assigning commands to an event (IR pressed, touch pressed or new events like tune knob turned) you
@@ -229,6 +230,7 @@ commands can be defined either by preference settings or through the Input chann
   	is not in the channel-list, i. e. if tuned to by other means, tune to ChannelMax).
   - The number -1. This will not do any change to the current playing, but can be useful to force the radio to switch to a specific channel (which would not happen if that channel was the same that has been set by the previous call to the channel-command). 
 
+
 ## Genre playlists
 ### General idea
 The main idea is to use a public radio database server (https://www.radio-browser.info/#/). This database has more
@@ -313,11 +315,13 @@ lowercase letters only, while cluster names start with an uppercase letter (foll
 So, _Rock_ is a valid name for a cluster, _rock_ is a valid name for a genre tag from the internet radio database,
 but constucts like _ROCK_ or _rOcK_ are invalid. When in doubt, copy the name from the web API.
 
-If that genre exists, the radio will start to play a random station from that genre. If the same command is issued again (with the same name), another (random) station from that genre will play.
+If a valid genre name has been assigned (and that genre exists in SPIFFS), the radio will start to play a random station from that genre. If the same command is issued again (with the same name), another (random) station from that genre will play.
 
 You can switch to a station direct using the command 
-_gpreset=number_  
-where Number can be any number. If this number (lets call it n) is between 0 and 'number of stations in that genre' - 1, the n-th entry of that list is selected. N can also be greater than the number of stations (or even below zero), modulo function is used in that case to map n always between 0 and 'number of stations in that genre' - 1.
+
+_gpreset=Number_  
+
+where Number can be any number. If this number (lets call it n) is between 0 and 'number of stations in that genre - 1', the n-th entry of that list is selected. N can also be greater than the number of stations (or even below zero), modulo function is used in that case to map n always between 0 and 'number of stations in that genre' - 1.
 
 If no genre has been set by the _genre=XXXX_ command above, _gpreset=n_ has no effect.
 
@@ -326,13 +330,13 @@ So selecting a station is still "fishing in the dark", but it is at least reprod
 If you issue command _genre=Anothername_ with another genre name, the radio will switch to that genre.
 
 If you issue command with no name (empty), the genre playmode will be stopped. The current station will continue to
-play (until another preset or channel is selected). _gpreset=n_ however will have no effect. You can also issue the command _genre_ with parameter _genre=--stop_ to achieve that.
+play (until another preset or channel is selected). _gpreset=n_ however will have no effect. You can also issue the command _genre_ with parameter _genre=--stop_ to achieve the same if you prefer a more clear reading.
 
 You can also switch stations within a genre using the _channel_ command from above. To do so, a channel-list must be defined.
 The preset-numbers assigned to the channel entries are ignored, just the size of the channel list is important.
 In the channel example above we defined a channel list with 9 channels. If you switch to genre-playmode, that channel
 list can be used to change stations within that genre by the following algorithm:
-- each channel has a random number between 0 and 'number of channels in that genre' assigned.
+- each channel has a random number between 0 and 'number of channels in that genre - 1' assigned.
 - one of the channel entries is the current channel (the one last selected by _channel=n_)
 - the distance between two channel stations is the same for all neighbors (and wrapped around between channel 9 and 1) in our example. So if in our case we would have a genre list with 90 stations, the distance between two channels would be 10.
 - example list in that case could be Channel 1: 72, Channel 2: 82, Channel 3: 2, Channel 4: 12 .... Channel 9: 62
@@ -345,10 +349,136 @@ list can be used to change stations within that genre by the following algorithm
     a completely different list.
 
 
-Some fine detail (ToDo): if the radio stream stalls, the radio has a fallback strategy to switch to another preset. If that happens when playing from a genre playlist, the radio would fall back to a preset from the preset list in preferences.
+
+### Configuring anything around genres
+
+To configure genre settings use the command 
+
+**_gcfg.subcommand=value_**
+
+The command can be used from command line or from the preference settings in NVS. If not set in the preferences (NVS) all settings are set to the defaults described below.
+
+The following commands (including subcommands) are defined:
+
+- **_gcfg.path=/root/path_** All playlist information is stored in Flash (using LITTLEFS) or on SD-Card. If path value does start with 'SD:' (case ignored), the genre lists will be stored on SD card using the path following the token 'SD:'. If not, the genre information is stored in Flash, using LITTLEFS with path '/root/path' in this example.
+No validity checking, if the given path does not exists or is invalid, genre playlists will be dysfunctional. (For historic reason, **defaults to '/____gen.res/genres'**). Must not end with '/'! Can be changed at any time (to allow for different genre playlists for different users).
+- **_gcfg.host=hostURL_** Set the host to RDBS. **Defaults to 'de1.api.radio-browser.info'** if not set. 'de', 'nl', 'fr' can be used (as short cuts) to address 'de1.api.radio-browser.info', 'nl1.api.radio-browser.info' or 'fr1.api.radio-browser.info' respectively. Otherwise full server name must be given.
+- **_gcfg.nonames=x_** if x is nonZero, station names will be stored in genre playlists (not just URLs). Currently, station names from genre playlists are not used at all but might be useful in future versions. When short on storage, set to '1'. **Defaults to 0**, so station names will be stored.
+
+### Considerations (and limitations) around using genre playlists
+
+The total number of genre lists is limited (to 1000). This is a compile time limitation that can not be changed by a command or a preference setting. 
+
+For faster access, some information is cached. For caching, PSRAM is preferred. If PSRAM is not available, normal heap is used. PSRAM should be plenty, however, if there is no sufficient heap, operation might be slower. (Use command _test_ from the Serial input. If the reported Free Memory is below 100.000, it is likely that RAM caching is
+not available.)
+
+On a board with 16MB flash I was able to load around 33.000 stations within 740 genres before the flash was fully used. With SD-card even more will be possible. However, SD access is slower. It is using shared access with the SPI. You will notice quite a few debug messages saying "SPI semaphore not taken...". That is annoying but still fine. It is probably advisable to stop radio playback (using _stop_ from the Serial command line) to limit the access conflicts on the SPI bus if you maintain the genre playlists (adding/deleting/reloading).
+
+If the radio stream stalls, the radio has a fallback strategy to switch to another preset. If that happens when playing from a genre playlist, the radio would fall back to a preset from the preset list in preferences.
 You will notice that in genre playlist mode this can happen (for remote stations with a bad connection). In a next step, this fallback needs to be recoded to use another station from the current genre playlist. If you want to avoid the fallback to a preset from NVS, use the command _preset=--stop_. This will block fallback to a station from presets until a station from presets is requested (for instance by _preset=n_  or _channel=m_ if genre play mode has stopped).
 
 When in genre play mode, you can still issue a _preset=n_ command and the radio will play the according preset from the preferences. However, genre playlist mode will not be stopped: the command _gpreset=n_ as well as _channel=m_ (if channellist is defined) will still operate on the current genre playlist.
+
+## Favorite concept
+### General idea
+Especially with the genre playlists you have virtually thousands of stations to play from. However, selecting a station is random. If you want to recall a currently playing station later, you can add that station to your favorites.
+
+The Favorites are another playlist in addition to the Preset-list. The main difference is, that the favorite list can be maintained using the command interface (no need to add them through the Webpage).
+
+In total 100 favorites can be stored, numbered from 1 to 100.
+
+The favorites are stored in nvs with the prefix "fav_", followed by a number between "01" to "100" (the leading "0" must be given if number is below 10).
+
+The syntax is the same as with presets:
+```
+fav_08 = stream.laut.fm/the-blitz-kids#The Blitz Kids
+```
+defines the favorite with index 8 to have the URL http://stream.laut.fm/the-blitz-kids and the name "The Blitz Kids"
+
+Preferably, Favorites should not be defined by the config settings, but using the command interface via Serial, HTTP or MQTT.
+
+### Command interface for favorites
+Maintenance/using the favorite list is done by the (new) command __"favorite"__
+
+In its simplest form, favorite takes a number (between 1 and 100) to play that favorite (if defined).
+
+The definition of a favorite (if not done from the configuration page via nvs) is always done from the current station.
+
+To add the current station to favorites, use
+```
+favorite=+
+```
+If DEBUG is on, you can see where this favorite is stored.
+If the current station is already in the favorite list, it will not be added again.
+
+To remove the current station from favorites, use
+```
+favorite=-
+```
+If the current station is not in favorites, this command will have no effect. If the current station is stored to more then one favorite, all matching favorites will be deleted.
+
+Normally, both commands will be applied to the whole range of favorites (1-100). If you want to limit it to a subrange, you can define that subrange by adding a range specification after '+' or '-':
+- ranges are defined as one or two numbers
+- if no number is given, the range is 1-100
+- if one number is given, the range is thatNumber to thatNumber
+- if two numbers are given, the range is 1stNumber to 2ndNumber
+- numbers must be separated by whitespace. You can (or in addition) add a dash '-' for reading convenience.
+- again: if no number is given at all, the range will be assumed to be 1-100
+- if either the upper (100) or the lower (1) limit are exceeded by either parameter, or if the 2ndNumber is lower than the 1stNumber, the command will be ignored
+
+If you want to store the current station to a specifc number, use the command
+```
+favorite=s number
+```
+whith __number__ being in the range of 1 to 100. If a favorite has already been stored by that number, it will be overwritten. This command will store the current station to the given number, even if it has been stored to another favorite before.
+
+If you want to delete a favorite with a specific number, use the command
+```
+favorite=d number
+```
+whith __number__ being in the range of 1 to 100. If a favorite by that number is not known, the command will have no effect.
+
+If you want to list the stored favorites on Serial, use the command
+```
+favorite=l
+```
+that will list all favorites (from 1 to 100) on Serial (if DEBUG=1).  This command also accepts a range setting, hence
+```
+favorite=l 10-20
+```
+will limit the listings to favorites 10 to 20.
+
+The listing will be in JSON-Style with the following parameters:
+- "idx": the number of the favorite
+- "url": the url of the favorite
+- "name": the station name of the favorite
+- "play": set to 1 if currently playing that station, 0 if not
+
+Especially for use with http-requests you can use two commands:
+```
+favorite=status
+favorite=jsonlist
+```
+
+__favorite=status__ will return an JSON-Object with two elements __"play"__ and __"version"__:
+- Both are numbers 
+- __"play"__ is 0 if none of the stored favorites is currently playing. If it is between 1 and 100, that is the number of the currently playing favorite (if the same station is stored in the favorites list more than once, the lowest index number will be returned for __"play"__).
+- __"version"__ is an arbritary version number that will increase by one whenever the index list changes by eitheradding or deleting one favorite. After a POR __"version"__ will always be 1. A client can observer this number to decide if the favorite list must be reloaded.
+
+__favorite=return__ will return an JSON-Object with two elements __"version"__ and __"list"__:
+- __"version"__ is the same as just described
+- __"list"__ is an array containing all non-empty entries from the favorite list. Each entry to the list ist 
+  a JSON-Object with two fields:
+  - __"i":__ the index number of the favorite
+  - __"n":__ the name of the favorite station, base64 encoded (the name will be truncated to 50 characters which should be sufficient for most stations.
+(If you use this command from the Serial monitor, output will be truncated due to internal print buffer limitations).
+
+Both __favorite=status__ and __favorite=jsonlist__ operate on the whole range from favorite 1 to 100.
+
+At the bottom of the main "Control"-Webpage of the radio is now another drop-down list that allows to select and play a favorite from the list. Above this drop-down-input is a button to Add the current station to the favorite list or, if the current playing station is already in the favorite list, to Remove it from that list again.
+
+(Due to polling, it can take a few seconds until the button changes from Add to Remove (or vice versa) and the favorite list changes after an update).
+
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)
@@ -437,12 +567,12 @@ ir_52AD = channel = 9 # (9)
 
 The 'tricky' part is the switching the user (and hence the channel assignment). I use a separate (NVS)-entry to store the commands list 
 to be executed if switching between users. That way, the same sequence can be re-used later if the switch is happening by another input event.
-By my convention, I use '$' sign as starting character for NVS-Keys that store constants for later use:
+(By my convention, I use the ':' as starting character for NVS-Keys that store for later execution.)
 ```
 :user1 = channels=0,1,2,3,4,5,6,7,10;channel=1;volume=70
 :user2 = channels=1,2,10,11,12,13,14,15,16;channel=1;
 ```
-So if that commands are executed, for both users different presets would be assigned to Channel1 to Channel9, but in both cases the preset
+So if these command sequences are executed, for both users different presets would be assigned to Channel1 to Channel9, but in both cases the preset
 referenced by Channel1 would be tuned to (i. e. _preset_00_ for _:user1_ and _preset_1_ for _:user2_). For _:user1_ the volume would also
 be set to 70 (but will stay at current value if switching to _:user2_).
 
@@ -456,7 +586,7 @@ By the _call_ command, the contents of the value linked to _:user1_ or _:user2_ 
 both in RAM and NVS-Preferences, the RAM setting will override the NVS setting).
 
 Now there is only one thing left to do: at start, no channels are defined. You should use _::setup_ to define channel settings. The most 
-obvious way is to force user1 at start:
+obvious way is to force user1 at start by adding the following entry to the NVS preferences:
 ```
 ::setup = call = :user1
 ```
