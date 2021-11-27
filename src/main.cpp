@@ -2870,21 +2870,23 @@ bool mqttreconnect()
              ini_block.mqttbroker.c_str() ) ;
   sprintf ( clientid, "%s-%04d",                          // Generate client ID
             NAME, (int) random ( 10000 ) % 10000 ) ;
+  sprintf ( subtopic, "%s/%s",                          // Add prefix to subtopic
+              ini_block.mqttprefix.c_str(),
+              MQTT_SUBTOPIC ) ;
+
   res = mqttclient.connect ( clientid,                    // Connect to broker
                              ini_block.mqttuser.c_str(),
                              ini_block.mqttpasswd.c_str(),
-                             (ini_block.mqttprefix + "/icy/name").c_str(), 2, false, "Offline"
+                             subtopic, 2, false, "Offline"
                            ) ;
   if ( res )
   {
-    sprintf ( subtopic, "%s/%s",                          // Add prefix to subtopic
-              ini_block.mqttprefix.c_str(),
-              MQTT_SUBTOPIC ) ;
     res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
     if ( !res )
     {
       dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
     }
+    /*
     sprintf ( subtopic, "%s/icy/name",                          // Add prefix to subtopic
               ini_block.mqttprefix.c_str());
     res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
@@ -2892,7 +2894,7 @@ bool mqttreconnect()
     {
       dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
     }
-
+    */
     mqttpub.trigger ( MQTT_IP ) ;                         // Publish own IP
     mqttcount=0;
   }
@@ -2929,6 +2931,7 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
     reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
     dbgprint ( reply ) ;                              // Result for debugging
   }
+/*
   else 
   {
     const char* lwmsg = "Offline";
@@ -2943,6 +2946,7 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
       }
     }
   }
+*/
 }
 
 
@@ -3919,7 +3923,9 @@ void handlehttpreply()
           }
           else
           {
+            Serial.println("Hier kommen wir bei status hin..");
             p = analyzeCmd ( http_getcmd.c_str() ) ;        // Yes, do so
+            dbgprint("Command returned %s", p);
             sndstr += String ( p ) ;                        // Content of HTTP response follows the header
           }
           sndstr += String ( "\n" ) ;                       // The HTTP response ends with a blank line
@@ -4633,7 +4639,7 @@ void setLastStation(String latest)
     latest = "No Name";
   icyname = latest;
   mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
-  
+  scanFavorite();
 }
 
 
@@ -5387,6 +5393,11 @@ const char* analyzeCmd ( const char* par, const char* val )
       muteflag = !muteflag ;                            // Request volume to zero/normal
       mqttpub.trigger(MQTT_MUTE);
     }
+  }
+  else if ( argument == "offline")
+  {
+        mqttpub.trigger ( MQTT_IP ) ;                 // Publish own IP
+        mqttpub.trigger ( MQTT_VOLUME ) ;            // Publish ICY Name
   }
   else if ( argument.indexOf ( "ir_" ) >= 0 )         // Ir setting?
   { // Do not handle here

@@ -13,9 +13,8 @@ const char genre_html[] PROGMEM = R"=====(<!DOCTYPE html>
   <ul>
    <li><a class="pull-left" href="#">ESP32 Radio</a></li>
    <li><a class="pull-left" href="/index.html">Control</a></li>
-   <li><a class="pull-left active" href="/genre.html">Genre</a></li>
+   <li><a class="pull-left active" href="/genre.html">Genres</a></li>
    <li><a class="pull-left" href="/config.html">Config</a></li>
-   <li><a class="pull-left" href="/mp3play.html">MP3 player</a></li>
    <li><a class="pull-left" href="/about.html">About</a></li>
   </ul>
   <br><br><br>

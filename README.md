@@ -395,7 +395,7 @@ fav_08 = stream.laut.fm/the-blitz-kids#The Blitz Kids
 ```
 defines the favorite with index 8 to have the URL http://stream.laut.fm/the-blitz-kids and the name "The Blitz Kids"
 
-Preferably, Favorites should not be defined by the config settings, but using the command interface.
+Preferably, Favorites should not be defined by the config settings, but using the command interface via Serial, HTTP or MQTT.
 
 ### Command interface for favorites
 Maintenance/using the favorite list is done by the (new) command __"favorite"__
@@ -453,6 +453,32 @@ The listing will be in JSON-Style with the following parameters:
 - "url": the url of the favorite
 - "name": the station name of the favorite
 - "play": set to 1 if currently playing that station, 0 if not
+
+Especially for use with http-requests you can use two commands:
+```
+favorite=status
+favorite=jsonlist
+```
+
+__favorite=status__ will return an JSON-Object with two elements __"play"__ and __"version"__:
+- Both are numbers 
+- __"play"__ is 0 if none of the stored favorites is currently playing. If it is between 1 and 100, that is the number of the currently playing favorite (if the same station is stored in the favorites list more than once, the lowest index number will be returned for __"play"__).
+- __"version"__ is an arbritary version number that will increase by one whenever the index list changes by eitheradding or deleting one favorite. After a POR __"version"__ will always be 1. A client can observer this number to decide if the favorite list must be reloaded.
+
+__favorite=return__ will return an JSON-Object with two elements __"version"__ and __"list"__:
+- __"version"__ is the same as just described
+- __"list"__ is an array containing all non-empty entries from the favorite list. Each entry to the list ist 
+  a JSON-Object with two fields:
+  - __"i":__ the index number of the favorite
+  - __"n":__ the name of the favorite station, base64 encoded (the name will be truncated to 50 characters which should be sufficient for most stations.
+(If you use this command from the Serial monitor, output will be truncated due to internal print buffer limitations).
+
+Both __favorite=status__ and __favorite=jsonlist__ operate on the whole range from favorite 1 to 100.
+
+At the bottom of the main "Control"-Webpage of the radio is now another drop-down list that allows to select and play a favorite from the list. Above this drop-down-input is a button to Add the current station to the favorite list or, if the current playing station is already in the favorite list, to Remove it from that list again.
+
+(Due to polling, it can take a few seconds until the button changes from Add to Remove (or vice versa) and the favorite list changes after an update).
+
 
 ## IR remote enhancements
 ### Added support for RC5 remotes (Philips)

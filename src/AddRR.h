@@ -259,6 +259,8 @@ void favplayrequestinfo(String url, bool rescan = false);
 */
 String getFavoriteJson(int idx, int rMin=1, int rMax=100);
 void setLastStation(String last);
+void scanFavorite();
+
 
 
 #endif

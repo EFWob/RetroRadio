@@ -14,8 +14,8 @@ const char index_html[] PROGMEM = R"=====(
   <ul>
    <li><a class="pull-left" href="#">ESP32 Radio</a></li>
    <li><a class="pull-left active" href="/index.html">Control</a></li>
+   <li><a class="pull-left" href="/genre.html">Genres</a></li>
    <li><a class="pull-left" href="/config.html">Config</a></li>
-   <li><a class="pull-left" href="/mp3play.html">MP3 player</a></li>
    <li><a class="pull-left" href="/about.html">About</a></li>
   </ul>
   <br><br><br>
@@ -141,11 +141,38 @@ const char index_html[] PROGMEM = R"=====(
    <br>
    <br>
    <input type="text" width="600px" size="72" id="resultstr" placeholder="Waiting for a command...."><br>
-   <br><br>
+   <br>
+   <div id="addfavorite" >
+   <button class="button" onclick="addfavorite()">ADD</button> station to favorites.
+   <br>
+   </div>
+   <div id="delfavorite" hidden>
+   <button class="button" onclick="delfavorite()">REMOVE</button> station from favorites.
+   <br>
+   </div>
+   <br>
+   <table style="width:500px">
+    <tr>
+     <td colspan="2"><center>
+       <label for="favorite"><big>Favorite:</big></label>
+       <br>
+       <select class="select selectw" onChange="handlefavorite(this)" id="favorite">
+        <option value="0">Select a favorite here</option>
+       </select>
+       <br><br>
+     </center></td>
+    </tr>
+  <table>
+   <br>
    <p>Find new radio stations at <a target="blank" href="http://www.internet-radio.com">http://www.internet-radio.com</a></p>
    <p>Examples: us1.internet-radio.com:8105, skonto.ls.lv:8002/mp3, 85.17.121.103:8800</p><br>
   </center>
   <script>
+
+var favplay = 0
+var favversion = 0
+var favlist
+
    function httpGet ( theReq )
    {
     var theUrl = "/?" + theReq + "&version=" + Math.random() ;
@@ -160,10 +187,94 @@ const char index_html[] PROGMEM = R"=====(
     xhr.send() ;
    }
 
+  function addfavorite()
+  {
+    httpGet("favorite=+");
+  }  
+
+  function delfavorite()
+  {
+    httpGet("favorite=-");
+  }  
+
+  function getfavlist()
+   {
+    var theUrl = "/?favorite=jsonlist&version=" + Math.random() ;
+    var xhr = new XMLHttpRequest() ;
+    xhr.onreadystatechange = function() 
+    {
+      if ( xhr.readyState == XMLHttpRequest.DONE )
+      {
+        favlist=JSON.parse(xhr.responseText);
+        favversion = favlist.version;
+        var sel = document.getElementById ( "favorite" ) ;
+        for(var i = sel.length;i > 1;i--)
+          sel.remove(i - 1);
+//        alert("FAVLIST LEN=" + favlist.list.length);
+        for(var i = 0;i < favlist.list.length;i++)
+        {
+          opt = document.createElement ( "OPTION" ) ;
+          opt.value = favlist.list[i].i;
+          opt.text = atob(favlist.list[i].n);
+          sel.add(opt);
+        }
+      }
+    }
+    xhr.open ( "GET", theUrl ) ;
+    xhr.send() ;
+   }
+
+
+   function favStatus (  )
+   {
+    var theUrl = "/?favorite=status&version=" + Math.random() ;
+    var xhr = new XMLHttpRequest() ;
+    xhr.onreadystatechange = function() {
+      if ( xhr.readyState == XMLHttpRequest.DONE )
+      {
+        var response=JSON.parse(xhr.responseText);
+        if (response.version != favversion)
+        {
+          getfavlist();
+        }
+        if (response.play != favplay)
+        {
+          favplay=response.play;
+//          alert("New favplay: " + favplay);
+          if (0 == favplay)
+          {
+//            alert("Add is visible");
+            document.getElementById("addfavorite").hidden = false;
+            document.getElementById("delfavorite").hidden = true;
+          }
+          else
+          {
+//           alert("Del is visible");
+            document.getElementById("addfavorite").hidden = true;
+            document.getElementById("delfavorite").hidden = false;
+            document.getElementById("preset").value = -1;
+          }
+          document.getElementById("favorite").value=favplay;
+        }
+      }
+    }
+    xhr.open ( "GET", theUrl ) ;
+    xhr.send() ;
+   }
+
+
    function handlepreset ( presctrl )
    {
      httpGet ( "preset=" + presctrl.value ) ;
+     document.getElementById("favorite").value = 0;
    }
+
+   function handlefavorite ( favctrl )
+   {
+     httpGet ( "favorite=" + favctrl.value ) ;
+     document.getElementById("preset").value = -1;
+   }
+
 
    function handletone ( tonectrl )
    {
@@ -208,6 +319,7 @@ const char index_html[] PROGMEM = R"=====(
    function myRefresh()
    {
     httpGet ('status') ;
+    favStatus () ;
     setTimeout(myRefresh,5000) ;
    }
 
