@@ -463,14 +463,14 @@ favorite=jsonlist
 __favorite=status__ will return an JSON-Object with two elements __"play"__ and __"version"__:
 - Both are numbers 
 - __"play"__ is 0 if none of the stored favorites is currently playing. If it is between 1 and 100, that is the number of the currently playing favorite (if the same station is stored in the favorites list more than once, the lowest index number will be returned for __"play"__).
-- __"version"__ is an arbritary version number that will increase by one whenever the index list changes by eitheradding or deleting one favorite. After a POR __"version"__ will always be 1. A client can observer this number to decide if the favorite list must be reloaded.
+- __"version"__ is an arbritary version number that will increase by one whenever the favorite list changes by either adding or deleting one favorite. After a POR __"version"__ will always be 1. A client can observe this number to decide if the favorite list must be reloaded.
 
-__favorite=return__ will return an JSON-Object with two elements __"version"__ and __"list"__:
+__favorite=jsonlist__ will return an JSON-Object with two elements __"version"__ and __"list"__:
 - __"version"__ is the same as just described
-- __"list"__ is an array containing all non-empty entries from the favorite list. Each entry to the list ist 
+- __"list"__ is an array containing all non-empty entries from the favorite list. Each entry in this list is
   a JSON-Object with two fields:
   - __"i":__ the index number of the favorite
-  - __"n":__ the name of the favorite station, base64 encoded (the name will be truncated to 50 characters which should be sufficient for most stations.
+  - __"n":__ the name of the favorite station, base64 encoded (the name will be truncated to 50 characters which should be sufficient for most stations).
 (If you use this command from the Serial monitor, output will be truncated due to internal print buffer limitations).
 
 Both __favorite=status__ and __favorite=jsonlist__ operate on the whole range from favorite 1 to 100.
