@@ -3923,9 +3923,7 @@ void handlehttpreply()
           }
           else
           {
-            Serial.println("Hier kommen wir bei status hin..");
             p = analyzeCmd ( http_getcmd.c_str() ) ;        // Yes, do so
-            dbgprint("Command returned %s", p);
             sndstr += String ( p ) ;                        // Content of HTTP response follows the header
           }
           sndstr += String ( "\n" ) ;                       // The HTTP response ends with a blank line
