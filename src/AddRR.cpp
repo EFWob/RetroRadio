@@ -1898,10 +1898,12 @@ class RetroRadioInputReaderAnalog: public RetroRadioInputReader {
       //   Serial.printf("AnalogRead(%d) = %d\r\n", _pin, x);
       if ((_last >= 0) && (_filter > 0)) {
         _last = (_last * _filter + x) / (_filter + 1);
+      /*
         if (_last < x)
           _last++;
         else if (_last > x)
           _last--;
+      */
       }
       else
         _last = x;

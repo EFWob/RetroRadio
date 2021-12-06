@@ -46,7 +46,7 @@ in the section [Generic additions](#generic-additions) below.
 
 ## Considerations for migration
 
-If you have the ESP32 radio installed and preferences set up, so it is up and running, the RetroRadio software should run out of the box
+If you have the ESP32 radio installed and preferences set up, so it is ucommandsp and running, the RetroRadio software should run out of the box
 with a few things to notice:
 
 - This version needs some more NVS-entries. If you are using already much space in NVS (namely if you have a lot of presets defined) you might
@@ -90,7 +90,7 @@ NVS keys can be defined in the preferences as usual.
 - There is a command _ram_ now to set an RAM-Entry. Syntax is equivalent to the _nvs_-command above. 
 - In both cases, if _key_ exists the value associated to set key will be replaced. Otherwise the _key_-_value_-pair will be created and stored.
 - Example:
-  * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst_ and _value_ == _'42'_
+  * _ram.tst1 = 42_ will create a RAM-Entry with _key_ == _tst1_ and _value_ == _'42'_
   * _ram.tst2 = @tst1_ will create entry _tst2_ in RAM with the _value_ == _'42'_
   * The susbtitution for the dereferenced key _@tst1_ is done at command execution time. If _tst1_ will change in value later, _tst2_ will
     still stay at _'42'_.
@@ -115,8 +115,9 @@ The _call_-command takes the form _call = key-name_. If _key-name_ is defined (R
 retrieved and executed as commands-list (whith each command being seperated by semicolon).
 
 ## Setup event
-If in NVS-preferences the key-value-pair _::setup = key-name_ is defined, the value associated _key-name_ is retrieved from NVS and executed as 
-commands-list. The _::setup_-'calls' will happen after everything else in _setup()_ is finished just before the first _call to loop()_ 
+~~If in NVS-preferences the key-value-pair _::setup = key-name_ is defined, the value associated _key-name_ is retrieved from NVS and executed as 
+commands-list.~~ 
+If in NVS-preferences the key-value-pair _::setup = commands-list_ is defined, then the given commands-list is executed at startup, just after everything else in _setup()_ is finished just before the first _call to loop()_ 
 (So network is up and running, preferences are read, VS module is initialized. I. e. ready to play).
 
 If you set _::setup = volume = 70;preset = 0_ in the preferences, then at start the radio will always tune to _preset_0_ and set the volume 
@@ -124,9 +125,13 @@ to level 70. (If one line is not enough, you can also use _::setup0_ to _::setup
 [below](#scripting-summary)) .
 
 ## Loop event
-If the key-value-pair _::loop = key-name_ is defined, the associated contents of _key-name_ are retrieved from NVS and executed as command-list.
-This is called frequently (directly from main _loop()_ of the program). Activities here must be short to avoid delays in playing the stream.
+~~If the key-value-pair _::loop = key-name_ is defined, the associated contents of _key-name_ are retrieved from NVS and executed as command-list.~~
+If in NVS-preferences the key-value-pair _::loop = commands-list_ is defined, then the given commands-list is at the end of every execution of the main _loop()_ of the application. 
+
+
+__This is called frequently (directly from main _loop()_ of the program). Activities here must be short to avoid delays in playing the stream.__
 For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be used in addition.
+(Then also the overhead will be split: only one of the given _::loop_ commands list will be executed at each _loop()_, one after the other).
 
 More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
  
@@ -148,7 +153,7 @@ There is a define in ***addRR.h*** that reads `#define ETHERNET 2`
 * this will compile **with** Ethernet support, if the selected board is known to have Ethernet capabilities. As of now, that is true
   for Olimex PoE/PoE ISO only
 * if changed to `#define ETHERNET 0` (or any value different from '1' or '2'), support for Ethernet is **not** compiled
-* if changed to `#define ETHERNET 1`, support for Ethernet is compiled
+* if changed to `#define ETHERNET 1`, support for Ethernet is compiled regardless of the board setting
 * if this line is deleted/commented out, Ethernet support will **not** compiled in.
 * if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
 * if compiled with Ethernet support, there is another define that controls the ethernet connection: `#define ETHERNET_CONNECT_TIMEOUT 5`

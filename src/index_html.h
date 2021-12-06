@@ -172,6 +172,7 @@ const char index_html[] PROGMEM = R"=====(
 var favplay = 0
 var favversion = 0
 var favlist
+var status1 = true
 
    function httpGet ( theReq )
    {
@@ -318,9 +319,12 @@ var favlist
    // Request current status.
    function myRefresh()
    {
-    httpGet ('status') ;
-    favStatus () ;
-    setTimeout(myRefresh,5000) ;
+    if (status1)
+      httpGet ('status') ;
+    else
+      favStatus () ;
+    status1 = !status1;
+    setTimeout(myRefresh,3000) ;
    }
 
    // Fill preset list initially
