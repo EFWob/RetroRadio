@@ -420,6 +420,7 @@ int               datacount ;                            // Counter databytes be
 char              metalinebf[METASIZ + 1] ;              // Buffer for metaline/ID3 tags
 int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
+String            icystreamurl ;                         // StreamURL from metadata
 String            icyname ;                              // Icecast station name
 String            ipaddress ;                            // Own IP-address
 String            favnotplaymsg ;
@@ -599,7 +600,8 @@ touchpin_struct   touchpin[] =                           // Touch pins and progr
 //**************************************************************************************************
 // ID's for the items to publish to MQTT.  Is index in amqttpub[]
 enum { MQTT_IP,     MQTT_ICYNAME, MQTT_STREAMTITLE, MQTT_NOWPLAYING,
-       MQTT_PRESET, MQTT_VOLUME, MQTT_PLAYING, MQTT_PLAYLISTPOS, MQTT_FAVNOTPLAYING, MQTT_MUTE
+       MQTT_PRESET, MQTT_VOLUME, MQTT_PLAYING, MQTT_PLAYLISTPOS, MQTT_FAVNOTPLAYING, MQTT_MUTE, 
+       MQTT_STREAMURL
      } ;
 enum { MQSTRING, MQINT8, MQINT16 } ;                     // Type of variable to publish
 
@@ -617,7 +619,7 @@ class mqttpubc                                           // For MQTT publishing
     // Publication topics for MQTT.  The topic will be pefixed by "PREFIX/", where PREFIX is replaced
     // by the the mqttprefix in the preferences.
   protected:
-    mqttpub_struct amqttpub[11] =                   // Definitions of various MQTT topic to publish
+    mqttpub_struct amqttpub[12] =                   // Definitions of various MQTT topic to publish
     { // Index is equal to enum above
       { "ip",              MQSTRING, &ipaddress,        false }, // Definition for MQTT_IP
       { "icy/name",        MQSTRING, &icyname,          false }, // Definition for MQTT_ICYNAME
@@ -629,6 +631,7 @@ class mqttpubc                                           // For MQTT publishing
       { "playlist/pos",    MQINT16,  &playlist_num,     false }, // Definition for MQTT_PLAYLISTPOS
       { "favinfo",         MQSTRING, &favnotplaymsg,    false }, // Definition for MQTT_FAVNOTPLAYING
       { "mute",            MQINT8,   &muteflag,         false }, // Definition for MQTT_MUTE
+      { "icy/streamurl",   MQSTRING, &icystreamurl,     false }, // Definition for MQTT_STREAMURL
       { NULL,              0,        NULL,              false }  // End of definitions
     } ;
   public:
@@ -2038,7 +2041,9 @@ void showstreamtitle ( const char *ml, bool full )
   char*             p1 ;
   char*             p2 ;
   char              streamtitle[150] ;           // Streamtitle from metadata
+  char              streamurl[150] ;             // StreamURL from metadata
 
+  streamurl[0] = 0;
   if ( strstr ( ml, "StreamTitle=" ) )
   {
     dbgprint ( "Streamtitle found, %d bytes", strlen ( ml ) ) ;
@@ -2056,6 +2061,25 @@ void showstreamtitle ( const char *ml, bool full )
     // Save last part of string as streamtitle.  Protect against buffer overflow
     strncpy ( streamtitle, p1, sizeof ( streamtitle ) ) ;
     streamtitle[sizeof ( streamtitle ) - 1] = '\0' ;
+    if (p2)
+    {
+      p2++;
+      if (p1 = strstr(p2, "StreamUrl="))
+      {
+        p1 = p1 + 10;
+        p2 = strchr(p1, ';');
+        if (*p1 == '\'')
+        {
+          p1++;
+          if (p2)
+            p2--;
+        }
+        if (p2)
+          *p2 = 0;
+        strncpy ( streamurl, p1, sizeof ( streamurl ) ) ;
+        streamurl[sizeof ( streamurl ) - 1] = '\0' ;
+      }
+    }
   }
   else if ( full )
   {
@@ -2066,10 +2090,12 @@ void showstreamtitle ( const char *ml, bool full )
   else
   {
     icystreamtitle = "" ;                       // Unknown type
+    icystreamurl = "" ;
     return ;                                    // Do not show
   }
   // Save for status request from browser and for MQTT
   icystreamtitle = streamtitle ;
+  icystreamurl = streamurl ;
   if ( ( p1 = strstr ( streamtitle, " - " ) ) ) // look for artist/title separator
   {
     p2 = p1 + 3 ;                               // 2nd part of text at this position
@@ -4217,11 +4243,11 @@ void handleVolPub()
   {
     return ;
   }
-  pubtime = millis() ;                                     // Set time of last publish
   if ( ini_block.reqvol != oldvol )                        // Volume change?
   {
     mqttpub.trigger ( MQTT_VOLUME ) ;                      // Request publish VOLUME
     oldvol = ini_block.reqvol ;                            // Remember publishe volume
+    pubtime = millis() ;                                     // Set time of last publish
   }
 }
 
@@ -4941,6 +4967,9 @@ void handlebyte_ch ( uint8_t b )
         // Isolate the StreamTitle, remove leading and trailing quotes if present.
         showstreamtitle ( metalinebf ) ;               // Show artist and title if present in metadata
         mqttpub.trigger ( MQTT_STREAMTITLE ) ;         // Request publishing to MQTT
+        if (icystreamurl.length() > 0)
+          mqttpub.trigger ( MQTT_STREAMURL ) ;         // Request publishing to MQTT
+
       }
       if ( metalinebfx  > ( METASIZ - 10 ) )           // Unlikely metaline length?
       {
