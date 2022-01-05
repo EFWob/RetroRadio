@@ -2698,7 +2698,200 @@ void readprogbuttonsRetroRadio()
   }
 }
 
+
+#define NETSTATE_CONNECTETH   1
+#define NETSTATE_ETHCONNECTED 2
+#define NETSTATE_ETHFAIL      3
+#define NETSTATE_CONNECTED    4
+
 #if (ETHERNET==1)
+
+static bool EthernetFound = false;
+//**************************************************************************************************
+//                                         E T H E V E N T                                         *
+//**************************************************************************************************
+// Callback for Ethernet related system events. Main purpose is to set EthernetFound and           *
+// NetworkFound flags.                                                                             *
+//**************************************************************************************************
+
+void ethevent(WiFiEvent_t event)
+{
+  char *pfs;
+  switch (event) {
+    case SYSTEM_EVENT_ETH_START:
+      dbgprint("ETH Started");
+      //set eth hostname here
+      ETH.setHostname(NAME);
+      break;
+    case SYSTEM_EVENT_ETH_CONNECTED:
+      dbgprint("ETH Connected");
+      break;
+    case SYSTEM_EVENT_ETH_GOT_IP:
+      ipaddress = ETH.localIP().toString() ;             // Form IP address
+      pfs = dbgprint ( "Connected to Ethernet");
+      tftlog ( pfs ) ;
+      pfs = dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+      tftlog ( pfs ) ;
+      EthernetFound = true;
+      break;
+    case SYSTEM_EVENT_ETH_DISCONNECTED:
+      pfs = dbgprint("ETH Disconnected");
+      tftlog ( pfs );
+      if (EthernetFound) {
+        EthernetFound = false;
+        NetworkFound = false;
+      }
+      break;
+    case SYSTEM_EVENT_ETH_STOP:
+      pfs = dbgprint("ETH Stopped");
+      tftlog ( pfs );
+      if (EthernetFound) {
+        EthernetFound = false;
+        NetworkFound = false;
+      }
+      break;
+    default:
+      break;
+  }
+}
+
+
+
+//**************************************************************************************************
+//                                       C O N N E C T E T H                                       *
+//**************************************************************************************************
+// Connecting to ETHERNET.                                                                         *
+// This function waits for a defined period (should be at least 5 seconds in my experience) for    *
+// ethernet ip                                                                                     *
+// Returns true if we got IP from ethernet within time.                                            *
+// Problem with ethernet-stack: once started, it can not be stopped again (i. e. if not plugged in)*
+// As a result of running still in background, WiFi will become to slow. Therefore (if not connect *
+// possible within set timeout), a flag is set in NVS and a reset is forced. This flag will be     *
+// evaluated and if set no connect attempt is made but should be left to WiFi.                     *
+//**************************************************************************************************
+bool connecteth() {
+//This is new!  
+  dbgprint("Running connecteth()........................................");
+  while (networkHandler.loop())
+    ;
+  dbgprint("ConnectETH done, EthernetFound = %d", EthernetFound);
+  return EthernetFound;
+//This is old!
+  uint32_t myStartTime = millis();
+  uint32_t ethTimeout = eth_timeout * 1000;
+  if (ethTimeout == 0)
+    return false;
+/*  
+  if (nvssearch("eth_timeout"))                                   // Ethernet timeout in preferences?
+  {
+    String val = String(nvsgetstr ("eth_timeout"));               // De-reference to another NVS-Entry?
+    chomp(val);
+    if (val == "0")                                               // Explicitely set to Zero?
+    {
+      dbgprint ( "Ethernet disabled in preferences "              // Tell it
+                 "(""eth_timeout = 0"" found)" );
+      return false;                                               // And do not not attempt
+    }
+    ethTimeout = val.toInt();                                     // convert to integer
+    if (ethTimeout < ETHERNET_CONNECT_TIMEOUT)
+      ethTimeout = ETHERNET_CONNECT_TIMEOUT;
+    else if (ethTimeout > 2 * ETHERNET_CONNECT_TIMEOUT)
+    {
+      dbgprint ("eth_timeout set to %d (seconds) in preferences. This will cause a long delay if ethernet fails/is not connected!", ethTimeout);
+    }
+    ethTimeout *= 1000;
+  }
+*/  
+  WiFi.disconnect(true);                                          // Make sure old connections are stopped
+  myStartTime = millis();
+  WiFi.onEvent(ethevent);                                         // Event handler to catch connect status
+  if (ETH.begin(eth_phy_addr, eth_phy_power, eth_phy_mdc,
+                eth_phy_mdio, (eth_phy_type_t)eth_phy_type,
+                (eth_clock_mode_t)eth_clk_mode))
+    while (!EthernetFound && (millis() - myStartTime < ethTimeout))
+      delay(5);                                                     // wait for ethernet to succeed (or timeout)
+  WiFi.removeEvent(ethevent);                                     // event handler not needed anymore
+  if (!EthernetFound) {                                           // connection failed?
+    dbgprint("Ethernet did not work! Will try WiFi next!");
+    esp_eth_deinit();                                           // leaving Ethernet stack on would lead to
+    // distortions on WiFi
+  }
+  return EthernetFound;
+}
+
+
+
+#endif
+
+void NetworkHandler::onEnter(int16_t currentStateNb, int16_t oldStateNb) {
+  switch (currentStateNb)
+  {
+#if (1 == ETHERNET)
+    case NETSTATE_CONNECTETH:
+      {
+        WiFi.disconnect(true);                                    // Make sure old connections are stopped
+        WiFi.onEvent(ethevent);                                   // Event handler to catch connect status
+        if (!ETH.begin(eth_phy_addr, eth_phy_power, eth_phy_mdc,
+                eth_phy_mdio, (eth_phy_type_t)eth_phy_type,
+                (eth_clock_mode_t)eth_clk_mode))
+          {
+            setState(NETSTATE_ETHFAIL);
+            WiFi.removeEvent(ethevent);                           // event handler not needed anymore
+          }
+      }
+      break;
+#endif
+  }
+};  
+
+
+void NetworkHandler::runState(int16_t stateNb) {
+  switch (stateNb)
+  {
+#if (1 == ETHERNET)
+    case NETSTATE_CONNECTETH:
+      if ((getStateTime() > ethTimeout) || EthernetFound)
+      {
+        WiFi.removeEvent(ethevent);                           // event handler not needed anymore
+        if (!EthernetFound) {                                 // connection failed?
+          dbgprint("Ethernet did not work! Will try WiFi next!");
+          esp_eth_deinit();                                   // leaving Ethernet stack on would lead to
+        // distortions on WiFi
+          setState(NETSTATE_ETHFAIL);
+        }
+        else
+          setState(NETSTATE_CONNECTED);
+      }
+  }
+#endif
+}
+
+
+bool NetworkHandler::loop() {
+  int16_t state = getState();
+  if (STATE_INIT_NONE == state)
+  {
+#if (1 == ETHERNET)
+      ethTimeout = eth_timeout * 1000;
+      if (ethTimeout == 0)
+        setState(NETSTATE_ETHFAIL);
+      else
+        setState(NETSTATE_CONNECTETH);
+#else
+    setState(NETSTATE_ETHFAIL);
+#endif
+  } 
+  else
+    this->run();
+  state = getState();
+  return (state != NETSTATE_CONNECTED) && (state != NETSTATE_ETHFAIL);
+};
+
+NetworkHandler networkHandler;
+
+
+#if (ETHERNET==42)
+
 static bool EthernetFound = false;
 //**************************************************************************************************
 //                                         E T H E V E N T                                         *
@@ -3257,8 +3450,10 @@ void scanIRRR()
 
 
 void setupRR(uint8_t setupLevel) {
+  doprint("SetupRR(%d)", setupLevel);
   if (setupLevel == SETUP_START)
   {
+    doprint("SetupRR(%d==SETUP_START)", setupLevel);
     touch_pad_init();
     touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
     touch_pad_filter_start(16);
@@ -3279,12 +3474,19 @@ void setupRR(uint8_t setupLevel) {
 //  }
 //  else if (setupLevel == SETUP_NET)
 //  {
+    doprint("Now connecteth() should start.........");
 #if (ETHERNET==1)
     //adc_power_on();                                     // Workaround to allow GPIO36/39 as IR-Input
+/*
+    while (networkHandler.loop())
+      ;
+*/
+    doprint("Now connecteth() should really start.........");
     NetworkFound = connecteth();                          // Try ethernet
     if (NetworkFound)                                     // Ethernet success??
       WiFi.mode(WIFI_OFF);
 #endif
+    doprint("Now connecteth() is done.........");
   }
   else if (setupLevel == SETUP_DONE)
   {
@@ -3295,7 +3497,7 @@ void setupRR(uint8_t setupLevel) {
     char s[20] = "::setup";
     int l = strlen(s);
     setupDone = true;
-    doprint("Try to open Genres on LITTLEFS!");
+    doprint("Try to open Genres on LITTLEFS now!");
     if (genres.begin());
       doprint("SPIFFS open for genres was a success!");
     doprint("Running commands from NVS '%s'", s);

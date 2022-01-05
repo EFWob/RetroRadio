@@ -3560,7 +3560,9 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
+  dbgprint("Starting setupRR(SETUP_START) now....");
 #if defined(RETRORADIO)  
+  dbgprint("RETRORADIO is defined, Starting setupRR(SETUP_START) now....");
   setupRR (SETUP_START);
 #endif
   readprogbuttons() ;                                    // Program the free input pins

@@ -1,6 +1,7 @@
 #ifndef RETRORADIOEXTENSION_H__
 #define RETRORADIOEXTENSION_H__
 #include <Arduino.h>
+#include <BasicStatemachine.h>
 
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
@@ -103,7 +104,6 @@ struct touchpin_struct                                   // For programmable inp
 } ;
 
 #include <SPI.h>
-
 //
 //**************************************************************************************************
 // VS1053 stuff.  Based on maniacbug library.                                                      *
@@ -261,7 +261,16 @@ String getFavoriteJson(int idx, int rMin=1, int rMax=100);
 void setLastStation(String last);
 void scanFavorite();
 
+class NetworkHandler: public BasicStatemachine {
+  public:
+    void onEnter(int16_t currentStateNb, int16_t oldStateNb);  
+    void runState(int16_t currentStateNb);
+    bool loop();
+  private:
+    uint32_t ethTimeout = 0;
+};
 
+extern NetworkHandler networkHandler;
 
 #endif
 #endif
