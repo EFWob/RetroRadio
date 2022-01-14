@@ -15,7 +15,13 @@ extern String readfavfrompref ( int16_t idx );
 #warning "NORETRORADIO IS DEFINED!"
 #endif
 #if (NORETRORADIO != 1)
-#define NAME "ESP32Radio"
+#ifndef NAME
+#define RADIONAME "ESP32Radio"
+#else
+#define ST(A) #A
+#define STR(A) ST(A)
+#define RADIONAME STR(NAME)
+#endif
 #define RETRORADIO
 #define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
                     // Set to 1 to compile with Ethernet support

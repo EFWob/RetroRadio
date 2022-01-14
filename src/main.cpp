@@ -211,7 +211,7 @@
 // Access point name if connection to WiFi network fails.  Also the hostname for WiFi and OTA.
 // Note that the password of an AP must be at least as long as 8 characters.
 // Also used for other naming.
-#define NAME "ESP32Radio"
+//#define NAME "ESP32Radio"
 // Max number of presets in preferences
 #define MAXPRESETS 200
 // Maximum number of MQTT reconnects before give-up
@@ -1286,7 +1286,7 @@ void nvsopen()
 {
   if ( ! nvshandle )                                         // Opened already?
   {
-    nvserr = nvs_open ( NAME, NVS_READWRITE, &nvshandle ) ;  // No, open nvs
+    nvserr = nvs_open ( RADIONAME, NVS_READWRITE, &nvshandle ) ;  // No, open nvs
     if ( nvserr )
     {
       dbgprint ( "nvs_open failed!" ) ;
@@ -2324,8 +2324,8 @@ bool connectwifi()
   }
   if ( localAP )                                        // Must setup local AP?
   {
-    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", NAME, NAME ) ;
-    WiFi.softAP ( NAME, NAME ) ;                        // This ESP will be an AP
+    dbgprint ( "WiFi Failed!  Trying to setup AP with name %s and password %s.", RADIONAME, RADIONAME ) ;
+    WiFi.softAP ( RADIONAME, RADIONAME ) ;                        // This ESP will be an AP
     pfs = dbgprint ( "IP = 192.168.4.1" ) ;             // Address for AP
   }
   else
@@ -2895,7 +2895,7 @@ bool mqttreconnect()
              mqttcount,
              ini_block.mqttbroker.c_str() ) ;
   sprintf ( clientid, "%s-%04d",                          // Generate client ID
-            NAME, (int) random ( 10000 ) % 10000 ) ;
+            RADIONAME, (int) random ( 10000 ) % 10000 ) ;
   sprintf ( subtopic, "%s/%s",                          // Add prefix to subtopic
               ini_block.mqttprefix.c_str(),
               MQTT_SUBTOPIC ) ;
@@ -3462,7 +3462,7 @@ void setup()
   int                       i ;                          // Loop control
   int                       pinnr ;                      // Input pinnumber
   const char*               p ;
-  byte                      mac[6] ;                     // WiFi mac address
+  //byte                      mac[6] ;                     // WiFi mac address
   char                      tmpstr[20] ;                 // For version and Mac address
   const char*               partname = "nvs" ;           // Partition with NVS info
   esp_partition_iterator_t  pi ;                         // Iterator for find
@@ -3533,7 +3533,7 @@ void setup()
     dbgprint ( "Partition %s not found!", partname ) ;   // Very unlikely...
     while ( true ) ;                                     // Impossible to continue
   }
-  namespace_ID = FindNsID ( NAME ) ;                     // Find ID of our namespace in NVS
+  namespace_ID = FindNsID ( RADIONAME ) ;                     // Find ID of our namespace in NVS
   fillkeylist() ;                                        // Fill keynames with all keys
   memset ( &ini_block, 0, sizeof(ini_block) ) ;          // Init ini_block
   ini_block.mqttport = 1883 ;                            // Default port for MQTT
@@ -3625,7 +3625,7 @@ void setup()
 #endif
   readprefs ( false ) ;                                  // Read preferences
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
-                               NAME ) ;
+                               RADIONAME ) ;
   vs1053player->begin() ;                                // Initialize VS1053 player
   delay(10);
   setup_CH376() ;                                        // Init CH376 if configured
@@ -3647,7 +3647,7 @@ if (false == NetworkFound)
     dbgprint ( "Network found. Starting mqtt and OTA" ) ;
     mqtt_on = ( ini_block.mqttbroker.length() > 0 ) &&   // Use MQTT if broker specified
               ( ini_block.mqttbroker != "none" ) ;
-    ArduinoOTA.setHostname ( NAME ) ;                    // Set the hostname
+    ArduinoOTA.setHostname ( RADIONAME ) ;                    // Set the hostname
     ArduinoOTA.onStart ( otastart ) ;
     ArduinoOTA.begin() ;                                 // Allow update over the air
     if ( mqtt_on )                                       // Broker specified?
@@ -3655,11 +3655,14 @@ if (false == NetworkFound)
       if ( ( ini_block.mqttprefix.length() == 0 ) ||     // No prefix?
            ( ini_block.mqttprefix == "none" ) )
       {
+        /*
         WiFi.macAddress ( mac ) ;                        // Get mac-adress
         sprintf ( tmpstr, "P%02X%02X%02X%02X",           // Generate string from last part
                   mac[3], mac[2],
                   mac[1], mac[0] ) ;
         ini_block.mqttprefix = String ( tmpstr ) ;       // Save for further use
+        */
+       ini_block.mqttprefix = RADIONAME;
       }
       dbgprint ( "MQTT uses prefix %s", ini_block.mqttprefix.c_str() ) ;
       dbgprint ( "Init MQTT" ) ;
@@ -3667,7 +3670,7 @@ if (false == NetworkFound)
                            ini_block.mqttport ) ;        // And the port
       mqttclient.setCallback ( onMqttMessage ) ;         // Set callback on receive
     }
-    if ( MDNS.begin ( NAME ) )                           // Start MDNS transponder
+    if ( MDNS.begin ( RADIONAME ) )                           // Start MDNS transponder
     {
       dbgprint ( "MDNS responder started" ) ;
     }
@@ -3876,7 +3879,7 @@ void handlehttpreply()
     http_response_flag = 0;
     cmdclient.println(String(
       "HTTP/1.1 204 OK\n" 
-      "server: " NAME "\n"
+      "server: " RADIONAME "\n"
       "access-control-allow-origin: *\n"
       "access-control-allow-headers: *\n"
       "access-control-allow-methods: *\n\n\n"
@@ -5673,7 +5676,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   else
   {
     sprintf ( reply, "%s called with illegal parameter: %s",
-              NAME, argument.c_str() ) ;
+              RADIONAME, argument.c_str() ) ;
   }
   return reply ;                                      // Return reply to the caller
 }
@@ -5689,7 +5692,7 @@ String httpheader ( String contentstype )
   return String ( "HTTP/1.1 200 OK\nContent-type: " ) +
          contentstype +
          String ( "\n"
-                  "Server: " NAME "\n"
+                  "Server: " RADIONAME "\n"
                   "Cache-Control: " "max-age=3600\n"
                   "Access-Control-Allow-Origin: *\n"
                   "Access-Control-Max-Age: 600\n"

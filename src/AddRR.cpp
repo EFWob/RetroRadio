@@ -2714,7 +2714,7 @@ void ethevent(WiFiEvent_t event)
     case SYSTEM_EVENT_ETH_START:
       dbgprint("ETH Started");
       //set eth hostname here
-      ETH.setHostname(NAME);
+      ETH.setHostname(RADIONAME);
       break;
     case SYSTEM_EVENT_ETH_CONNECTED:
       dbgprint("ETH Connected");
