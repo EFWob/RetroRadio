@@ -3,6 +3,8 @@
 #include <Arduino.h>
 #include <BasicStatemachine.h>
 
+#define WIFI_CHANNEL 9
+
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
 extern void loopRR();
@@ -16,7 +18,13 @@ extern String readfavfrompref ( int16_t idx );
 #warning "NORETRORADIO IS DEFINED!"
 #endif
 #if (NORETRORADIO != 1)
+#ifdef RADIONAME
+#define ST(A) #A
+#define STR(A) ST(A)
+#define NAME STR(RADIONAME)
+#else
 #define NAME "ESP32Radio"
+#endif
 #define RETRORADIO
 #define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
                     // Set to 1 to compile with Ethernet support

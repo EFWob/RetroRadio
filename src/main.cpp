@@ -3560,9 +3560,7 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
-  dbgprint("Starting setupRR(SETUP_START) now....");
 #if defined(RETRORADIO)  
-  dbgprint("RETRORADIO is defined, Starting setupRR(SETUP_START) now....");
   setupRR (SETUP_START);
 #endif
   readprogbuttons() ;                                    // Program the free input pins
@@ -3609,7 +3607,7 @@ void setup()
     pinMode ( ini_block.tft_blx_pin, OUTPUT ) ;          // Yes, enable output
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
-  dbgprint("SDCARD geht los\r\n\r\n\r\n\r\n");
+//  dbgprint("SDCARD geht los\r\n\r\n\r\n\r\n");
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
 #if defined(RETRORADIO)
   if (false == NetworkFound) {                           // We have no (Ether-)Net yet...
@@ -3686,7 +3684,7 @@ if (false == NetworkFound)
   timerAttachInterrupt ( timer, &timer100, true ) ;      // Call timer100() on timer alarm
   timerAlarmWrite ( timer, 100000, true ) ;              // Alarm every 100 msec
   timerAlarmEnable ( timer ) ;                           // Enable the timer
-  delay ( 1000 ) ;                                       // Show IP for a while
+  //delay ( 1000 ) ;                                       // Show IP for a while
   configTime ( ini_block.clk_offset * 3600,
                ini_block.clk_dst * 3600,
                ini_block.clk_server.c_str() ) ;          // GMT offset, daylight offset in seconds

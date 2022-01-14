@@ -1,5 +1,6 @@
 #include "AddRR.h"
 #include <Base64.h>
+#include <esp_now.h>
 #if defined(RETRORADIO)
 #define sv DRAM_ATTR static volatile
 #include <freertos/task.h>
@@ -9,6 +10,7 @@
 #include "esp_spi_flash.h"
 #include <map>
 #include <queue>
+#include <vector>
 #include <WiFi.h>
 #include <genre_html.h>
 #include <genres.h>
@@ -2769,7 +2771,7 @@ void ethevent(WiFiEvent_t event)
 // possible within set timeout), a flag is set in NVS and a reset is forced. This flag will be     *
 // evaluated and if set no connect attempt is made but should be left to WiFi.                     *
 //**************************************************************************************************
-bool connecteth() {
+bool connectethOld() {
 //This is new!  
   dbgprint("Running connecteth()........................................");
   while (networkHandler.loop())
@@ -2862,8 +2864,8 @@ void NetworkHandler::runState(int16_t stateNb) {
         else
           setState(NETSTATE_CONNECTED);
       }
-  }
 #endif
+  }
 }
 
 
@@ -3447,20 +3449,26 @@ void scanIRRR()
   }
 }
 
+bool espNowFlag = false;
 
+std::vector<char*> espnowBacklog;
 
 void setupRR(uint8_t setupLevel) {
-  doprint("SetupRR(%d)", setupLevel);
+//  doprint("SetupRR(%d)", setupLevel);
   if (setupLevel == SETUP_START)
   {
-    doprint("SetupRR(%d==SETUP_START)", setupLevel);
+//    doprint("SetupRR(%d==SETUP_START)", setupLevel);
+    networkHandler.loop();
     touch_pad_init();
     touch_pad_set_voltage(TOUCH_HVOLT_2V7, TOUCH_LVOLT_0V5, TOUCH_HVOLT_ATTEN_1V);
     touch_pad_filter_start(16);
     //adc_power_on();
+    networkHandler.loop();
     readprogbuttonsRetroRadio();
     setupReadFavorites ();
+    networkHandler.loop();
     setupIR();
+    networkHandler.loop();
     if (nvssearch("pin_reset"))
     {
       int resetPin = nvsgetstr("pin_reset").toInt();
@@ -3474,26 +3482,150 @@ void setupRR(uint8_t setupLevel) {
 //  }
 //  else if (setupLevel == SETUP_NET)
 //  {
-    doprint("Now connecteth() should start.........");
+//    doprint("Now connecteth() should start.........");
 #if (ETHERNET==1)
     //adc_power_on();                                     // Workaround to allow GPIO36/39 as IR-Input
 /*
     while (networkHandler.loop())
       ;
 */
-    doprint("Now connecteth() should really start.........");
-    NetworkFound = connecteth();                          // Try ethernet
+//    doprint("Now connecteth() should really start.........");
+    //NetworkFound = connecteth();                          // Try ethernet
+    while (networkHandler.loop())
+      ;
+    NetworkFound = EthernetFound;
     if (NetworkFound)                                     // Ethernet success??
       WiFi.mode(WIFI_OFF);
 #endif
-    doprint("Now connecteth() is done.........");
+//    doprint("Now connecteth() is done.........");
   }
   else if (setupLevel == SETUP_DONE)
   {
 #if defined(RESET_ON_WIFI_FAIL)
   if (!NetworkFound)
     ESP.restart();
+  
 #endif
+    if (NetworkFound && !EthernetFound){
+      uint32_t wifiChannel = WiFi.channel();
+      dbgprint("WiFi Channel is: %d", wifiChannel);
+      dbgprint("WiFi MAC is: %s", WiFi.macAddress().c_str());
+      if (ESP_OK == esp_now_init())
+      {
+        //uint8_t peerMac[] = {0xdc, 0x4f, 0x22, 0x17, 0xf8, 0xd9};
+        //uint8_t peerMac[] = {0x3C, 0x61, 0x05, 0x0B, 0xE3, 0x80};
+
+        dbgprint("ESP-Now init success!!");
+/*        
+        esp_now_peer_info_t peerInfo;
+        memset((void *)&peerInfo, 0, sizeof(peerInfo));
+        memcpy(peerInfo.peer_addr, peerMac, 6);
+        peerInfo.channel = 9;  
+        peerInfo.encrypt = false;
+        if (esp_now_add_peer(&peerInfo) != ESP_OK)
+          dbgprint("Error adding ESP-Now peer!");
+*/
+        esp_now_register_recv_cb([](const unsigned char *mac, const unsigned char *data, int len)
+          {
+
+          struct ESPNowData {
+            ESPNowData(const unsigned char *Mac, const unsigned char *Data, int Len) {
+              memcpy(&mac, Mac, 6);
+              data = NULL;
+              if (0 != (len = Len))
+                if (NULL != (data = (unsigned char*)malloc(Len)))
+                  memcpy(data, Data, len);
+              rcvTime = millis();
+            };
+            ~ESPNowData() {
+              if (data)
+                free(data);
+            }
+            unsigned char mac[6];
+            unsigned char* data;
+            int len;
+            uint32_t rcvTime;
+          };
+
+          static std::vector<ESPNowData *> espNowDebounceBuffer;
+
+          int idx = 0;
+          int prefixLen = 0;
+          bool valid = false;
+          ESPNowData *p;
+          /*
+          Serial.printf("Got Something from {0x%x, 0x%x, 0x%x, 0x%x, 0x%x, 0x%x}. ", 
+          (uint8_t)mac[0], (uint8_t)mac[1], (uint8_t)mac[2], (uint8_t)mac[3], (uint8_t)mac[4], (uint8_t)mac[5]);
+          */
+
+          if (len > 6)
+            if (0 == memcmp(data, "RADIO", 5))
+              prefixLen = 6;
+            else
+              if (len > strlen(NAME) + 1)
+                if (0 == memcmp(data, NAME, strlen(NAME)))
+                  prefixLen = strlen(NAME) + 1;
+          if (0 == prefixLen)
+          {
+//            Serial.println("Invalid Data!");
+            return;
+          }
+          else
+          {
+
+            while (idx < espNowDebounceBuffer.size()) {
+              p = espNowDebounceBuffer[idx];
+              if ((millis() - p->rcvTime) > 500) {
+                delete(p);
+                espNowDebounceBuffer.erase(espNowDebounceBuffer.begin());
+              }
+              else
+              {
+                if (len == p->len)
+                  if (0 == memcmp(mac, p->mac, 6))
+                    if (0 == memcmp(data, p->data, len))
+                    {
+                      break;
+                    }
+                idx++;
+              }
+            }
+
+            if (idx < espNowDebounceBuffer.size())
+              ;//Serial.printf("This is a duplicate");
+            else
+            {
+              p = new ESPNowData(mac, data, len);
+              len = len - prefixLen + 1;
+              if (len > 1)
+              {
+                char *s = (char*)malloc(len + 6);
+                if (s)
+                {
+
+                  memcpy(s, data + prefixLen, len - 1);
+                  s[len - 1] = 0;
+                  memcpy(s + len - 1, mac, 6);
+                  //Serial.printf(" [added to ESPNow-Backlog: %s] ", s);
+                  
+                  espnowBacklog.push_back(s);
+
+
+                }
+              }
+              espNowDebounceBuffer.push_back(p);
+
+            }  
+            //Serial.printf("! (BufLen=%d)\r\n", espNowDebounceBuffer.size());
+            
+            //Serial.flush();
+
+
+            }
+          }
+          );
+      }
+    }
     char s[20] = "::setup";
     int l = strlen(s);
     setupDone = true;
@@ -3555,6 +3687,16 @@ void favplayinfoloop();
 void loopRR() {
   scanIRRR();
   RetroRadioInput::checkAll();
+  if (espnowBacklog.size() > 0)
+  {
+    char *s = espnowBacklog[0];
+    char *mac = s + strlen(s) + 1;
+    analyzeCmdsRR(String(s));
+    dbgprint("Command from ESP-Now[%02X.%02X.%02X.%02X.%02X.%02X]: %s", 
+        mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], s);
+    espnowBacklog.erase(espnowBacklog.begin());
+    free(s);
+  }
   if (numLoops) {
     static int step = 0;
     int deb = DEBUG;
