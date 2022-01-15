@@ -3657,14 +3657,12 @@ if (false == NetworkFound)
       if ( ( ini_block.mqttprefix.length() == 0 ) ||     // No prefix?
            ( ini_block.mqttprefix == "none" ) )
       {
-        /*
+        uint8_t mac [ 6 ];
         WiFi.macAddress ( mac ) ;                        // Get mac-adress
         sprintf ( tmpstr, "P%02X%02X%02X%02X",           // Generate string from last part
                   mac[3], mac[2],
                   mac[1], mac[0] ) ;
         ini_block.mqttprefix = String ( tmpstr ) ;       // Save for further use
-        */
-       ini_block.mqttprefix = RADIONAME;
       }
       dbgprint ( "MQTT uses prefix %s", ini_block.mqttprefix.c_str() ) ;
       dbgprint ( "Init MQTT" ) ;

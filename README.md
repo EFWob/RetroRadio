@@ -1,3 +1,7 @@
+# Latest changes
+*20220116* 
+  - the _*NAME*_ of the radio can be defined as build flag in _platformio.ini_ [see below](#defining-the-radio-name)
+
 # Introduction to Retroradio
 ## Summary
 This project is based on the ESP32-Radio by Edzelf.
@@ -73,6 +77,8 @@ Input Handling](#extended-input-handling) if you are not interested to use the f
  - when a value for a command is evaluated, you can dereference to a RAM/NVS entry by _@key_. Simple 
 	  example: if the command _volume = @def_volume_ is encountered, then RAM/NVS are searched for key _def_volume_ 
 	  which will be used as paramter (if not found, will be substituted by empty string)
+  - the _*NAME*_ of the radio can be defined as build flag in _platformio.ini_ [see below](#defining-the-radio-name)
+
 
 ## Storing values into RAM (or NVS)
 In the original version, _key_-_value_-pairs are stored into NVS. There is now a way to store such pairs into RAM as well. So from now on, 
@@ -135,6 +141,24 @@ For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be 
 
 More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
  
+## Defining the radio name
+
+In the original version of the ESP32-Radio the name of the radio is set by a line in header-file that reads *#define NAME "ESP32Radio"*.
+To have the possibility to assign differrent names to different radios without editing that headerfile, the name can now be defined and changed by setting a build flag in the platformio.ini file. Here an example, that sets the name to *testradio*
+
+```
+[env:esp32-poe]
+board = esp32-poe
+board_build.partitions = radio4MB_default.csv
+build_flags = 
+	-DNAME=testradio
+```
+
+Some considerations: 
+  - the name must not contain whitespaces. Letters and digits are safe.
+  - the name of the radio also specifies the namespace that is used for storing NVS-entries (preferences). When the name is changed to a new name, the preferences will be empty again. There is no built-in mechanism to copy the preferences from one namespace to another. You have to copy-paste the preferences using the config-webinterface  (and store them in a text file). Preferences will be restored if you switch back to the 
+  old name. To remove "old" namespaces, currently the only solution is to erase the flash completely and restart from scratch (both preferences and genre information will be whiped out that way).
+  
 
 ## Ethernet support
 ### Caveat Emptor
