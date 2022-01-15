@@ -122,6 +122,7 @@ int16_t currentChannel = 0;           // The channel that has been set by comman
 int16_t numChannels = 0;              // Number of channels defined in current channellist
 bool setupDone = false;               // All setup for RetroRadio finished?
 int16_t currentFavorite = 0;              // currently playing favorite
+std::vector<char*> espnowBacklog;     // Backlog of command(s) received by espnow
 
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
@@ -3303,7 +3304,8 @@ void setupRR(uint8_t setupLevel) {
         //uint8_t peerMac[] = {0xdc, 0x4f, 0x22, 0x17, 0xf8, 0xd9};
         //uint8_t peerMac[] = {0x3C, 0x61, 0x05, 0x0B, 0xE3, 0x80};
 
-        dbgprint("ESP-Now init success!!");
+        dbgprint("ESP-Now init success!!") ;
+        ini_block.espnowmode = ini_block.espnowmodetarget ;
 /*        
         esp_now_peer_info_t peerInfo;
         memset((void *)&peerInfo, 0, sizeof(peerInfo));
@@ -3342,27 +3344,27 @@ void setupRR(uint8_t setupLevel) {
           uint8_t plen;
           ESPNowData *p;
           plen = (uint8_t)data[0];
-
+          /*
           Serial.printf("Got Something from {0x%x, 0x%x, 0x%x, 0x%x, 0x%x, 0x%x}. PLEN=%d (len=%d) ", 
           (uint8_t)mac[0], (uint8_t)mac[1], (uint8_t)mac[2], (uint8_t)mac[3], (uint8_t)mac[4], (uint8_t)mac[5],
           plen, len);
-
+          */
           if ((plen >= 2) && (plen < len))
           {
             plen--;
-            if (plen == 5)
+            if ((plen == 5) && (0 != (ini_block.espnowmode & 2)))
             {
               if (0 == memcmp(data+1, "RADIO", 5))
                 prefixLen = 7;
             }
             else
-              if (plen == strlen(RADIONAME))
+              if ((plen == strlen(RADIONAME)) && (0 != (ini_block.espnowmode & 1)))
                 if (0 == memcmp(data + 1, RADIONAME, plen))
                   prefixLen = plen + 2;
           }
           if (0 == prefixLen)
           {
-            Serial.println("Invalid Data!");
+            //Serial.println("Invalid Data!");
             return;
           }
           else
@@ -3387,7 +3389,7 @@ void setupRR(uint8_t setupLevel) {
             }
 
             if (idx < espNowDebounceBuffer.size())
-              Serial.printf("This is a duplicate");
+              ;//Serial.printf("This is a duplicate");
             else
             {
               p = new ESPNowData(mac, data, len);
@@ -3401,9 +3403,9 @@ void setupRR(uint8_t setupLevel) {
                   memcpy(s + 6, data + prefixLen, len);
                   s[len + 6] = 0;
 //                  memcpy(s + len - 1, mac, 6);
-                  Serial.printf(" [added to ESPNow-Backlog: %s] ", s + 6);
+                  //Serial.printf(" [added to ESPNow-Backlog: %s] ", s + 6);
                   
-                  //espnowBacklog.push_back(s);
+                  espnowBacklog.push_back(s);
 
 
                 }
@@ -3411,7 +3413,7 @@ void setupRR(uint8_t setupLevel) {
               espNowDebounceBuffer.push_back(p);
 
             }  
-            Serial.printf("! (BufLen=%d)\r\n", espNowDebounceBuffer.size());
+            //Serial.printf("! (BufLen=%d)\r\n\n", espNowDebounceBuffer.size());
             
             //Serial.flush();
 
@@ -3483,6 +3485,16 @@ void favplayinfoloop();
 void loopRR() {
   scanIRRR();
   RetroRadioInput::checkAll();
+  if (espnowBacklog.size() > 0)
+  {
+    char *s = espnowBacklog[0];
+    //char *mac = s + strlen(s) + 1;
+    dbgprint("Command from ESP-Now[%02X.%02X.%02X.%02X.%02X.%02X]: %s", 
+        s[0], s[1], s[2], s[3], s[4], s[5], s + 6);
+    analyzeCmdsRR(String(s + 6));
+    espnowBacklog.erase(espnowBacklog.begin());
+    free(s);
+  }
   if (numLoops) {
     static int step = 0;
     int deb = DEBUG;
@@ -3685,6 +3697,21 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else if (ret = param.startsWith("fav"))
   {
     strcpy(reply, doFavorite(param, value).c_str());
+  } 
+  else if (ret = (param == "espnowmode"))
+  {
+    if (isdigit(value.c_str()[0]))
+    {
+      int i = value.toInt();
+      if ((i >= 0) && (i < 4))
+      {
+        if (ini_block.espnowmode >= 0)
+          ini_block.espnowmode = i;
+        else
+          ini_block.espnowmodetarget = i;
+      }
+    }
+    dbgprint("ESP-Now mode is: %d", ini_block.espnowmode) ;
   }
   if ( ret ) 
   {

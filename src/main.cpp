@@ -3543,6 +3543,8 @@ void setup()
   ini_block.clk_dst = 1 ;                                // DST is +1 hour
   ini_block.bat0 = 0 ;                                   // Battery ADC levels not yet defined
   ini_block.bat100 = 0 ;
+  ini_block.espnowmode = - 1 ;       
+  ini_block.espnowmodetarget = 3 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins

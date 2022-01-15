@@ -86,6 +86,8 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
+  int8_t         espnowmode ;                         // current ESP-Now-Mode
+  int8_t         espnowmodetarget ;                   // to store request if espnow not yet available
 } ;
 
 struct progpin_struct                                    // For programmable input pins
