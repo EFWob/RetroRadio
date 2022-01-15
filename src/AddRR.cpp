@@ -1,5 +1,6 @@
 #include "AddRR.h"
 #include <Base64.h>
+#include <esp_now.h>
 #if defined(RETRORADIO)
 #define sv DRAM_ATTR static volatile
 #include <freertos/task.h>
@@ -3292,6 +3293,135 @@ void setupRR(uint8_t setupLevel) {
   if (!NetworkFound)
     ESP.restart();
 #endif
+
+   if (NetworkFound && !EthernetFound){
+      uint32_t wifiChannel = WiFi.channel();
+      dbgprint("WiFi Channel is: %d", wifiChannel);
+      dbgprint("WiFi MAC is: %s", WiFi.macAddress().c_str());
+      if (ESP_OK == esp_now_init())
+      {
+        //uint8_t peerMac[] = {0xdc, 0x4f, 0x22, 0x17, 0xf8, 0xd9};
+        //uint8_t peerMac[] = {0x3C, 0x61, 0x05, 0x0B, 0xE3, 0x80};
+
+        dbgprint("ESP-Now init success!!");
+/*        
+        esp_now_peer_info_t peerInfo;
+        memset((void *)&peerInfo, 0, sizeof(peerInfo));
+        memcpy(peerInfo.peer_addr, peerMac, 6);
+        peerInfo.channel = 9;  
+        peerInfo.encrypt = false;
+        if (esp_now_add_peer(&peerInfo) != ESP_OK)
+          dbgprint("Error adding ESP-Now peer!");
+*/
+        esp_now_register_recv_cb([](const unsigned char *mac, const unsigned char *data, int len)
+          {
+
+          struct ESPNowData {
+            ESPNowData(const unsigned char *Mac, const unsigned char *Data, int Len) {
+              memcpy(&mac, Mac, 6);
+              data = NULL;
+              if (0 != (len = Len))
+                if (NULL != (data = (unsigned char*)malloc(Len)))
+                  memcpy(data, Data, len);
+              rcvTime = millis();
+            };
+            ~ESPNowData() {
+              if (data)
+                free(data);
+            }
+            unsigned char mac[6];
+            unsigned char* data;
+            int len;
+            uint32_t rcvTime;
+          };
+
+          static std::vector<ESPNowData *> espNowDebounceBuffer;
+
+          int idx = 0;
+          uint8_t prefixLen = 0;
+          uint8_t plen;
+          ESPNowData *p;
+          plen = (uint8_t)data[0];
+
+          Serial.printf("Got Something from {0x%x, 0x%x, 0x%x, 0x%x, 0x%x, 0x%x}. PLEN=%d (len=%d) ", 
+          (uint8_t)mac[0], (uint8_t)mac[1], (uint8_t)mac[2], (uint8_t)mac[3], (uint8_t)mac[4], (uint8_t)mac[5],
+          plen, len);
+
+          if ((plen >= 2) && (plen < len))
+          {
+            plen--;
+            if (plen == 5)
+            {
+              if (0 == memcmp(data+1, "RADIO", 5))
+                prefixLen = 7;
+            }
+            else
+              if (plen == strlen(RADIONAME))
+                if (0 == memcmp(data + 1, RADIONAME, plen))
+                  prefixLen = plen + 2;
+          }
+          if (0 == prefixLen)
+          {
+            Serial.println("Invalid Data!");
+            return;
+          }
+          else
+          {
+
+            while (idx < espNowDebounceBuffer.size()) {
+              p = espNowDebounceBuffer[idx];
+              if ((millis() - p->rcvTime) > 500) {
+                delete(p);
+                espNowDebounceBuffer.erase(espNowDebounceBuffer.begin());
+              }
+              else
+              {
+                if (len == p->len)
+                  if (0 == memcmp(mac, p->mac, 6))
+                    if (0 == memcmp(data, p->data, len))
+                    {
+                      break;
+                    }
+                idx++;
+              }
+            }
+
+            if (idx < espNowDebounceBuffer.size())
+              Serial.printf("This is a duplicate");
+            else
+            {
+              p = new ESPNowData(mac, data, len);
+              len = len - prefixLen;
+              if (len > 0)
+              {
+                char *s = (char*)malloc(len + 7);
+                if (s)
+                {
+                  memcpy(s, mac, 6);
+                  memcpy(s + 6, data + prefixLen, len);
+                  s[len + 6] = 0;
+//                  memcpy(s + len - 1, mac, 6);
+                  Serial.printf(" [added to ESPNow-Backlog: %s] ", s + 6);
+                  
+                  //espnowBacklog.push_back(s);
+
+
+                }
+              }
+              espNowDebounceBuffer.push_back(p);
+
+            }  
+            Serial.printf("! (BufLen=%d)\r\n", espNowDebounceBuffer.size());
+            
+            //Serial.flush();
+
+
+            }
+          }
+          );
+      }
+    }
+
     char s[20] = "::setup";
     int l = strlen(s);
     setupDone = true;
