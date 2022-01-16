@@ -144,63 +144,6 @@ For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be 
 
 More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
  
-## Defining the radio name
-
-In the original version of the ESP32-Radio the name of the radio is set by a line in header-file that reads *#define NAME "ESP32Radio"*.
-To have the possibility to assign differrent names to different radios without editing that headerfile, the name can now be defined and changed by setting a build flag in the platformio.ini file. Here an example, that sets the name to *testradio*
-
-```
-[env:esp32-poe]
-board = esp32-poe
-board_build.partitions = radio4MB_default.csv
-build_flags = 
-	-DNAME=testradio
-```
-
-Some considerations: 
-  - the name must not contain whitespaces. Letters and digits are safe.
-  - the name of the radio also specifies the namespace that is used for storing NVS-entries (preferences). When the name is changed to a new name, the preferences will be empty again. There is no built-in mechanism to copy the preferences from one namespace to another. You have to copy-paste the preferences using the config-webinterface  (and store them in a text file). Preferences will be restored if you switch back to the 
-  old name. To remove "old" namespaces, currently the only solution is to erase the flash completely and restart from scratch (both preferences and genre information will be whiped out that way).
-  
-## Using ESP-Now
-
-ESP-Now can be used to send commands to the radio. That is a one-way-communication, a client can send commands to the radio but the radio will not send back any information.
-
-To use ESP-Now, the radio must be connected to WiFi (and not to Ethernet).
-The "protocol" is defined in such a way, that neither the client nor the radio need to now each others mac address (broadcasts can be used).
-
-The data send to the radio must be formatted as follows:
-- Message has two parts, a _prefix_, followed by the _payload_
-- Both _prefix-length_ and _payload-length_ are variable (but can not exceed the combined total of 250 bytes as given by the ESP-Now-specification)
-- first byte of the _prefix_ is the remaining length of the prefix (so excluding this first byte)
-- from the remaining bytes of the prefix all but the last one specify (typically as ASCII-Sequence) the intended receiver of the message:
-  - it can be 'R', 'A', 'D', 'I', 'O' if the message shall be processed by any radio that receives it or 
-  - a specific name like 'E', 'S', 'P', '3', '2', 'R', 'a', 'd', 'i', 'o', if the message is intended for the radio with the name *ESP32Radio* 
-  (note that the ASCII-Sequences must not be terminated with 0)
-- the last byte of the prefix is a "message-counter" that is used by the radio to identify duplicate messages. The intention is as follows:
-  - The delivery of a message is not guaranteed, the client should simply repeat a message 3 or 4 times to increase the chances of a successful transmission.
-  - The radio will reject any identical messages received within a timeframe of 500 msec. Identical means, that it came from the same client and has the identical content (of the whole message including _prefix_ and _payload_). 
-  - For some use cases, like repeated _upvolune=1_ to smoothly increase volume over time, that timeout might be to long. Then the client can change that last byte of the prefix to make the radio treat the next message as a different one.
-  - The change can be abritrary, it is not expected that the change follows any specific pattern (easiest implementation on client side is normally to increase by one for each new message).
-- After the _prefix_, the remaining bytes of the message are the _payload_ that contains (as ASCII-String) the command(s) ([command sequences](#command-handling-enhacements) are allowed) to be executed. That String can be 0 terminated (not needed, if the message ends after the payload 
-direct with no stray/randombytes attached).
-
-So to send the command to set the preset to 1 to any radio that is listening to ESP-Now, the message (15 bytes) could be:
-
-```
-{6, 'R', 'A', 'D', 'I', 'O', 0x, 'p', 'r', 'e', 's', 'e', 't', '=', '1'}
-```
-The first byte (6) indicates the remaining _prefix-length_, of which all but the last contain the addressee ("RADIO" in our case). The last byte can be any number as discussed above, indicated here as 0x. 
-
-After this the payload follows, that reads as "preset=1".
-
-The command _espnowmode=n_ can be used to control, how the radio behaves upon reception of ESP-Now-messages. The parameter _n_ can be a number between 0..3 with the following meaning:
-  - _0_: the radio ignores all ESP-Now-messages
-  - _1_: the radio only recognises ESP-Now-messages with addressee set to the [radio name](#defining-the-radio-name).
-  - _2_: the radio only recognises ESP-Now-messages with addressee set to "RADIO"
-  - _3_: the radio recognises ESP-Now-messages with addressee set to either the [radio name](#defining-the-radio-name) or to "RADIO".
-  - if called with no (or illegal) parameter, the _espnowmode_ will not be changed but the current value will be shown. If the current value is _-1_, ESP-Now could not be initialized (hence no messages will be received).
-
 
 ## Ethernet support
 ### Caveat Emptor
@@ -664,6 +607,66 @@ obvious way is to force user1 at start by adding the following entry to the NVS 
 
 If this assignment would not have been made, all (CH)-keys and the (1) to (9) keys would have no effect (until a user setting would have been 
 done by pressing (PREV) or (NEXT)).
+
+## Defining the radio name
+
+In the original version of the ESP32-Radio the name of the radio is set by a line in header-file that reads *#define NAME "ESP32Radio"*.
+To have the possibility to assign differrent names to different radios without editing that headerfile, the name can now be defined and changed by setting a build flag in the platformio.ini file. Here an example, that sets the name to *testradio*
+
+```
+[env:esp32-poe]
+board = esp32-poe
+board_build.partitions = radio4MB_default.csv
+build_flags = 
+	-DNAME=testradio
+```
+
+Some considerations: 
+  - the name must not contain whitespaces. Letters and digits are safe.
+  - the name of the radio also specifies the namespace that is used for storing NVS-entries (preferences). When the name is changed to a new name, the preferences will be empty again. There is no built-in mechanism to copy the preferences from one namespace to another. You have to copy-paste the preferences using the config-webinterface  (and store them in a text file). Preferences will be restored if you switch back to the 
+  old name. To remove "old" namespaces, currently the only solution is to erase the flash completely and restart from scratch (both preferences and genre information will be whiped out that way).
+  
+## Using ESP-Now
+
+ESP-Now can be used to send commands to the radio. That is a one-way-communication, a client can send commands to the radio but the radio will not send back any information.
+
+To use ESP-Now, the radio must be connected to WiFi (and not to Ethernet).
+The "protocol" is defined in such a way, that neither the client nor the radio need to now each others mac address (broadcasts can be used).
+
+The data send to the radio must be formatted as follows:
+- Message has two parts, a _prefix_, followed by the _payload_
+- Both _prefix-length_ and _payload-length_ are variable (but can not exceed the combined total of 250 bytes as given by the ESP-Now-specification)
+- first byte of the _prefix_ is the remaining length of the prefix (so excluding this first byte)
+- from the remaining bytes of the prefix all but the last one specify (typically as ASCII-Sequence) the intended receiver of the message:
+  - it can be 'R', 'A', 'D', 'I', 'O' if the message shall be processed by any radio that receives it or 
+  - a specific name like 'E', 'S', 'P', '3', '2', 'R', 'a', 'd', 'i', 'o', if the message is intended for the radio with the name *ESP32Radio* 
+  (note that the ASCII-Sequences must not be terminated with 0)
+- the last byte of the prefix is a "message-counter" that is used by the radio to identify duplicate messages. The intention is as follows:
+  - The delivery of a message is not guaranteed, the client should simply repeat a message 3 or 4 times to increase the chances of a successful transmission.
+  - The radio will reject any identical messages received within a timeframe of 500 msec. Identical means, that it came from the same client and has the identical content (of the whole message including _prefix_ and _payload_). 
+  - For some use cases, like repeated _upvolume=1_ to smoothly increase volume over time, that timeout might be to long. Then the client can change that last byte of the prefix to make the radio treat the next message as a different one.
+  - The change can be abritrary, it is not expected that the change follows any specific pattern (easiest implementation on client side is normally to increase by one for each new message).
+- After the _prefix_, the remaining bytes of the message are the _payload_ that contains (as ASCII-String) the command(s) ([command sequences](#command-handling-enhacements) are allowed) to be executed. That String can be 0 terminated (not needed, if the message ends after the payload 
+direct with no stray/random bytes attached).
+
+So to send the command to set the preset to 1 to any radio that is listening to ESP-Now, the message (15 bytes) could be:
+
+```
+{6, 'R', 'A', 'D', 'I', 'O', 0x, 'p', 'r', 'e', 's', 'e', 't', '=', '1'}
+```
+The first byte (6) indicates the remaining _prefix-length_, of which all but the last contain the addressee ("RADIO" in our case). The last byte can be any number as discussed above, indicated here as 0x. 
+
+After this the payload follows, that reads as "preset=1".
+
+The command _espnowmode=n_ can be used to control, how the radio behaves upon reception of ESP-Now-messages. The parameter _n_ can be a number between 0..3 with the following meaning:
+  - _0_: the radio ignores all ESP-Now-messages
+  - _1_: the radio only recognises ESP-Now-messages with addressee set to the [radio name](#defining-the-radio-name).
+  - _2_: the radio only recognises ESP-Now-messages with addressee set to "RADIO"
+  - _3_: the radio recognises ESP-Now-messages with addressee set to either the [radio name](#defining-the-radio-name) or to "RADIO".
+  - if called with no (or illegal) parameter, the _espnowmode_ will not be changed but the current value will be shown. If the value is shown as _-1_, ESP-Now could not be initialized (hence no messages will be received).
+
+
+
 
 # Extended Input Handling
 ## General
