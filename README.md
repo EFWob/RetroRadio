@@ -630,7 +630,7 @@ Some considerations:
   - When the name is changed to a new name, the preferences will be empty again. There are two new commands to copy or move the preferences from an existing name now:
     - _cpprefsfrom=oldname_ will copy the prefrences that have been stored using the "old" NAME _oldname_
     - _mvprevsfrom=oldname_ will move the preferences that have been stored using _oldname_. This means that all entries in the namespace "_oldname_" will be deleted.
-    (Of course you can also copy-paste the preferences using the config-webinterface  (and store them in a text file)). There is no function to list existing (unused) namespaces. Best solution to remove "old" namespaces is to  erase the flash completely and restart from scratch (both preferences and genre information stored to LITTLEFS will be wiped out that way, however).
+  - Of course you can also copy-paste the preferences using the config-webinterface  (and store them in a text file). There is no function to list existing (unused) namespaces. Best solution to remove "old" namespaces is to  erase the flash completely and restart from scratch (both preferences and genre information stored to LITTLEFS will be wiped out that way, however).
   
 ## Using ESP-Now
 
