@@ -665,7 +665,7 @@ The command _espnowmode=n_ can be used to control, how the radio behaves upon re
   - _3_: the radio recognises ESP-Now-messages with addressee set to either the [radio name](#defining-the-radio-name) or to "RADIO".
   - if called with no (or illegal) parameter, the _espnowmode_ will not be changed but the current value will be shown. If the value is shown as _-1_, ESP-Now could not be initialized (hence no messages will be received).
 
-A simple client to send serial input over espnow to the radio can be found [here](espnow/serialtoespnow/).
+A simple client to send serial input over espnow to the radio can be found at [RetroRadio/espnow/serialtoespnow/](espnow/serialtoespnow/).
 
 
 # Extended Input Handling
