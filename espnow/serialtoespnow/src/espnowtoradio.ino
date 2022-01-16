@@ -74,7 +74,7 @@ void loop() {
     if ((c == '\n')) {
       serialReadline.trim();
       if (serialReadline.length() > 0) {
-        if (serialReadline.c_str()[0] == '.') {
+        if (serialReadline.c_str()[0] == '-') {
           String prefix = serialReadline.substring(1);
           prefix.trim();
           int idx = prefix.indexOf(' ');
