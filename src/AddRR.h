@@ -1,6 +1,10 @@
 #ifndef RETRORADIOEXTENSION_H__
 #define RETRORADIOEXTENSION_H__
 #include <Arduino.h>
+#include <nvs.h>
+#ifndef NVS_KEY_NAME_MAX_SIZE
+#define NVS_KEY_NAME_MAX_SIZE 16
+#endif
 
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
@@ -46,7 +50,7 @@ extern String readfavfrompref ( int16_t idx );
 
 #define DEBUG_BUFFER_SIZE 500
 #define NVSBUFSIZE 500
-#define MAXKEYS 500
+//#define MAXKEYS 500
 
 
 struct ini_struct
@@ -109,6 +113,12 @@ struct touchpin_struct                                   // For programmable inp
   bool           cur ;                                   // Current state, true = HIGH, false = LOW
   int16_t        count ;                                 // Counter number of times low level
 } ;
+
+struct keyname_t                                      // For keys in NVS
+{
+  char      Key[16] ;                                 // Max length is 15 plus delimeter
+} ;
+
 
 #include <SPI.h>
 
@@ -233,7 +243,7 @@ extern String            ipaddress ;                            // Own IP-addres
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data
 extern VS1053*           vs1053player ;                         // The object for the MP3 player
-extern char              nvskeys[MAXKEYS][16] ;                 // Space for NVS keys
+//extern char              nvskeys[MAXKEYS][16] ;                 // Space for NVS keys
 extern int               DEBUG ;                                // Debug on/off
 extern progpin_struct    progpin[] ;                            // Input pins and programmed function
 extern uint32_t          nvshandle  ;                           // Handle for nvs access
@@ -247,15 +257,23 @@ extern uint8_t           gmaintain ;                            // Genre-Mainten
 extern int16_t           currentpreset ;                        // Preset station playing
 extern int               mqttfavidx;                            // idx of favorite info to publish on MQTT
 extern int               mqttfavendidx;                         // last idx of favorite info to publish on MQTT
+//extern std::vector<keyname_t> keynames ;                        // Keynames in NVS
+extern std::vector<const char *> keynames ;                        // Keynames in NVS
+extern uint8_t           namespace_ID ;                         // Namespace ID found
+extern bool              resetreq ;                             // Request to reset the ESP32
+
+
 
 
 char*       dbgprint( const char* format, ... ) ;
 void        tftlog ( const char *str ) ;
 void        chomp ( String &str ) ;
+esp_err_t   nvsclear ( ) ;
 String      nvsgetstr ( const char* key ) ;
 bool        nvssearch ( const char* key ) ;
 esp_err_t   nvssetstr ( const char* key, String val ) ;
-void        fillkeylist() ;
+//void        fillkeylist() ;
+void fillkeylist(std::vector<const char*>& keynames, uint8_t namespaceid);
 const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;

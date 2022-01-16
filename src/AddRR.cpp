@@ -1,6 +1,7 @@
 #include "AddRR.h"
 #include <Base64.h>
 #include <esp_now.h>
+#include <nvs.h>
 #if defined(RETRORADIO)
 #define sv DRAM_ATTR static volatile
 #include <freertos/task.h>
@@ -2452,16 +2453,19 @@ void doRam(const char* param, String value) {
 void doNvslist(const char* p) {
 nvs_stats_t nvs_stats;
 
-  fillkeylist();
+  fillkeylist( keynames, namespace_ID );
   int i = 0;
   int idx = 0;
   doprint("NVS content");
-  while (nvskeys[i][0] != '\0') {
+  for(int i = 0; i < keynames.size();i++)
+//  while (nvskeys[i][0] != '\0') {
+    {
+    const char *key = keynames[i];
     bool match = (p == NULL);
     if (!match)
-      match =  strstr(nvskeys[i], p) != NULL;
+      match =  strstr(key, p) != NULL;
     if (match)
-      doprint(" %3d: '%s' = '%s'", ++idx, nvskeys[i], nvsgetstr(nvskeys[i]).c_str());
+      doprint(" %3d: '%s' = '%s'", ++idx, key, nvsgetstr(key));
     i++;
   }
   nvs_get_stats(NULL, &nvs_stats);
@@ -3560,6 +3564,111 @@ static int calllevel = 0;
     calllevel--;
 }
 
+extern uint8_t FindNsID ( const char* ns );
+
+
+void domvcpprefsfrom(String name, bool isMove) {
+  nvs_handle cp_handle;
+  size_t cp_entries;
+  uint8_t namespaceid;
+  name = name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1);
+  String myName = String(RADIONAME).substring(0, NVS_KEY_NAME_MAX_SIZE - 1);
+  if (name == myName)
+  {
+    dbgprint("Source namespace must be different from current namespace(%s)", myName.c_str());
+    return;
+  }
+  namespaceid = FindNsID(name.c_str());
+  if (0 == namespaceid)
+  {
+    dbgprint("Namespace(%s) is not in NVS", name.c_str());
+    return;
+  }
+  dbgprint("Start to %s preference settings from namespace(%s), namespaceID=%d",
+    isMove?"move":"copy", name.c_str(), namespaceid);
+  std::vector<const char*> cpkeys;
+  fillkeylist(cpkeys, namespaceid);
+  if ( 0 == cpkeys.size())
+  {
+    dbgprint("Ignored: no preferences defined in namespace(%s)", name.c_str());
+    return;
+  }
+  esp_err_t nvserr = nvs_open ( name.c_str(), NVS_READWRITE, &cp_handle ) ;
+  if (0 != nvserr)
+  {
+    dbgprint("Unexpected but fatal: could not open namespace(%s), nvserr=%d", name.c_str(), nvserr);
+    return;
+  }
+  int idx = 0;
+  for (int i = 0; i < cpkeys.size(); i++)
+  {
+      const char *key = cpkeys[i];
+      char   nvs_buf[NVSBUFSIZE] ;              // Buffer for contents
+      size_t        len = NVSBUFSIZE ;          // Max length of the string, later real length
+      nvs_buf[0] = '\0' ;                       // Return empty string on error
+      nvserr = nvs_get_str ( cp_handle, key, nvs_buf, &len ) ;
+      if ( nvserr )
+        {
+        dbgprint ( "nvs_get_str failed %X for key %s, keylen is %d, len is %d!",
+               nvserr, key, strlen ( key), len ) ;
+        dbgprint ( "Contents: %s", nvs_buf ) ;
+        }
+      else
+        {
+          if (0 == idx)
+          {
+            dbgprint("At least one entry found. Will delete now all current NVS content");
+            nvsclear();
+          }    
+          idx++;
+          dbgprint("%3d: %s=%s", idx, key, nvs_buf);
+          nvserr = nvs_set_str ( nvshandle, key, nvs_buf ) ; // Store key and value
+          if ( nvserr )                                          // Check error
+          {
+            dbgprint ( "nvssetstr failed!" ) ;
+          }
+          if (isMove)
+            nvs_erase_key( cp_handle, key ) ;
+        }
+  }
+  if (idx > 0)
+  {
+    resetreq = true;
+    nvs_commit(cp_handle);
+    nvs_close(cp_handle);
+    nvs_commit(nvshandle);
+    nvs_close(nvshandle);
+  }
+  return;
+  /*
+  esp_err_t     nvserr = nvs_open ( name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1).c_str(), NVS_READWRITE, &cp_handle ) ;  // No, open nvs
+  if (nvserr)
+  {
+    dbgprint("Error opening NVS namespace(%s)=%d", name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1).c_str(), nvserr);
+    return;
+  }
+  nvs_get_used_entry_count(cp_handle, &cp_entries);
+  if (0 == cp_entries)
+  {
+    dbgprint("There are no preferences defined in namespace(%s)", name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1).c_str());
+    nvs_close(cp_handle);
+    return;
+  }
+  dbgprint("%s %d entries from namespace(%s)", 
+      isMove?"Moving":"Copying", cp_entries, name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1).c_str());
+  nvs_iterator it = nvs_entry_find("name", name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1).c_str(), NVS_TYPE_ANY);
+  while (it != NULL) {
+          nvs_entry_info info;
+          nvs_entry_info(it, &info);
+          it = nvs_entry_next(it);
+          dbgprint("key '%s', type '%d' \n", info.key, info.type);
+  };
+  if (isMove)
+    nvs_commit(cp_handle);
+  nvs_close(cp_handle);
+  */
+}
+
 
 const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {
   const char *s; 
@@ -3713,6 +3822,11 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     }
     dbgprint("ESP-Now mode is: %d", ini_block.espnowmode) ;
   }
+  else if (ret = ((param == "mvprefsfrom") || (param == "cpprefsfrom")))
+  {
+    domvcpprefsfrom(value, param.c_str()[0] == 'm');
+  }
+
   if ( ret ) 
   {
     if ( value.length() )
