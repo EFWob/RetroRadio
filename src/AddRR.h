@@ -15,7 +15,13 @@ extern String readfavfrompref ( int16_t idx );
 #warning "NORETRORADIO IS DEFINED!"
 #endif
 #if (NORETRORADIO != 1)
-#define NAME "ESP32Radio"
+#ifndef NAME
+#define RADIONAME "ESP32Radio"
+#else
+#define ST(A) #A
+#define STR(A) ST(A)
+#define RADIONAME STR(NAME)
+#endif
 #define RETRORADIO
 #define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
                     // Set to 1 to compile with Ethernet support
@@ -80,6 +86,8 @@ struct ini_struct
   int8_t         ch376_int_pin ;                      // GPIO connected to CH376 INT
   uint16_t       bat0 ;                               // ADC value for 0 percent battery charge
   uint16_t       bat100 ;                             // ADC value for 100 percent battery charge
+  int8_t         espnowmode ;                         // current ESP-Now-Mode
+  int8_t         espnowmodetarget ;                   // to store request if espnow not yet available
 } ;
 
 struct progpin_struct                                    // For programmable input pins
