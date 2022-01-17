@@ -2,6 +2,7 @@
 #define RETRORADIOEXTENSION_H__
 #include <Arduino.h>
 #include <nvs.h>
+#include <memory>
 #ifndef NVS_KEY_NAME_MAX_SIZE
 #define NVS_KEY_NAME_MAX_SIZE 16
 #endif
@@ -277,6 +278,7 @@ esp_err_t   nvssetstr ( const char* key, String val ) ;
 void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n );
 //void        fillkeylist() ;
 void fillkeylist(std::vector<const char*>& keynames, uint8_t namespaceid);
+void fillnslist(std::vector<const char *>& namespaces);
 const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;

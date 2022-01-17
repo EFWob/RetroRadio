@@ -3830,7 +3830,19 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     domvcplsprefsfrom(value, param.c_str()[0]);
   }
-
+  else if ((ret = ( param == "lsnamespaces")))
+  {
+    std::vector<const char*> namespaces;
+    fillnslist(namespaces);
+//    dbgprint("Found %d namespaces in NVS.", namespaces.size());
+    while (namespaces.size())
+      {
+        const char *s = namespaces[0];
+        dbgprint("%3d: %s", *s, s + 1);
+        free((void *)s);
+        namespaces.erase(namespaces.begin());
+      }
+  }
   if ( ret ) 
   {
     if ( value.length() )

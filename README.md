@@ -67,7 +67,7 @@ with a few things to notice:
 - Currently it is tested in platformio-environment only. The platformio.ini file has already some entries. Mainly to maintain different radios (with differen MCUs and pinouts). For starters, you can try the environment _plain devkit_, which uses the default partition table and thus should keep your NVS-settings.
 
 # Generic additions
-## Summary[see below](#defining-the-radio-name)
+## Summary
 Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section [Extended
 Input Handling](#extended-input-handling) if you are not interested to use the following features for now:
  - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
