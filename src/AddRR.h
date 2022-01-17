@@ -114,10 +114,12 @@ struct touchpin_struct                                   // For programmable inp
   int16_t        count ;                                 // Counter number of times low level
 } ;
 
+/*
 struct keyname_t                                      // For keys in NVS
 {
   char      Key[16] ;                                 // Max length is 15 plus delimeter
 } ;
+*/
 
 
 #include <SPI.h>
@@ -272,6 +274,7 @@ esp_err_t   nvsclear ( ) ;
 String      nvsgetstr ( const char* key ) ;
 bool        nvssearch ( const char* key ) ;
 esp_err_t   nvssetstr ( const char* key, String val ) ;
+void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n );
 //void        fillkeylist() ;
 void fillkeylist(std::vector<const char*>& keynames, uint8_t namespaceid);
 const char* analyzeCmd ( const char* str ) ;

@@ -2704,8 +2704,8 @@ void readprogbuttonsRetroRadio()
   }
 }
 
-#if (ETHERNET==1)
 static bool EthernetFound = false;
+#if (ETHERNET==1)
 //**************************************************************************************************
 //                                         E T H E V E N T                                         *
 //**************************************************************************************************
@@ -3567,15 +3567,14 @@ static int calllevel = 0;
 extern uint8_t FindNsID ( const char* ns );
 
 
-void domvcpprefsfrom(String name, bool isMove) {
+void domvcplsprefsfrom(String name, char mode) {
   nvs_handle cp_handle;
-  size_t cp_entries;
   uint8_t namespaceid;
   name = name.substring(0, NVS_KEY_NAME_MAX_SIZE - 1);
   String myName = String(RADIONAME).substring(0, NVS_KEY_NAME_MAX_SIZE - 1);
-  if (name == myName)
+  if ((name == myName) && (mode != 'l'))
   {
-    dbgprint("Source namespace must be different from current namespace(%s)", myName.c_str());
+    dbgprint("Source namespace must be different from current namespace(%s) for this operation.", myName.c_str());
     return;
   }
   namespaceid = FindNsID(name.c_str());
@@ -3585,7 +3584,7 @@ void domvcpprefsfrom(String name, bool isMove) {
     return;
   }
   dbgprint("Start to %s preference settings from namespace(%s), namespaceID=%d",
-    isMove?"move":"copy", name.c_str(), namespaceid);
+    (mode == 'm')?"move":((mode=='c')?"copy":"list"), name.c_str(), namespaceid);
   std::vector<const char*> cpkeys;
   fillkeylist(cpkeys, namespaceid);
   if ( 0 == cpkeys.size())
@@ -3615,25 +3614,30 @@ void domvcpprefsfrom(String name, bool isMove) {
         }
       else
         {
-          if (0 == idx)
+          if ((0 == idx) && (mode != 'l'))
           {
             dbgprint("At least one entry found. Will delete now all current NVS content");
             nvsclear();
           }    
           idx++;
           dbgprint("%3d: %s=%s", idx, key, nvs_buf);
-          nvserr = nvs_set_str ( nvshandle, key, nvs_buf ) ; // Store key and value
-          if ( nvserr )                                          // Check error
+          if (mode != 'l')
           {
-            dbgprint ( "nvssetstr failed!" ) ;
+            nvserr = nvs_set_str ( nvshandle, key, nvs_buf ) ; // Store key and value
+            if ( nvserr )                                          // Check error
+            {
+              dbgprint ( "nvssetstr failed!" ) ;
+            }
+            if (mode == 'm')
+              nvs_erase_key( cp_handle, key ) ;
           }
-          if (isMove)
-            nvs_erase_key( cp_handle, key ) ;
         }
   }
-  if (idx > 0)
+  if ((idx > 0) && (mode != 'l'))
   {
     resetreq = true;
+    if (mode == 'm')
+      nvs_erase_all(cp_handle);
     nvs_commit(cp_handle);
     nvs_close(cp_handle);
     nvs_commit(nvshandle);
@@ -3822,9 +3826,9 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     }
     dbgprint("ESP-Now mode is: %d", ini_block.espnowmode) ;
   }
-  else if (ret = ((param == "mvprefsfrom") || (param == "cpprefsfrom")))
+  else if (ret = ((param == "mvprefsfrom") || (param == "cpprefsfrom") || (param == "lsprefsfrom")))
   {
-    domvcpprefsfrom(value, param.c_str()[0] == 'm');
+    domvcplsprefsfrom(value, param.c_str()[0]);
   }
 
   if ( ret ) 

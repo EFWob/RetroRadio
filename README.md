@@ -1,6 +1,7 @@
 # Latest changes
 *20220117* 
   - preferences can be copied (moved) by command line if the [NAME of the radio](#defining-the-radio-name) has changed
+  - Bugfix: compile error "'EthernetFound' was not declared in this scope" removed from non-Ethernet-environments
 
 *20220116* 
   - the _*NAME*_ of the radio can be defined as build flag in _platformio.ini_ [see below](#defining-the-radio-name)
