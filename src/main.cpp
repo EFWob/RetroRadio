@@ -361,10 +361,6 @@ struct nvs_page                                       // For nvs entries
   nvs_entry Entry[126] ;
 } ;
 
-struct keyname_t                                      // For keys in NVS
-{
-  char      Key[16] ;                                 // Max length is 15 plus delimeter
-} ;
 
 //**************************************************************************************************
 // Global data section.                                                                            *
@@ -471,8 +467,9 @@ const esp_partition_t*  nvs ;                            // Pointer to partition
 esp_err_t               nvserr ;                         // Error code from nvs functions
 uint32_t                nvshandle = 0 ;                  // Handle for nvs access
 uint8_t                 namespace_ID ;                   // Namespace ID found
-char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
-std::vector<keyname_t> keynames ;                        // Keynames in NVS
+//char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
+//std::vector<keyname_t>  keynames ;                        // Keynames in NVS
+std::vector<const char *> keynames ;                     // Keynames in NVS 
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
@@ -1286,7 +1283,7 @@ void nvsopen()
 {
   if ( ! nvshandle )                                         // Opened already?
   {
-    nvserr = nvs_open ( RADIONAME, NVS_READWRITE, &nvshandle ) ;  // No, open nvs
+    nvserr = nvs_open ( String(RADIONAME).substring(0, NVS_KEY_NAME_MAX_SIZE - 1).c_str(), NVS_READWRITE, &nvshandle ) ;  // No, open nvs
     if ( nvserr )
     {
       dbgprint ( "nvs_open failed!" ) ;
@@ -2809,14 +2806,15 @@ String readprefs ( bool output )
   String      val ;                                         // Contents of preference entry
   String      cmd ;                                         // Command for analyzCmd
   String      outstr = "" ;                                 // Outputstring
-  char*       key ;                                         // Point to nvskeys[i]
+  const char*       key ;                                         // Point to nvskeys[i]
   uint8_t     winx ;                                        // Index in wifilist
   uint16_t    last2char = 0 ;                               // To detect paragraphs
 
   i = 0 ;
-  while ( *( key = nvskeys[i] ) )                           // Loop trough all available keys
+  for(i = 0;i < keynames.size();)
+//  while ( *( key = nvskeys[i] ) )                           // Loop trough all available keys
   {
-
+    key = keynames[i];
     dbgprint("NVSKEY[%d]='%s'", i, key);
 
     val = nvsgetstr ( key ) ;                               // Read value of this key
@@ -3373,20 +3371,20 @@ uint8_t FindNsID ( const char* ns )
 //**************************************************************************************************
 // Bubblesort the nvskeys.                                                                         *
 //**************************************************************************************************
-void bubbleSortKeys ( uint16_t n )
+void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n )
 {
   uint16_t i, j ;                                             // Indexes in nvskeys
-  char     tmpstr[16] ;                                       // Temp. storage for a key
+  const char *tmpstr ;                                       // Temp. storage for a key
 
   for ( i = 0 ; i < n - 1 ; i++ )                             // Examine all keys
   {
     for ( j = 0 ; j < n - i - 1 ; j++ )                       // Compare to following keys
     {
-      if ( strcmp ( nvskeys[j], nvskeys[j + 1] ) > 0 )        // Next key out of order?
+      if ( strcmp ( keynames[j], keynames[j + 1] ) > 0 )        // Next key out of order?
       {
-        strcpy ( tmpstr, nvskeys[j] ) ;                       // Save current key a while
-        strcpy ( nvskeys[j], nvskeys[j + 1] ) ;               // Replace current with next key
-        strcpy ( nvskeys[j + 1], tmpstr ) ;                   // Replace next with saved current
+        tmpstr =  keynames[j]  ;                       // Save current key a while
+        keynames[j] = keynames[j + 1]  ;               // Replace current with next key
+        keynames[j + 1] = tmpstr  ;                   // Replace next with saved current
       }
     }
   }
@@ -3399,15 +3397,18 @@ void bubbleSortKeys ( uint16_t n )
 // File the list of all relevant keys in NVS.                                                      *
 // The keys will be sorted.                                                                        *
 //**************************************************************************************************
-void fillkeylist()
+void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
 {
   esp_err_t    result = ESP_OK ;                                // Result of reading partition
   uint32_t     offset = 0 ;                                     // Offset in nvs partition
   uint16_t     i ;                                              // Index in Entry 0..125.
   uint8_t      bm ;                                             // Bitmap for an entry
   uint16_t     nvsinx = 0 ;                                     // Index in nvskey table
-
-  keynames.clear() ;                                            // Clear the list
+  while (keynames.size() > 0)
+  {
+    free((void *)keynames[0]);
+    keynames.erase(keynames.begin());
+  }
   while ( offset < nvs->size )
   {
     result = esp_partition_read ( nvs, offset,                  // Read 1 page in nvs partition
@@ -3425,13 +3426,18 @@ void fillkeylist()
       bm &= 0x03 ;                                              // 2 bits for one entry
       if ( bm == 2 )                                            // Entry is active?
       {
-        if ( nvsbuf.Entry[i].Ns == namespace_ID )               // Namespace right?
+        if ( nvsbuf.Entry[i].Ns == namespaceid )                // Namespace right?
         {
-          strcpy ( nvskeys[nvsinx], nvsbuf.Entry[i].Key ) ;     // Yes, save in table
+
+          keynames.push_back( strdup(nvsbuf.Entry[i].Key) ) ;           // Yes, save in table
+          ++nvsinx;
+//          dbgprint("Fillkeylist[%d]=%s (%s)", keynames.size() - 1, keynames[i], nvsbuf.Entry[i].Key);
+/*
           if ( ++nvsinx == MAXKEYS )
           {
             nvsinx-- ;                                          // Prevent excessive index
           }
+*/
         }
         i += nvsbuf.Entry[i].Span ;                             // Next entry
       }
@@ -3442,9 +3448,9 @@ void fillkeylist()
     }
     offset += sizeof(nvs_page) ;                                // Prepare to read next page in nvs
   }
-  nvskeys[nvsinx][0] = '\0' ;                                   // Empty key at the end
-  dbgprint ( "Read %d keys from NVS", nvsinx ) ;
-  bubbleSortKeys ( nvsinx ) ;                                   // Sort the keys
+  //nvskeys[nvsinx][0] = '\0' ;                                   // Empty key at the end
+  dbgprint ( "Read %d keys from NVS (namespace-ID: %d)", nvsinx, namespaceid ) ;
+  bubbleSortKeys ( keynames, nvsinx ) ;                          // Sort the keys
 }
 
 
@@ -3533,8 +3539,8 @@ void setup()
     dbgprint ( "Partition %s not found!", partname ) ;   // Very unlikely...
     while ( true ) ;                                     // Impossible to continue
   }
-  namespace_ID = FindNsID ( RADIONAME ) ;                     // Find ID of our namespace in NVS
-  fillkeylist() ;                                        // Fill keynames with all keys
+  namespace_ID = FindNsID ( RADIONAME ) ;                // Find ID of our namespace in NVS
+  fillkeylist(keynames, namespace_ID) ;                  // Fill keynames with all keys
   memset ( &ini_block, 0, sizeof(ini_block) ) ;          // Init ini_block
   ini_block.mqttport = 1883 ;                            // Default port for MQTT
   ini_block.mqttprefix = "" ;                            // No prefix for MQTT topics seen yet
@@ -3859,7 +3865,7 @@ void writeprefs()
     }
   }
   timerAlarmEnable ( timer ) ;                                // Enable the timer
-  fillkeylist() ;                                             // Update list with keys
+  fillkeylist( keynames, namespace_ID ) ;                     // Update list with keys
 }
 
 

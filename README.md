@@ -1,4 +1,8 @@
 # Latest changes
+*20220117* 
+  - preferences can be copied (moved) by command line if the [NAME of the radio](#defining-the-radio-name) has changed
+  - Bugfix: compile error "'EthernetFound' was not declared in this scope" removed from non-Ethernet-environments
+
 *20220116* 
   - the _*NAME*_ of the radio can be defined as build flag in _platformio.ini_ [see below](#defining-the-radio-name)
   - [ESP-Now](#using-esp-now) can be used to send command(s) to the radio
@@ -63,7 +67,7 @@ with a few things to notice:
 - Currently it is tested in platformio-environment only. The platformio.ini file has already some entries. Mainly to maintain different radios (with differen MCUs and pinouts). For starters, you can try the environment _plain devkit_, which uses the default partition table and thus should keep your NVS-settings.
 
 # Generic additions
-## Summary
+## Summary[see below](#defining-the-radio-name)
 Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section [Extended
 Input Handling](#extended-input-handling) if you are not interested to use the following features for now:
  - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
@@ -623,8 +627,11 @@ build_flags =
 
 Some considerations: 
   - the name must not contain whitespaces. Letters and digits are safe.
-  - the name of the radio also specifies the namespace that is used for storing NVS-entries (preferences). When the name is changed to a new name, the preferences will be empty again. There is no built-in mechanism to copy the preferences from one namespace to another. You have to copy-paste the preferences using the config-webinterface  (and store them in a text file). Preferences will be restored if you switch back to the 
-  old name. To remove "old" namespaces, currently the only solution is to erase the flash completely and restart from scratch (both preferences and genre information will be whiped out that way).
+  - the name of the radio also specifies the namespace that is used for storing NVS-entries (preferences). Therefore the length of the name should not exceed 15.
+  - When the name is changed to a new name, the preferences will be empty again. There are two new commands to copy or move the preferences from an existing name now:
+    - _cpprefsfrom=oldname_ will copy the prefrences that have been stored using the "old" NAME _oldname_
+    - _mvprevsfrom=oldname_ will move the preferences that have been stored using _oldname_. This means that all entries in the namespace "_oldname_" will be deleted.
+  - Of course you can also copy-paste the preferences using the config-webinterface  (and store them in a text file). There is no function to list existing (unused) namespaces. Best solution to remove "old" namespaces is to  erase the flash completely and restart from scratch (both preferences and genre information stored to LITTLEFS will be wiped out that way, however).
   
 ## Using ESP-Now
 
