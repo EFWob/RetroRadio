@@ -3589,7 +3589,7 @@ void domvcplsprefsfrom(String name, char mode) {
   fillkeylist(cpkeys, namespaceid);
   if ( 0 == cpkeys.size())
   {
-    dbgprint("Ignored: no preferences defined in namespace(%s)", name.c_str());
+    dbgprint("Ignored: no preferences defined/no valid preferences in namespace(%s) ", name.c_str());
     return;
   }
   esp_err_t nvserr = nvs_open ( name.c_str(), NVS_READWRITE, &cp_handle ) ;

@@ -1,4 +1,7 @@
 # Latest changes
+*20220119*
+  - list of all namespaces in NVS can be shown with command [lsnamespaces](#defining-the-radio-name)
+  - listing/copying/moving preferences of/from another namespaces is limited to namespaces that contain only string type data
 *20220117* 
   - preferences can be copied (moved) by command line if the [NAME of the radio](#defining-the-radio-name) has changed
   - Bugfix: compile error "'EthernetFound' was not declared in this scope" removed from non-Ethernet-environments
