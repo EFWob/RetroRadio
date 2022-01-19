@@ -2,6 +2,7 @@
 #define RETRORADIOEXTENSION_H__
 #include <Arduino.h>
 #include <nvs.h>
+#include <memory>
 #ifndef NVS_KEY_NAME_MAX_SIZE
 #define NVS_KEY_NAME_MAX_SIZE 16
 #endif
@@ -27,10 +28,14 @@ extern String readfavfrompref ( int16_t idx );
 #define RADIONAME STR(NAME)
 #endif
 #define RETRORADIO
+#ifndef ETHERNET
+
 #define ETHERNET 2  // Set to '0' if you do not want Ethernet support at all
                     // Set to 1 to compile with Ethernet support
                     // Set to 2 to compile with Ethernet depending on board setting
                     //      (works for Olimex POE and most likely Olimex POE ISO)
+
+#endif
 #define SETUP_START 0
 #define SETUP_NET 1
 #define SETUP_DONE 2
@@ -277,6 +282,7 @@ esp_err_t   nvssetstr ( const char* key, String val ) ;
 void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n );
 //void        fillkeylist() ;
 void fillkeylist(std::vector<const char*>& keynames, uint8_t namespaceid);
+void fillnslist(std::vector<const char *>& namespaces);
 const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;

@@ -3589,7 +3589,7 @@ void domvcplsprefsfrom(String name, char mode) {
   fillkeylist(cpkeys, namespaceid);
   if ( 0 == cpkeys.size())
   {
-    dbgprint("Ignored: no preferences defined in namespace(%s)", name.c_str());
+    dbgprint("Ignored: no preferences defined/no valid preferences in namespace(%s) ", name.c_str());
     return;
   }
   esp_err_t nvserr = nvs_open ( name.c_str(), NVS_READWRITE, &cp_handle ) ;
@@ -3830,7 +3830,19 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     domvcplsprefsfrom(value, param.c_str()[0]);
   }
-
+  else if ((ret = ( param == "lsnamespaces")))
+  {
+    std::vector<const char*> namespaces;
+    fillnslist(namespaces);
+//    dbgprint("Found %d namespaces in NVS.", namespaces.size());
+    while (namespaces.size())
+      {
+        const char *s = namespaces[0];
+        dbgprint("%3d: %s", *s, s + 1);
+        free((void *)s);
+        namespaces.erase(namespaces.begin());
+      }
+  }
   if ( ret ) 
   {
     if ( value.length() )

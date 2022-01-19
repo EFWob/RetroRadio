@@ -3316,14 +3316,16 @@ void tftlog ( const char *str )
 //**************************************************************************************************
 // Find the namespace ID for the namespace passed as parameter.                                    *
 //**************************************************************************************************
-uint8_t FindNsID ( const char* ns )
+uint8_t FindNsID ( const char* ns_full )
 {
   esp_err_t                 result = ESP_OK ;                 // Result of reading partition
   uint32_t                  offset = 0 ;                      // Offset in nvs partition
   uint8_t                   i ;                               // Index in Entry 0..125
   uint8_t                   bm ;                              // Bitmap for an entry
   uint8_t                   res = 0xFF ;                      // Function result
-
+  char                      ns[16];
+  memcpy(ns, ns_full, 15);
+  ns[15] = 0;
   while ( offset < nvs->size )
   {
     result = esp_partition_read ( nvs, offset,                // Read 1 page in nvs partition
@@ -3367,35 +3369,27 @@ uint8_t FindNsID ( const char* ns )
 
 
 //**************************************************************************************************
-//                            B U B B L E S O R T K E Y S                                          *
+//                                       E R A S E Y L I S T                                       *
 //**************************************************************************************************
-// Bubblesort the nvskeys.                                                                         *
+// Empty list of all keys stored to parameter std::vector keynames.                                *
+// Frees the allocated memory for key list entries.                                                *
 //**************************************************************************************************
-void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n )
+void erasekeylist(std::vector<const char *>& keynames)
 {
-  uint16_t i, j ;                                             // Indexes in nvskeys
-  const char *tmpstr ;                                       // Temp. storage for a key
-
-  for ( i = 0 ; i < n - 1 ; i++ )                             // Examine all keys
+  
+  while (keynames.size() > 0)                                   // Empty the keylist if needed    
   {
-    for ( j = 0 ; j < n - i - 1 ; j++ )                       // Compare to following keys
-    {
-      if ( strcmp ( keynames[j], keynames[j + 1] ) > 0 )        // Next key out of order?
-      {
-        tmpstr =  keynames[j]  ;                       // Save current key a while
-        keynames[j] = keynames[j + 1]  ;               // Replace current with next key
-        keynames[j + 1] = tmpstr  ;                   // Replace next with saved current
-      }
-    }
+    free((void *)keynames[0]);
+    keynames.erase(keynames.begin());
   }
 }
-
 
 //**************************************************************************************************
 //                                      F I L L K E Y L I S T                                      *
 //**************************************************************************************************
 // File the list of all relevant keys in NVS.                                                      *
 // The keys will be sorted.                                                                        *
+// List will be empty, if given namespace contains any non-string-entry (not valid for radio)      *
 //**************************************************************************************************
 void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
 {
@@ -3403,12 +3397,9 @@ void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
   uint32_t     offset = 0 ;                                     // Offset in nvs partition
   uint16_t     i ;                                              // Index in Entry 0..125.
   uint8_t      bm ;                                             // Bitmap for an entry
-  uint16_t     nvsinx = 0 ;                                     // Index in nvskey table
-  while (keynames.size() > 0)
-  {
-    free((void *)keynames[0]);
-    keynames.erase(keynames.begin());
-  }
+//  uint16_t     nvsinx = 0 ;                                     // Index in nvskey table
+  
+  erasekeylist ( keynames ) ;
   while ( offset < nvs->size )
   {
     result = esp_partition_read ( nvs, offset,                  // Read 1 page in nvs partition
@@ -3428,16 +3419,18 @@ void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
       {
         if ( nvsbuf.Entry[i].Ns == namespaceid )                // Namespace right?
         {
-
-          keynames.push_back( strdup(nvsbuf.Entry[i].Key) ) ;           // Yes, save in table
-          ++nvsinx;
-//          dbgprint("Fillkeylist[%d]=%s (%s)", keynames.size() - 1, keynames[i], nvsbuf.Entry[i].Key);
-/*
-          if ( ++nvsinx == MAXKEYS )
+          if (NVS_TYPE_STR   == nvsbuf.Entry[i].Type)
           {
-            nvsinx-- ;                                          // Prevent excessive index
+            keynames.push_back( strdup(nvsbuf.Entry[i].Key) ) ;           // Yes, save in table
+//            ++nvsinx;
           }
-*/
+          else
+          {
+            dbgprint("This is not a Radio partition (key '%s' is of non-string-type)", nvsbuf.Entry[i].Key);
+            i = 126;
+            offset = nvs->size;
+            erasekeylist( keynames );
+          }
         }
         i += nvsbuf.Entry[i].Span ;                             // Next entry
       }
@@ -3449,9 +3442,78 @@ void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
     offset += sizeof(nvs_page) ;                                // Prepare to read next page in nvs
   }
   //nvskeys[nvsinx][0] = '\0' ;                                   // Empty key at the end
-  dbgprint ( "Read %d keys from NVS (namespace-ID: %d)", nvsinx, namespaceid ) ;
-  bubbleSortKeys ( keynames, nvsinx ) ;                          // Sort the keys
+  dbgprint ( "Read %d keys from NVS (namespace-ID: %d)", keynames.size(), namespaceid ) ;
+  std::sort(keynames.begin(), keynames.end(), 
+      [](const char* x, const char* y) {
+        return strcmp(x, y) < 0;
+      });
 }
+
+//**************************************************************************************************
+//                                      F I L L N S L I S T                                        *
+//**************************************************************************************************
+// File the list of all known namespaces in NVS.                                                   *
+// First byte in each entry will be the ID-number of the namespace.                                *
+// The name itself will follow (0 terminated)                                                      *
+//**************************************************************************************************
+void fillnslist(std::vector<const char *>& namespaces)
+{
+  esp_err_t    result = ESP_OK ;                                // Result of reading partition
+  uint32_t     offset = 0 ;                                     // Offset in nvs partition
+  uint16_t     i ;                                              // Index in Entry 0..125.
+  uint8_t      bm ;                                             // Bitmap for an entry
+  uint16_t     nvsinx = 0 ;                                     // Index in nvskey table
+  
+  while (namespaces.size() > 0)                                 // Empty the list if needed    
+  {
+    free((void *)namespaces[0]);
+    namespaces.erase(namespaces.begin());
+  }
+  while ( offset < nvs->size )
+  {
+    result = esp_partition_read ( nvs, offset,                // Read 1 page in nvs partition
+                                  &nvsbuf,
+                                  sizeof(nvsbuf) ) ;
+    if ( result != ESP_OK )
+    {
+      dbgprint ( "Error reading NVS!" ) ;
+      break ;
+    }
+    i = 0 ;
+    while ( i < 126 )
+    {
+
+      bm = ( nvsbuf.Bitmap[i / 4] >> ( ( i % 4 ) * 2 ) ) ;    // Get bitmap for this entry,
+      bm &= 0x03 ;                                            // 2 bits for one entry
+      if ( ( bm == 2 ) &&
+           ( nvsbuf.Entry[i].Ns == 0 )  )
+      {
+        char *key = nvsbuf.Entry[i].Key;
+        char *s = (char *)malloc(strlen(key) + 2);
+        s[0] = nvsbuf.Entry[i].Data & 0xFF ;                  // Set the ID of namespace to s[0]
+        strcpy(s + 1, key);                                   // Copy the name
+        namespaces.push_back(s);                              // Add to list  
+      }
+      if ( bm == 2 )
+      {
+          i += nvsbuf.Entry[i].Span ;                         // Next entry
+      }
+      else
+      {
+          i++ ;
+      }
+    }
+    offset += sizeof(nvs_page) ;                              // Prepare to read next page in nvs
+  }
+  dbgprint ( "Found %d namespaces in NVS.",  namespaces.size()) ;
+
+  std::sort(namespaces.begin(), namespaces.end(), 
+      [](const char* x, const char* y) {
+        return *x < *y;
+      });
+
+}
+
 
 
 void sendCrossOriginHeader() {
