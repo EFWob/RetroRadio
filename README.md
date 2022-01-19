@@ -3,6 +3,7 @@
   - list of all namespaces in NVS can be shown with command [lsnamespaces](#defining-the-radio-name)
   - listing/copying/moving preferences of/from another namespaces is limited to namespaces that contain only string type data
   - the _#define_ [ETHERNET](#ethernet-support) can be set as *build_flag* in platformio.ini
+
 *20220117* 
   - preferences can be copied (moved) by command line if the [NAME of the radio](#defining-the-radio-name) has changed
   - Bugfix: compile error "'EthernetFound' was not declared in this scope" removed from non-Ethernet-environments
@@ -165,7 +166,7 @@ on the native ethernet implementation of the Esp32 chip.
 Note that the initial setup (of the preferences) must be done through the access point as usual. Please do not connect the ethernet to the LAN as then the access point will not show and you cannot run the initial configuration.
 
 ### Compile time settings for Ethernet
-There is a define in ***addRR.h*** that reads `#define ETHERNET 2`
+There is a define in ***AddRR.h*** that reads `#define ETHERNET 2` 
 	
 * this will compile **with** Ethernet support, if the selected board is known to have Ethernet capabilities. As of now, that is true
   for Olimex PoE/PoE ISO only
@@ -173,6 +174,7 @@ There is a define in ***addRR.h*** that reads `#define ETHERNET 2`
 * if changed to `#define ETHERNET 1`, support for Ethernet is compiled regardless of the board setting
 * if this line is deleted/commented out, Ethernet support will **not** compiled in.
 * if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
+* (If **ETHERNET** is defined as *build_flag* in _platformio.ini_, then this entry will override the `#define ETHERNET x` in ***AddRR.h***)
 * if compiled with Ethernet support, there is another define that controls the ethernet connection: `#define ETHERNET_CONNECT_TIMEOUT 5`
 	  that defines how long the radio should wait for an ethernet connection to be established (in seconds). If no IP connection over 
 	  ethernet is established in that timeframe, WiFi will be used. That value can be extended by preference settings (but not lowered). In
