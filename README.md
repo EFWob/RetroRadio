@@ -637,6 +637,9 @@ Some considerations:
   - When the name is changed to a new name, the preferences will be empty again. There are two new commands to copy or move the preferences from an existing name now:
     - _cpprefsfrom=oldname_ will copy the prefrences that have been stored using the "old" NAME _oldname_
     - _mvprevsfrom=oldname_ will move the preferences that have been stored using _oldname_. This means that all entries in the namespace "_oldname_" will be deleted.
+    - _cpprefsfrom_ and _mvorefsfrom_ will be cancelled, if the source namespace (given as argument) will contain no entries at all or at least one entry of non-string-type (radio preferences are string type only)
+  - you can list all available namespaces in NVS with the command _lsnamespaces_ (this command will just list the names and will not give any insights on number/type of entries)
+  - you can list the contents of a namespace with the command _lsprefsfrom=namespace_. (As with _cpprefsfrom_/_mvprefsfrom_ this operation will only list the entries if all entries are of string-type).
   - Of course you can also copy-paste the preferences using the config-webinterface  (and store them in a text file). There is no function to list existing (unused) namespaces. Best solution to remove "old" namespaces is to  erase the flash completely and restart from scratch (both preferences and genre information stored to LITTLEFS will be wiped out that way, however).
   
 ## Using ESP-Now

@@ -3426,7 +3426,7 @@ void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
           }
           else
           {
-            dbgprint("This is not a Radio partition (key '%s' is of non-string-type)", nvsbuf.Entry[i].Key);
+            dbgprint("This namespace is not valid for radio (key '%s' is of non-string-type)", nvsbuf.Entry[i].Key);
             i = 126;
             offset = nvs->size;
             erasekeylist( keynames );
