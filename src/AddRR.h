@@ -266,6 +266,7 @@ extern int               mqttfavidx;                            // idx of favori
 extern int               mqttfavendidx;                         // last idx of favorite info to publish on MQTT
 //extern std::vector<keyname_t> keynames ;                        // Keynames in NVS
 extern std::vector<const char *> keynames ;                        // Keynames in NVS
+extern std::vector<const char *> mqttpub_backlog ;              // backlog of MQTT-Messages to send
 extern uint8_t           namespace_ID ;                         // Namespace ID found
 extern bool              resetreq ;                             // Request to reset the ESP32
 

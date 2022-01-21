@@ -55,10 +55,16 @@ class RetroRadioInputReader {
     virtual int16_t read()  { return 0;};
     virtual void mode(int mod)  {_mode = 0;} ;
     virtual String info() {return String("");};
+    virtual void start() {_started = true;};
+    virtual void stop() {_started = false;};
+    char type() {return _type;};
   protected:
     virtual void deleteContent() {};
     int _mode;
+    bool _started = false;
+    char _type = 0;
 };
+
 
 enum LastInputType  { NONE, NEAREST, HIT };
 
@@ -109,6 +115,34 @@ class RetroRadioInput {
 //    std::map<const char*, RetroRadioInput *, cmp_str> _listOfInputs;
     uint32_t _timing[4];
 };
+
+class RetroRadioEventInputReader : public RetroRadioInputReader {
+  public:
+      RetroRadioEventInputReader(RetroRadioInput* input, char type): RetroRadioInputReader(), _input(input)
+        {_type = type;};
+      void event(const char* data);
+    protected:
+      RetroRadioInput* _input;
+};
+
+class RetroRadioMqttReader : public RetroRadioEventInputReader {
+  public:
+    virtual ~RetroRadioMqttReader() {
+      std::vector<RetroRadioMqttReader *>::iterator it =  _mqttReaderList.begin();
+      while (it != _mqttReaderList.end()) {
+        if (*it == this)
+        {
+          _mqttReaderList.erase(it);
+          it = _mqttReaderList.end();
+        }
+        else
+          it++;
+      }
+    };
+    static std::vector<RetroRadioMqttReader *> _mqttReaderList;
+};
+
+std::vector<RetroRadioMqttReader *> RetroRadioMqttReader::_mqttReaderList;
 
 
 void doGenre ( String param, String value );
@@ -1601,10 +1635,14 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
   } else if (param == "start") {
     _lastInputType = NONE;
     //Serial.printf("Executing Start for in.%s\r\n", getId());
+    if (_reader)
+      _reader->start();
     read(true);
     //Serial.printf("Start for in.%s Done!\r\n", getId());
   } else if (param == "stop") {
     runClick(false);
+    if (_reader)
+      _reader->stop();
     _lastInputType = NONE;
   } else if ((param == "info") || (param == "?")) {
     showInfo(true);
@@ -2049,7 +2087,7 @@ void RetroRadioInput::setReader(String value) {
       reader = new RetroRadioInputReaderDigital(idx, _mode);
       break;
     case 'a': 
-      if ((_reader == NULL) && (_mode == 0))
+       if ((_reader == NULL) && (_mode == 0))
         _mode = 0b11100;
       reader = new RetroRadioInputReaderAnalog(idx, _mode);
       break;
@@ -2091,7 +2129,11 @@ int16_t RetroRadioInput::physRead() {
   if (!_reader) {
     _lastInputType = NONE;
     return 0;
-  } else {
+  } else if (0 != _reader->type() ) {
+    _lastInputType = NONE;
+    return 0;
+  }
+  else {
     if (_lastInputType == NONE)
       _lastInputType = HIT;
     return _reader->read();
@@ -2115,6 +2157,9 @@ RetroRadioInput::~RetroRadioInput() {
 };
 
 int RetroRadioInput::read(bool doStart) {
+  if (_reader)
+    if (_reader->type() != 0)
+      return 0;
   bool forced = (_lastInputType == NONE);
   bool show = (_show > 0) && ((millis() - _lastShowTime > _show) || forced);
   String showStr;
@@ -3811,6 +3856,23 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     strcpy(reply, doFavorite(param, value).c_str());
   } 
+  else if ( (ret = (param.startsWith("mqttpub")) ))
+  {
+    String topic;
+    String payload;
+    if (param.length() > 7) 
+    {
+      topic = param.substring(8);
+      topic.trim();
+    }
+    char* s = (char *)malloc (topic.length() + value.length() + 2);
+    if (s)
+    {
+      strcpy(s, topic.c_str());
+      strcpy(s + 1 + topic.length(), value.c_str());
+      mqttpub_backlog.push_back(s);
+    }
+  }
   else if (ret = (param == "espnowmode"))
   {
     if (isdigit(value.c_str()[0]))

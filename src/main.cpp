@@ -470,6 +470,7 @@ uint8_t                 namespace_ID ;                   // Namespace ID found
 //char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 //std::vector<keyname_t>  keynames ;                        // Keynames in NVS
 std::vector<const char *> keynames ;                     // Keynames in NVS 
+std::vector<const char *> mqttpub_backlog ;              // Backlog for MQTT-messages to be sent
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
@@ -660,7 +661,7 @@ void mqttpubc::trigger ( uint8_t item )                    // Trigger publishig 
 void mqttpubc::publishtopic()
 {
   int         i = 0 ;                                         // Loop control
-  char        topic[80] ;                                     // Topic to send
+  char        topic[200] ;                                    // Topic to send
   const char* payload ;                                       // Points to payload
   char        intvar[10] ;                                    // Space for integer parameter
   static uint32_t lastMqttPublish = 0;
@@ -756,6 +757,30 @@ void mqttpubc::publishtopic()
       dbgprint("MQTT favinfo published.");
     }
     lastMqttPublish = millis();
+  }
+  else if ( mqttpub_backlog.size() > 0 )
+  {
+    const char *mqttpub = mqttpub_backlog[0];
+    size_t mqtttoplen = strlen(mqttpub);
+    payload = mqttpub + mqtttoplen + 1;
+    if (ini_block.mqttprefix.length() + strlen(mqttpub) + 2 < sizeof(topic))
+    {
+      strcpy(topic, ini_block.mqttprefix.c_str());
+      if (mqtttoplen > 0)
+      {
+        strcat(topic, "/");
+        strcat(topic, mqttpub);
+      }
+      if ( !mqttclient.publish ( topic, payload ) )           // Publish!
+      {
+        dbgprint ( "MQTT publish failed!" ) ;                 // Failed
+      }
+      lastMqttPublish = millis();
+    }
+    else
+      dbgprint("MQTT publish failed: Subtopic[%s] is too long", mqttpub);
+    free((void *)mqttpub);
+    mqttpub_backlog.erase(mqttpub_backlog.begin());
   }
 
 }
