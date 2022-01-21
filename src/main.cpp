@@ -1444,6 +1444,12 @@ void queuefunc ( int func )
 //**************************************************************************************************
 bool nvssearch ( const char* key )
 {
+
+  if (keynames.size() > 0)
+    for (int i = 0; i < keynames.size();i++)
+      if (0 == strcmp(key, keynames[i]))
+        return true;
+  return false;
   size_t        len = NVSBUFSIZE ;                      // Length of the string
 
   nvsopen() ;                                           // Be sure to open nvs
