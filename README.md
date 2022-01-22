@@ -1,5 +1,5 @@
 # Latest changes
-*20220119*
+*20220122*
   - You can now [send](#sending-mqtt-messages) and [receive](#using-inputs-to-read-mqtt-messages) MQTT-Messages using the command-interface
   - When defining [Inputs](#extended-input-handling), the properties are no longer case sensitive (so _info_, _Info_ or _iNFo_ are all treated the same) (the propery parameters are still case sensitive)
 
