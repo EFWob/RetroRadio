@@ -470,6 +470,9 @@ uint8_t                 namespace_ID ;                   // Namespace ID found
 //char                    nvskeys[MAXKEYS][16] ;           // Space for NVS keys
 //std::vector<keyname_t>  keynames ;                        // Keynames in NVS
 std::vector<const char *> keynames ;                     // Keynames in NVS 
+std::vector<const char *> mqttpub_backlog ;              // Backlog for MQTT-messages to be sent
+std::vector<const char *> mqttrcv_backlog ;              // Backlog for MQTT-messages received
+
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
@@ -660,7 +663,7 @@ void mqttpubc::trigger ( uint8_t item )                    // Trigger publishig 
 void mqttpubc::publishtopic()
 {
   int         i = 0 ;                                         // Loop control
-  char        topic[80] ;                                     // Topic to send
+  char        topic[200] ;                                    // Topic to send
   const char* payload ;                                       // Points to payload
   char        intvar[10] ;                                    // Space for integer parameter
   static uint32_t lastMqttPublish = 0;
@@ -756,6 +759,30 @@ void mqttpubc::publishtopic()
       dbgprint("MQTT favinfo published.");
     }
     lastMqttPublish = millis();
+  }
+  else if ( mqttpub_backlog.size() > 0 )
+  {
+    const char *mqttpub = mqttpub_backlog[0];
+    size_t mqtttoplen = strlen(mqttpub);
+    payload = mqttpub + mqtttoplen + 1;
+    if (ini_block.mqttprefix.length() + strlen(mqttpub) + 2 < sizeof(topic))
+    {
+      strcpy(topic, ini_block.mqttprefix.c_str());
+      if (mqtttoplen > 0)
+      {
+        strcat(topic, "/");
+        strcat(topic, mqttpub);
+      }
+      if ( !mqttclient.publish ( topic, payload ) )           // Publish!
+      {
+        dbgprint ( "MQTT publish failed!" ) ;                 // Failed
+      }
+      lastMqttPublish = millis();
+    }
+    else
+      dbgprint("MQTT publish failed: Subtopic[%s] is too long", mqttpub);
+    free((void *)mqttpub);
+    mqttpub_backlog.erase(mqttpub_backlog.begin());
   }
 
 }
@@ -2912,6 +2939,7 @@ bool mqttreconnect()
   if ( res )
   {
     res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
+    mqttInputBegin();
     if ( !res )
     {
       dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
@@ -2960,6 +2988,17 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
     dbgprint ( "MQTT message arrived [%s], lenght = %d, %s", topic, len, cmd ) ;
     reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
     dbgprint ( reply ) ;                              // Result for debugging
+  } else
+  {
+    char *msg = (char *)malloc(len + 2 + strlen(topic));
+    if (msg)
+    {
+      strcpy(msg, topic);
+      strncpy(msg + strlen(topic) + 1, (const char *)payload, len);
+      msg[len + 1 + strlen(topic)] = 0;
+      //dbgprint("Received MQTT for INPUT: %s->%s", msg, msg + strlen(topic) + 1);
+      mqttrcv_backlog.push_back(msg);
+    }
   }
 /*
   else 

@@ -1,5 +1,9 @@
 # Latest changes
 *20220119*
+  - You can now [send](#sending-mqtt-messages) and [receive](#using-inputs-to-read-mqtt-messages) MQTT-Messages using the command-interface
+  - When defining [Inputs](#extended-input-handling), the properties are no longer case sensitive (so _info_, _Info_ or _iNFo_ are all treated the same) (the propery parameters are still case sensitive)
+
+*20220119*
   - list of all namespaces in NVS can be shown with command [lsnamespaces](#defining-the-radio-name)
   - listing/copying/moving preferences of/from another namespaces is limited to namespaces that contain only string type data
   - the _#define_ [ETHERNET](#ethernet-support) can be set as *build_flag* in platformio.ini
@@ -686,13 +690,14 @@ A simple client to send serial input over espnow to the radio can be found at [R
 
 # Extended Input Handling
 ## General
-- Inputs can be generated from Digital Pins, Analog Pins, Touch Pins or (some) internal variables
+- Inputs can be generated from Digital Pins, Analog Pins, Touch Pins, (some) internal variables and MQTT-Messages.
 - For each of these Inputs, the handling is identical, the difference is just in the value range used:
   - Digital Input pins return 0 or 1
   - Analog Input pins return 0..4095
   - Touch Pins return 0..1023 (in theory, in practice the real values will be somewhere in between
     (For touch pins the native Espressif-IDE is used, that increases the granularity and accuracy of the readout by magnitudes)
   - For internal variables, the possible return range is -32768..32767 (int16 is used)
+  - For MQTT-Messages, Strings are returned
 - The Inputs could either be read cyclic in the loop() or just on request
 - In 'cyclic mode' a three different change events can be assigned that are executed on any change, if the Input goes to zero or if the Input
   leaves zero.
@@ -1351,6 +1356,28 @@ if later a change into the undesired zone happens, _.lastv_ will be checked. If 
 _volume=0_. This will in return change the Input readout again, thus calling _:v_limit_ again direct which will again store _.lastv_ as either "0"
 or "50".
 
+## Using Inputs to read MQTT-Messages
+  - An Input can be used to react on MQTT-Messages sent to a specific topic.
+  - The syntax is as follows:
+```
+in.mqttecho=src=m echo,onchange={mqttpub reply=?},start
+```
+  - This example defines an Input with the name _mqttecho_
+  - The property _src_ is set to _m echo_ which defines it as source MQTT and the (sub-) topic _echo_. This subtopic will be attached to the default mqtt-prefix of the radio (i. e. _ESP32Radio_) to form the full topic that the input will listen to (i. e. _ESP32Radio/echo_).
+  - The property _onchange_ defines the reaction that will be executed whenever a new message arrives (note that it will also fire if the message content of the new message is identical to the last message). In our case it would simply publish the message received to MQTT using the sub-topic _reply_ (to be extended to the full topic, i. e. _ESP32Radio/reply_ in our example)
+  - _start_ will activate the input (_stop_ would halt it).
+  - the property _info_ can be used as usual to display information on the input
+  - all other properties (like _map_, _on0_ etc.) are not used for the MQTT input.
+  - You can subscribe to as many topics as needed for your application.
+  - You can not use (override) the command input topic (i. e. _ESP32Radio/command_ in our example)
+
+# Sending MQTT-Messages
+  - You can send MQTT-messages with the command 
+```
+  mqttpub hello=world
+```
+  - This will send the message _world_ to the sub-topic _hello_ The full topic will be the default MQTT-Prefix (i. e. _ESP32Radio_) extended by the given sub-topic (i. e. _ESP32Radio/hello_ in this example)
+  - The message will not be sent direct but added to a "backlog". The order of messages sent by _mqttpub_ will be retained, exact timing is not guaranteed.  
 
 
 # Scripting Summary 

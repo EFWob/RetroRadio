@@ -55,14 +55,26 @@ class RetroRadioInputReader {
     virtual int16_t read()  { return 0;};
     virtual void mode(int mod)  {_mode = 0;} ;
     virtual String info() {return String("");};
+    virtual void start() {_started = true;};
+    virtual void stop() {_started = false;};
+    virtual void specialInfo() {};
+    bool started() {return _started;};
+    char type() {return _type;};
+
   protected:
     virtual void deleteContent() {};
     int _mode;
+    bool _started = false;
+    char _type = 0;
 };
+
+void substitute ( String &str, const char* substitute );
+char* doprint ( const char* format, ... );
 
 enum LastInputType  { NONE, NEAREST, HIT };
 
 class RetroRadioInput {
+  friend class RetroRadioInputReaderEvent;
   public:
     ~RetroRadioInput();
     const char* getId();
@@ -110,6 +122,149 @@ class RetroRadioInput {
     uint32_t _timing[4];
 };
 
+class RetroRadioInputReaderEvent : public RetroRadioInputReader {
+  public:
+      RetroRadioInputReaderEvent(RetroRadioInput* input, char type): RetroRadioInputReader(), _input(input)
+        {_type = type;};
+      void event(const char* data) {
+        String cmd = _input->getEventCommands("change");
+        if (_input->_show > 0)
+          doprint("Event on EventInputReader. Started=%d, ChangeEvent=%s, data=%s", _started, 
+            cmd.c_str(), data);
+        if (_started)
+          if (_input->_onChangeEvent) {
+            substitute(cmd, data);
+            if (_input->_show > 0)
+              doprint("Resulting execution is: %s", cmd.c_str());
+            analyzeCmdsRR(cmd);
+          }
+      };
+    protected:
+      RetroRadioInput* _input;
+};
+
+class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
+  public:
+    RetroRadioInputReaderMqtt(RetroRadioInput* input, const char *topic) : RetroRadioInputReaderEvent(input, 'm') {
+      if (NULL == topic)
+        topic = "";
+      _topic = strdup(topic);
+      _mqttReaderList.push_back(this);
+    };
+
+//ini_block.mqttprefix.length()
+
+    virtual ~RetroRadioInputReaderMqtt() {
+      std::vector<RetroRadioInputReaderMqtt *>::iterator it =  _mqttReaderList.begin();
+      while (it != _mqttReaderList.end()) {
+        if (*it == this)
+        {
+          _mqttReaderList.erase(it);
+          it = _mqttReaderList.end();
+        }
+        else
+          it++;
+      }
+      stop();
+      if (_topic)
+        free(_topic);
+    };
+    static std::vector<RetroRadioInputReaderMqtt *> _mqttReaderList;
+    void specialInfo() {
+      char buf[100];
+      String cmnds = _input->getEventCommands("change", buf);
+      if (cmnds.length() > 0) 
+        {
+          doprint(" * onchange-event: \"%s\" %s", cmnds.c_str(), buf);
+        }
+      else
+        doprint(" * onchange-event is not defined!!");
+    };
+
+    void start() {
+      RetroRadioInputReaderEvent::start();
+      if (mqtt_on)
+      {
+        char s[ini_block.mqttprefix.length() + strlen(_topic) + 2];
+        strcpy(s, ini_block.mqttprefix.c_str());
+        if (strlen(_topic) > 0)
+        {
+          strcat(s, "/");
+          strcat(s, _topic);
+        }
+        mqttclient.subscribe ( s );
+      }
+    };
+
+    void stop() {
+      RetroRadioInputReaderEvent::stop();
+      if (mqtt_on)
+      {
+        char s[ini_block.mqttprefix.length() + strlen(_topic) + 2];
+        strcpy(s, ini_block.mqttprefix.c_str());
+        if (strlen(_topic) > 0)
+        {
+          strcat(s, "/");
+          strcat(s, _topic);
+        }
+        mqttclient.unsubscribe ( s );
+      }
+    };
+
+    String info() {        
+        char buf[100];
+        String ret;
+        char s[ini_block.mqttprefix.length() + strlen(_topic) + 2];
+        strcpy(s, ini_block.mqttprefix.c_str());
+        if (strlen(_topic) > 0)
+        {
+          strcat(s, "/");
+          strcat(s, _topic);
+        }
+      ret = String("Waiting for MQTT-Messages on Topic: ") + String(s);
+ //     ret = ret + "  *\r\n";
+      return ret;
+    }
+
+    static void begin() {
+      if (mqtt_on)
+        for(int i = 0; i < _mqttReaderList.size();i++)
+          if (_mqttReaderList[i]->started())
+            _mqttReaderList[i]->start();
+    };
+
+    static void fire(const char *topic, const char *payload) {
+      int len = ini_block.mqttprefix.length();
+      if (strlen(topic) < len)
+        return;
+      if (strlen(topic) == len)
+        topic = "";
+      else
+        topic = topic + len + 1;
+      for(int i = 0; i < _mqttReaderList.size();i++)
+      {
+        //dbgprint("FireCheck[%d]: %s==%s?->payload(%s)", i, topic, _mqttReaderList[i]->_topic, payload);
+        if (_mqttReaderList[i]->_started) 
+        {
+          if (0 == strcmp(topic, _mqttReaderList[i]->_topic))
+          {
+            //dbgprint("This is a match-->fire...");  
+            _mqttReaderList[i]->event(payload);
+            break;
+          }
+        }
+      }
+    };
+
+  private:
+    char * _topic = NULL; 
+};
+
+std::vector<RetroRadioInputReaderMqtt *> RetroRadioInputReaderMqtt::_mqttReaderList;
+
+void mqttInputBegin() {
+  RetroRadioInputReaderMqtt::begin();
+}
 
 void doGenre ( String param, String value );
 void doGenreConfig ( String param, String value );
@@ -329,7 +484,7 @@ void readDataList(std::vector<int16_t>& v, String value) {
 void substitute ( String &str, const char* substitute ) {
   if (substitute) {
     int idx = str.indexOf('?');
-    if (idx > 0) {
+    if (idx >= 0) {
       idx = 0;
       int nesting = 0;
       int subLen = strlen(substitute);
@@ -1559,6 +1714,7 @@ void RetroRadioInput::setTiming(const char* timingName, int32_t ivalue) {
 //  - virtual, can be overidden by subclasses                                                      *
 //**************************************************************************************************
 void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
+  param.toLowerCase();
   if (param == "show") {
     _show = (uint32_t)ivalue * 1000UL;
   } else if (param == "map") {                        // set the valueMap for the input
@@ -1601,10 +1757,14 @@ void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
   } else if (param == "start") {
     _lastInputType = NONE;
     //Serial.printf("Executing Start for in.%s\r\n", getId());
+    if (_reader)
+      _reader->start();
     read(true);
     //Serial.printf("Start for in.%s Done!\r\n", getId());
   } else if (param == "stop") {
     runClick(false);
+    if (_reader)
+      _reader->stop();
     _lastInputType = NONE;
   } else if ((param == "info") || (param == "?")) {
     showInfo(true);
@@ -1628,123 +1788,132 @@ void RetroRadioInput::showInfo(bool hintToOthers) {
   doprint("Info for Input \"in.%s\":", getId());
   if (_reader == NULL)
     doprint(" * No source linked, Input not operational!");
-  else {
-    doprint(" * Src: %s", _reader->info().c_str());
-    if (_lastInputType == NONE)
-      doprint(" * Input is not started (no cyclic polling)");
-    else
-      doprint(" * Cyclic polling is active");
-  }
-  if (_valueMap.size() >= 4) {
-    doprint(" * Value map contains %d entries:", _valueMap.size() / 4);
-    for (int i = 0; i < _valueMap.size(); i += 4)
-      doprint("    %3d: (%d..%d = %d..%d)", 1 + i / 4,
-              _valueMap[i], _valueMap[i + 1], _valueMap[i + 2], _valueMap[i + 3]);
-  } else
-    doprint(" * Value map is NOT set!");
-  doprint(" * Delta: %d", _delta);
-  doprint(" * Show: %d (seconds)", _show / 1000);
-  doprint(" --Event-Info--");
-  if (!hasChangeEvent()) {
-    doprint(" * there are no change-event(s) defined.");
-  } 
-  else 
-    for (int i = 0; i < 3; i++) 
-    {
-      
-      const char* type = (i == 0) ? "change" : (i == 1 ? "0" : "not0");
-      String cmnds = getEventCommands(type, buf);
-      if (cmnds.length() > 0) 
-      {
-        doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
-/*        
-        if (ramsearch(*cmnds)) {
-          String commands = ramgetstr(*cmnds);
-          //chomp_nvs(commands);
-          doprint("    defined in RAM as: \"%s\"", commands.c_str());
-        } else if (nvssearch(*cmnds)) {
-          String commands = nvsgetstr(*cmnds);
-          //chomp_nvs(commands);
-          doprint("    defined in NVS as: \"%s\"", commands.c_str());
-        }  else
-          doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
-      }
-*/  
-      }
-    }
-  if (_clickEvents == 0)  
-    doprint( " * There are no click-event(s) defined." );  
   else 
   {
-    char type[10];
-    strcpy(type, "xclick");
-    for (int i = 0; i < 3; i++) 
+    //if (_lastInputType == NONE)
+    if (_reader->started())
+      doprint(" * Input is started/polling");
+    else
+      doprint(" * Input is not started/not polling");
+    doprint(" * Src: %s", _reader->info().c_str());
+    if (0 != _reader->type())
     {
-      type[0] = '1' + i;
-      String cmnds = getEventCommands(type, buf);
-      if (cmnds.length() > 0) 
+      _reader->specialInfo();
+    }
+    else
+    {
+      if (_valueMap.size() >= 4) {
+        doprint(" * Value map contains %d entries:", _valueMap.size() / 4);
+        for (int i = 0; i < _valueMap.size(); i += 4)
+          doprint("    %3d: (%d..%d = %d..%d)", 1 + i / 4,
+                  _valueMap[i], _valueMap[i + 1], _valueMap[i + 2], _valueMap[i + 3]);
+      } else
+        doprint(" * Value map is NOT set!");
+      doprint(" * Delta: %d", _delta);
+      doprint(" * Show: %d (seconds)", _show / 1000);
+      doprint(" --Event-Info--");
+      if (!hasChangeEvent()) {
+        doprint(" * there are no change-event(s) defined.");
+      } 
+      else 
+        for (int i = 0; i < 3; i++) 
+        {
+          
+          const char* type = (i == 0) ? "change" : (i == 1 ? "0" : "not0");
+          String cmnds = getEventCommands(type, buf);
+          if (cmnds.length() > 0) 
+          {
+            doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+    /*        
+            if (ramsearch(*cmnds)) {
+              String commands = ramgetstr(*cmnds);
+              //chomp_nvs(commands);
+              doprint("    defined in RAM as: \"%s\"", commands.c_str());
+            } else if (nvssearch(*cmnds)) {
+              String commands = nvsgetstr(*cmnds);
+              //chomp_nvs(commands);
+              doprint("    defined in NVS as: \"%s\"", commands.c_str());
+            }  else
+              doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+          }
+    */  
+          }
+        }
+      if (_clickEvents == 0)  
+        doprint( " * There are no click-event(s) defined." );  
+      else 
       {
-        doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
-/*
-        if (ramsearch(*cmnds)) {
-          String commands = ramgetstr(*cmnds);
-          doprint("    defined in RAM as: \"%s\"", commands.c_str());
-        } else if (nvssearch(*cmnds)) {
-          String commands = nvsgetstr(*cmnds);
-          doprint("    defined in NVS as: \"%s\"", commands.c_str());
-        }  else
-          doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+        char type[10];
+        strcpy(type, "xclick");
+        for (int i = 0; i < 3; i++) 
+        {
+          type[0] = '1' + i;
+          String cmnds = getEventCommands(type, buf);
+          if (cmnds.length() > 0) 
+          {
+            doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+    /*
+            if (ramsearch(*cmnds)) {
+              String commands = ramgetstr(*cmnds);
+              doprint("    defined in RAM as: \"%s\"", commands.c_str());
+            } else if (nvssearch(*cmnds)) {
+              String commands = nvsgetstr(*cmnds);
+              doprint("    defined in NVS as: \"%s\"", commands.c_str());
+            }  else
+              doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+          }
+    */   
+          }   
+        }
+        strcpy(type, "long");
+        String cmnds = getEventCommands(type, buf);
+        if (cmnds.length() > 0) 
+        {
+          doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+    /*
+          if (ramsearch(*cmnds)) {
+            String commands = ramgetstr(*cmnds);
+            doprint("    defined in RAM as: \"%s\"", commands.c_str());
+          } else if (nvssearch(*cmnds)) {
+            String commands = nvsgetstr(*cmnds);
+            doprint("    defined in NVS as: \"%s\"", commands.c_str());
+          }  else
+            doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+    */  
+        }
+      
+        strcpy(type, "xlong");
+        for (int i = 0; i < 2; i++) 
+        {
+          type[0] = '1' + i;
+          String cmnds = getEventCommands(type, buf);
+          if (cmnds.length() > 0) 
+          {
+            doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
+    /*
+            if (ramsearch(*cmnds)) {
+              String commands = ramgetstr(*cmnds);
+              doprint("    defined in RAM as: \"%s\"", commands.c_str());
+            } else if (nvssearch(*cmnds)) {
+              String commands = nvsgetstr(*cmnds);
+              doprint("    defined in NVS as: \"%s\"", commands.c_str());
+            }  else
+              doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
+          }    
+        }
+    */
+          }
+        }
       }
-*/   
-      }   
-    }
-    strcpy(type, "long");
-    String cmnds = getEventCommands(type, buf);
-    if (cmnds.length() > 0) 
-    {
-      doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
-/*
-      if (ramsearch(*cmnds)) {
-        String commands = ramgetstr(*cmnds);
-        doprint("    defined in RAM as: \"%s\"", commands.c_str());
-      } else if (nvssearch(*cmnds)) {
-        String commands = nvsgetstr(*cmnds);
-        doprint("    defined in NVS as: \"%s\"", commands.c_str());
-      }  else
-        doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
-*/  
-    }
-  
-    strcpy(type, "xlong");
-    for (int i = 0; i < 2; i++) 
-    {
-      type[0] = '1' + i;
-      String cmnds = getEventCommands(type, buf);
-      if (cmnds.length() > 0) 
-      {
-        doprint(" * on%s-event: \"%s\" %s", type, cmnds.c_str(), buf);
-/*
-        if (ramsearch(*cmnds)) {
-          String commands = ramgetstr(*cmnds);
-          doprint("    defined in RAM as: \"%s\"", commands.c_str());
-        } else if (nvssearch(*cmnds)) {
-          String commands = nvsgetstr(*cmnds);
-          doprint("    defined in NVS as: \"%s\"", commands.c_str());
-        }  else
-          doprint("    NOT DEFINED! (Neither NVS nor RAM)!");
-      }    
-    }
-*/
-      }
+      doprint(" --Timing-Info--");
+      doprint(" * t-debounce: %5ld ms", _timing[T_DEB_IDX]);
+      doprint(" * t-click   : %5ld ms (wait after short click)", _timing[T_CLI_IDX]);
+      doprint(" * t-long    : %5ld ms (detect first longpress)", _timing[T_LON_IDX]);
+      doprint(" * t-repeat  : %5ld ms (repeated longpress)", _timing[T_REP_IDX]);
+      
+    //  doprint(" * Debounce: %d (ms)", _debounceTime);
     }
   }
-  doprint(" --Timing-Info--");
-  doprint(" * t-debounce: %5ld ms", _timing[T_DEB_IDX]);
-  doprint(" * t-click   : %5ld ms (wait after short click)", _timing[T_CLI_IDX]);
-  doprint(" * t-long    : %5ld ms (detect first longpress)", _timing[T_LON_IDX]);
-  doprint(" * t-repeat  : %5ld ms (repeated longpress)", _timing[T_REP_IDX]);
-  
-//  doprint(" * Debounce: %d (ms)", _debounceTime);
   if (hintToOthers)
     if (_inputList.size() > 1) 
     {
@@ -2019,7 +2188,7 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
       ret = ret + "Variable: " + _refname;
       if (!_ref)
         ret += " (will always read as 0)";
-      return ret;
+      return ret;   
     }
   private:
     void *_ref;
@@ -2049,7 +2218,7 @@ void RetroRadioInput::setReader(String value) {
       reader = new RetroRadioInputReaderDigital(idx, _mode);
       break;
     case 'a': 
-      if ((_reader == NULL) && (_mode == 0))
+       if ((_reader == NULL) && (_mode == 0))
         _mode = 0b11100;
       reader = new RetroRadioInputReaderAnalog(idx, _mode);
       break;
@@ -2060,13 +2229,25 @@ void RetroRadioInput::setReader(String value) {
       reader = new RetroRadioInputReaderRam(value.c_str() + 1);
       break;
     case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
-      break;  
+      break;
+    case 'm': 
+        value = value.substring(1);
+        value.trim();
+        reader = new RetroRadioInputReaderMqtt(this, value.c_str());
+      break;    
+    case '0':
+      if (_reader)
+        delete _reader;
+      _reader = NULL;
+      reader = NULL;
+      break;
     case '-': 
       if (idx == 1)
         if (_reader)
         {
           delete _reader;
           _reader = NULL;
+          reader = NULL;
         }  
       break;
   }
@@ -2091,7 +2272,11 @@ int16_t RetroRadioInput::physRead() {
   if (!_reader) {
     _lastInputType = NONE;
     return 0;
-  } else {
+  } else if (0 != _reader->type() ) {
+    _lastInputType = NONE;
+    return 0;
+  }
+  else {
     if (_lastInputType == NONE)
       _lastInputType = HIT;
     return _reader->read();
@@ -2115,6 +2300,9 @@ RetroRadioInput::~RetroRadioInput() {
 };
 
 int RetroRadioInput::read(bool doStart) {
+  if (_reader)
+    if (_reader->type() != 0)
+      return 0;
   bool forced = (_lastInputType == NONE);
   bool show = (_show > 0) && ((millis() - _lastShowTime > _show) || forced);
   String showStr;
@@ -3519,6 +3707,16 @@ void loopRR() {
   }
   genres.loop();
   //favplayinfoloop();
+  if (mqttrcv_backlog.size() > 0)
+  {
+    const char *topic = mqttrcv_backlog[0];
+    const char *payload = topic + strlen(topic) + 1;
+    //dbgprint("\r\nCheck MQTT-Fire: %s->%s", topic, payload);
+    RetroRadioInputReaderMqtt::fire(topic, payload);
+    mqttrcv_backlog.erase(mqttrcv_backlog.begin());
+    free((void *)topic);
+  } 
+
 }
 
 
@@ -3811,6 +4009,23 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     strcpy(reply, doFavorite(param, value).c_str());
   } 
+  else if ( (ret = (param.startsWith("mqttpub")) ))
+  {
+    String topic;
+    String payload;
+    if (param.length() > 7) 
+    {
+      topic = paramOriginal.substring(8);
+      topic.trim();
+    }
+    char* s = (char *)malloc (topic.length() + value.length() + 2);
+    if (s)
+    {
+      strcpy(s, topic.c_str());
+      strcpy(s + 1 + topic.length(), value.c_str());
+      mqttpub_backlog.push_back(s);
+    }
+  }
   else if (ret = (param == "espnowmode"))
   {
     if (isdigit(value.c_str()[0]))

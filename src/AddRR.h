@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <nvs.h>
 #include <memory>
+#include <PubSubClient.h>
 #ifndef NVS_KEY_NAME_MAX_SIZE
 #define NVS_KEY_NAME_MAX_SIZE 16
 #endif
@@ -266,10 +267,14 @@ extern int               mqttfavidx;                            // idx of favori
 extern int               mqttfavendidx;                         // last idx of favorite info to publish on MQTT
 //extern std::vector<keyname_t> keynames ;                        // Keynames in NVS
 extern std::vector<const char *> keynames ;                        // Keynames in NVS
+extern std::vector<const char *> mqttpub_backlog ;              // backlog of MQTT-Messages to send
+extern std::vector<const char *> mqttrcv_backlog ;              // Backlog for MQTT-messages received
+
 extern uint8_t           namespace_ID ;                         // Namespace ID found
 extern bool              resetreq ;                             // Request to reset the ESP32
-
-
+extern PubSubClient      mqttclient ;
+extern bool              mqtt_on;
+extern void              mqttInputBegin() ;
 
 
 char*       dbgprint( const char* format, ... ) ;
