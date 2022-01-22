@@ -1377,7 +1377,7 @@ in.mqttecho=src=m echo,onchange={mqttpub reply=?},start
   mqttpub hello=world
 ```
   - This will send the message _world_ to the sub-topic _hello_ The full topic will be the default MQTT-Prefix (i. e. _ESP32Radio_) extended by the given sub-topic (i. e. _ESP32Radio/hello_ in this example)
-  - The message will not be sent direct but added to a "backlog". The order of messages sent by _mqttpub_ will be retained, exact timing is not.  
+  - The message will not be sent direct but added to a "backlog". The order of messages sent by _mqttpub_ will be retained, exact timing is not guaranteed.  
 
 
 # Scripting Summary 
