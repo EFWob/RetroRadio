@@ -471,6 +471,8 @@ uint8_t                 namespace_ID ;                   // Namespace ID found
 //std::vector<keyname_t>  keynames ;                        // Keynames in NVS
 std::vector<const char *> keynames ;                     // Keynames in NVS 
 std::vector<const char *> mqttpub_backlog ;              // Backlog for MQTT-messages to be sent
+std::vector<const char *> mqttrcv_backlog ;              // Backlog for MQTT-messages received
+
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
 sv uint16_t       clickcount = 0 ;                       // Incremented per encoder click
@@ -2937,6 +2939,7 @@ bool mqttreconnect()
   if ( res )
   {
     res = mqttclient.subscribe ( subtopic ) ;             // Subscribe to MQTT
+    mqttInputBegin();
     if ( !res )
     {
       dbgprint ( "MQTT subscribe failed for topic: %s" , subtopic) ;             // Failure
@@ -2985,6 +2988,17 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
     dbgprint ( "MQTT message arrived [%s], lenght = %d, %s", topic, len, cmd ) ;
     reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
     dbgprint ( reply ) ;                              // Result for debugging
+  } else
+  {
+    char *msg = (char *)malloc(len + 2 + strlen(topic));
+    if (msg)
+    {
+      strcpy(msg, topic);
+      strncpy(msg + strlen(topic) + 1, (const char *)payload, len);
+      msg[len + 1 + strlen(topic)] = 0;
+      //dbgprint("Received MQTT for INPUT: %s->%s", msg, msg + strlen(topic) + 1);
+      mqttrcv_backlog.push_back(msg);
+    }
   }
 /*
   else 
