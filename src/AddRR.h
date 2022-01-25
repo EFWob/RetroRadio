@@ -246,7 +246,11 @@ class VS1053
 
 // prototypes for functions/global data in main.cpp()
 extern String            host;                                  // host to connect to
-extern String            lastStation ;                          // URL [optional #name] of last host request (not chomped)
+extern bool              hostreq ;                              // Request for new host
+extern uint8_t           announceMode ;                         // Announcement mode...
+
+extern String            currentStation ;                       // URL [optional #name] of last host request (not chomped)
+extern String            stationBefore;
 extern String            ipaddress ;                            // Own IP-address
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data

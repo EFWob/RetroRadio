@@ -426,7 +426,8 @@ int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
 int16_t           currentpreset = -1 ;                   // Preset station playing
 String            host ;                                 // The URL to connect to or file to play
-String            lastStation ;                          // The URL to connect to or file to play (incl. name)
+String            currentStation ;                       // The URL to connect to or file to play (incl. name)
+String            stationBefore ;                        // One before...
 String            playlist ;                             // The URL of the specified playlist
 bool              hostreq = false ;                      // Request for new host
 bool              reqtone = false ;                      // New tone setting requested
@@ -454,6 +455,8 @@ struct tm         timeinfo ;                             // Will be filled by NT
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint32_t          clength ;                              // Content length found in http header
+//uint32_t          clength_host ;                         // Content length found in http header of host request
+uint8_t           announceMode = 0 ;                     // Announcement mode...
 uint32_t          max_mp3loop_time = 0 ;                 // To check max handling time in mp3loop (msec)
 int16_t           scanios ;                              // TEST*TEST*TEST
 int16_t           scaniocount ;                          // TEST*TEST*TEST
@@ -2155,8 +2158,8 @@ void showstreamtitle ( const char *ml, bool full )
 //**************************************************************************************************
 void setdatamode ( datamode_t newmode )
 {
-  //dbgprint ( "Change datamode from 0x%03X to 0x%03X",
-  //           (int)datamode, (int)newmode ) ;
+//  dbgprint ( "Change datamode from 0x%03X to 0x%03X",
+//             (int)datamode, (int)newmode ) ;
   datamode = newmode ;
 }
 
@@ -2168,15 +2171,17 @@ void setdatamode ( datamode_t newmode )
 //**************************************************************************************************
 void stop_mp3client ()
 {
-
+  if (!mp3client.connected())
+    return;
   while ( mp3client.connected() )
   {
     dbgprint ( "Stopping client" ) ;               // Stop connection to host
-    mp3client.flush() ;
+    //mp3client.flush() ;
     mp3client.stop() ;
-    delay ( 500 ) ;
+    delay ( 250 ) ;
   }
-  mp3client.flush() ;                              // Flush stream client
+  dbgprint("Client stopped");
+  //mp3client.flush() ;                              // Flush stream client
   mp3client.stop() ;                               // Stop stream client
 }
 
@@ -2205,6 +2210,7 @@ bool connecttohost()
 
   //favplayrequestinfo(host);
 
+  //announceMode = 0;
 
   if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
   {
@@ -2996,7 +3002,7 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
       strcpy(msg, topic);
       strncpy(msg + strlen(topic) + 1, (const char *)payload, len);
       msg[len + 1 + strlen(topic)] = 0;
-      //dbgprint("Received MQTT for INPUT: %s->%s", msg, msg + strlen(topic) + 1);
+      dbgprint("Received MQTT (for INPUT?): %s->%s", msg, msg + strlen(topic) + 1);
       mqttrcv_backlog.push_back(msg);
     }
   }
@@ -3588,6 +3594,7 @@ void setup()
 #else
   DEBUG = 0;
 #endif
+  announceMode = 0;
   // Version tests for some vital include files
   if ( about_html_version   < 170626 ) dbgprint ( wvn, "about" ) ;
   if ( config_html_version  < 180806 ) dbgprint ( wvn, "config" ) ;
@@ -4627,16 +4634,67 @@ void mp3loop()
       {
         maxchunk = qspace ;                              // No, limit to free queue space
       }
+      /*
+      if (!mp3client.connected())
+        if ( clength_host > 0)
+        {
+          clength_host = 0xffffffff;
+          dbgprint("MP3Client closed unexpectedly! Available = %d", mp3client.available());
+        }
+      */
       if ( ( maxchunk > 1000 ) ||
+           ( !mp3client.connected() ) ||
            ( datamode == INIT ) ||                       // Only read if worthwile or during INIT
            ( datamode == PLAYLISTINIT ) )
       {
         if ( maxchunk )                                  // Zero bytes not allowed
         {
           res = mp3client.read ( tmpbuff, maxchunk ) ;   // Read a number of bytes from the stream
+          /*
+          if (clength_host && (datamode == DATA))
+            if (clength_host != 0xffffffff)
+            {
+              dbgprint ("Content len remain: %d(old) - %d(res) = %d (new)", clength_host, res, clength_host - res);
+              clength_host = clength_host - res;
+              if (res == 0)
+              {
+                setdatamode ( STOPREQD );
+                dbgprint("All done!?!?! Available = %d, maxChunk = %d, res=%d, content-len: %d", 
+                  av, maxchunk, res, clength_host);
+
+                clength_host = 0xffffffff;
+                playlist_num = 0;
+              }
+          }
+          */
         }
       }
+      /*
+      if (!mp3client.connected())
+        //if (0 == mp3client.available())
+        if (clength_host > 0)
+          if (clength_host < 0xffffffff)
+            {
+             // clength_host = 1;
+              //res = 0;
+              if (res == 0)
+              dbgprint("MP3Client closed unexpectedly! Available = %d, maxChunk = %d, res=%d", 
+                av, maxchunk, res);
+              playlist_num = 0;
+            }    
+      */
     }
+
+/*
+    if (0xffffffff == clength_host)
+    {
+      clength_host = 0;
+      setdatamode ( STOPREQD );
+      res=0;
+      maxchunk=0;
+      playlist_num = 0;
+    }    
+*/
     if ( maxchunk == 0 )
     {
       if ( datamode == PLAYLISTDATA )                    // End of playlist
@@ -4657,6 +4715,24 @@ void mp3loop()
       max_mp3loop_time = timing ;                        // Yes, set new maximum
       dbgprint ( "Duration mp3loop %d", timing ) ;       // and report it
     }
+    if (datamode == DATA)
+    {
+
+      static uint8_t countdown = 0;
+      int dqused = QSIZ - uxQueueSpacesAvailable( dataqueue ) ;
+      if (dqused <  5) 
+      {
+        //dbgprint ("Dataqueue (almost) empty at: %d", dqused);
+        if (0 != dqused)
+          countdown = 0;
+        else
+          if (!++countdown)
+            setdatamode( STOPREQD );
+      }
+      else
+        countdown = 0;
+    }
+
   }
   if ( datamode == STOPREQD )                            // STOP requested?
   {
@@ -4669,7 +4745,9 @@ void mp3loop()
     }
     else
     {
+      dbgprint ( "Try to stop MP3Client...");
       stop_mp3client() ;                                 // Disconnect if still connected
+      dbgprint ( "MP3Client stopped...");
     }
     chunked = false ;                                    // Not longer chunked
     datacount = 0 ;                                      // Reset datacount
@@ -4677,6 +4755,30 @@ void mp3loop()
     queuefunc ( QSTOPSONG ) ;                            // Queue a request to stop the song
     metaint = 0 ;                                        // No metaint known now
     setdatamode ( STOPPED ) ;                            // Yes, state becomes STOPPED
+    if (announceMode != 0)
+    {
+      if (announceMode == 1) 
+        {
+        announceMode = 0;
+        dbgprint("STATION=%s", stationBefore.c_str());
+        analyzeCmd("station", stationBefore.c_str());
+        }
+      else if (announceMode == 2)
+      {
+        extern bool ramsearch ( const char* key );
+        extern String ramgetstr ( const char* key );
+        const char *s = "::alertdone";
+        announceMode = 0;
+        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        if (commands.length() > 0)
+        {
+          //dbgprint("Now execute commands: %s", commands.c_str());
+          analyzeCmd(commands.c_str());
+        }
+        else
+          dbgprint("Nothing to do now that alert is done!");
+      }
+    }
     return ;
   }
   if ( localfile )                                       // Playing from SD?
@@ -4768,7 +4870,9 @@ void mp3loop()
 
 void setLastStation(String latest)
 {
-  lastStation = latest;
+  if ( 0 == announceMode )
+    stationBefore = currentStation ;
+  currentStation = latest;
   int idx = latest.indexOf('#');
   if (idx >= 0)
   {
@@ -4963,6 +5067,7 @@ void handlebyte_ch ( uint8_t b )
     totalcount = 0 ;                                   // Reset totalcount
     metalinebfx = 0 ;                                  // No metadata yet
     metalinebf[0] = '\0' ;
+    //clength_host = 0;
   }
   if ( datamode == HEADER )                            // Handle next byte of MP3 header
   {
@@ -4999,6 +5104,21 @@ void handlebyte_ch ( uint8_t b )
           String ct = metaline.substring ( 13 ) ;      // Set contentstype. Not used yet
           ct.trim() ;
           dbgprint ( "%s seen.", ct.c_str() ) ;
+        }
+        if ( lcml.indexOf ( "content-length") >= 0)    // Line with "Content-Length: nnnnn"
+        {
+          String cl = metaline.substring ( 15 ) ;
+          uint32_t clen = atoi ( metalinebf + 15 );
+          if (clen > 1000)
+          {
+            dbgprint ( "Content len seen in host req, announceMode is: %d", announceMode);
+            if (0 != announceMode)
+            {
+              dbgprint ( "Announcement started, playing: %s", currentStation.c_str());
+              dbgprint ( "Station before is: %s", stationBefore.c_str());
+              //announceMode = 1;
+            }
+          }
         }
         if ( lcml.startsWith ( "icy-br:" ) )
         {
@@ -5453,7 +5573,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   String             argument ;                       // Argument as string
   String             value ;                          // Value of an argument as a string
   int                ivalue ;                         // Value of argument as an integer
-  static char        reply[180] ;                     // Reply to client, will be returned
+  static char        reply[1800] ;                    // Reply to client, will be returned
   uint8_t            oldvol ;                         // Current volume
   bool               relative ;                       // Relative argument (+ or -)
   String             tmpstr ;                         // Temporary for value
@@ -5576,6 +5696,11 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
+      if ( announceMode != 0 )
+      {
+        strcpy(reply, "Command 'preset' not allowed in Announce-Mode");
+        return reply;
+      }
       if ( relative )                                 // Relative argument?
       {
         currentpreset = ini_block.newpreset ;         // Remember currentpreset
@@ -5624,6 +5749,11 @@ const char* analyzeCmd ( const char* par, const char* val )
     ///  setdatamode ( STOPREQD ) ;                      // Request STOP
     ///}
     //lastStation = value;
+    if ( announceMode != 0 )
+    {
+      strcpy(reply, "Command 'station' not allowed in Announce-Mode");
+      return reply;
+    }
     setLastStation(value);
     host = value ;                                    // Save it for storage and selection later
     //favplayrequestinfo ( host );
