@@ -738,7 +738,7 @@ For the command _alert_ the Station Name changes to **"Alert!"** while playing. 
 - you can override the default text by setting _$alertinfo_ in RAM or NVS (preferences)
 - by adding any text after the URL in the command (that will override the _$alertinfo_-setting in RAM/NVS)
 
-**A general word of warning**: this feature might cause unexpected behaviour if called with illegimate parameters. One known issue is that the command _stop_, when issued in "announcement-mode" will cancel the announcement but will continue with the previous stream. I found it working reliable with valid URLs but only have limited experience with invalid input data. Please let me know if you were able to crash the radio using this feature.
+**A general word of warning**: this feature might cause unexpected behaviour if called with illegal parameters. One known issue is that the command _stop_, when issued in "announcement-mode" will cancel the announcement but will continue with the previous stream. I found it working reliable with valid URLs but only have limited experience with invalid input data. Please let me know if you were able to crash the radio using this feature.
 
 # Extended Input Handling
 ## General
