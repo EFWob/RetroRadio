@@ -1367,7 +1367,7 @@ esp_err_t nvssetstr ( const char* key, String val )
 {
   String curcont ;                                         // Current contents
   bool   wflag = true  ;                                   // Assume update or new key
-
+  bool   nflag = true  ;
   //dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
   if ( val.length() >= NVSBUFSIZE )                        // Limit length of string to store
   {
@@ -1378,6 +1378,7 @@ esp_err_t nvssetstr ( const char* key, String val )
   {
     curcont = nvsgetstr ( key ) ;                          // Read current value
     wflag = ( curcont != val ) ;                           // Value change?
+    nflag = false;
   }
   if ( wflag )                                             // Update or new?
   {
@@ -1387,6 +1388,14 @@ esp_err_t nvssetstr ( const char* key, String val )
     {
       dbgprint ( "nvssetstr failed!" ) ;
     }
+    else
+    {
+      if (nflag)
+      {
+        keynames.push_back(strdup(key));
+      }
+    }
+
   }
   return nvserr ;
 }
@@ -4715,23 +4724,29 @@ void mp3loop()
       max_mp3loop_time = timing ;                        // Yes, set new maximum
       dbgprint ( "Duration mp3loop %d", timing ) ;       // and report it
     }
-    if (datamode == DATA)
-    {
-
-      static uint8_t countdown = 0;
-      int dqused = QSIZ - uxQueueSpacesAvailable( dataqueue ) ;
-      if (dqused <  5) 
+    if (announceMode != 0)
+      if (datamode == DATA)
       {
-        //dbgprint ("Dataqueue (almost) empty at: %d", dqused);
-        if (0 != dqused)
-          countdown = 0;
+
+        static uint8_t countdown = 0;
+        int dqused = QSIZ - uxQueueSpacesAvailable( dataqueue ) ;
+        if (dqused <  5) 
+        {
+          //dbgprint ("Dataqueue (almost) empty at: %d", dqused);
+          if (0 != dqused)
+            countdown = 0;
+          else
+            if (!++countdown)
+              setdatamode( STOPREQD );
+        }
         else
-          if (!++countdown)
-            setdatamode( STOPREQD );
+          countdown = 0;
       }
       else
-        countdown = 0;
-    }
+      {
+        if (millis() - announceStart > 2000)
+          setdatamode( STOPREQD );
+      }
 
   }
   if ( datamode == STOPREQD )                            // STOP requested?
@@ -4757,18 +4772,20 @@ void mp3loop()
     setdatamode ( STOPPED ) ;                            // Yes, state becomes STOPPED
     if (announceMode != 0)
     {
+      playlist_num = 0;
+      setAnnouncemode(0);
+/*
       if (announceMode == 1) 
         {
-        announceMode = 0;
-        dbgprint("STATION=%s", stationBefore.c_str());
-        analyzeCmd("station", stationBefore.c_str());
+        setAnnouncemode(0);
         }
       else if (announceMode == 2)
       {
+        setAnnouncemode(0);
+
         extern bool ramsearch ( const char* key );
         extern String ramgetstr ( const char* key );
         const char *s = "::alertdone";
-        announceMode = 0;
         String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
         if (commands.length() > 0)
         {
@@ -4778,6 +4795,8 @@ void mp3loop()
         else
           dbgprint("Nothing to do now that alert is done!");
       }
+*/
+
     }
     return ;
   }
@@ -5646,7 +5665,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     bool newMuteflag;
     if (value.length() > 0)
     {
-      Serial.printf("Mute with value: '%s'=%d\r\n", value.c_str(), ivalue);
+      //Serial.printf("Mute with value: '%s'=%d\r\n", value.c_str(), ivalue);
       newMuteflag = ivalue;
     }
     else
@@ -5696,7 +5715,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
-      if ( announceMode != 0 )
+      if ( isAnnouncemode() )
       {
         strcpy(reply, "Command 'preset' not allowed in Announce-Mode");
         return reply;
@@ -5749,7 +5768,7 @@ const char* analyzeCmd ( const char* par, const char* val )
     ///  setdatamode ( STOPREQD ) ;                      // Request STOP
     ///}
     //lastStation = value;
-    if ( announceMode != 0 )
+    if ( isAnnouncemode() )
     {
       strcpy(reply, "Command 'station' not allowed in Announce-Mode");
       return reply;

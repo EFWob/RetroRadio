@@ -315,10 +315,14 @@ int16_t numChannels = 0;              // Number of channels defined in current c
 bool setupDone = false;               // All setup for RetroRadio finished?
 int16_t currentFavorite = 0;              // currently playing favorite
 std::vector<char*> espnowBacklog;     // Backlog of command(s) received by espnow
+bool muteBefore = false;              // how was mute before announceMode started?
+uint8_t volumeBefore = 0;             // how was volume set before announceMode started?
+uint32_t announceStart = 0;           // when has announceMode started?
 
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
 String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
+String readBool(void *);                 // Takes a void pointer and returns the content, assumes ptr to bool
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
 String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
@@ -350,6 +354,7 @@ struct {                           // A table of known internal variables that c
   String (*readf)(void*);
 } sysVarReferences[] = {
   {"volume", &ini_block.reqvol, readUint8},
+  {"volume_before", &volumeBefore, readUint8},
   {"preset", &ini_block.newpreset, readInt16},
   {"toneha", &ini_block.rtone[0], readUint8},
   {"tonehf", &ini_block.rtone[1], readUint8},
@@ -367,7 +372,9 @@ struct {                           // A table of known internal variables that c
   {"url_before", NULL, readStationBeforeURL},
   {"mqtt_on", NULL, readMqttStatus},
   {"playing", &playingstat, readInt8},
-  {"favorite", &currentFavorite, readInt16}
+  {"favorite", &currentFavorite, readInt16},
+  {"mute", &muteflag, readBool},
+  {"mute_before", &muteBefore, readBool},
 };
 
 
@@ -474,6 +481,12 @@ String readInt16(void *ref) {
   return String( (*((int16_t*)ref)));
 }
 
+String readBool(void *ref) {
+  return String( (*((bool*)ref)));
+}
+
+
+
 String readVolume(void* ref) {
   return String(vs1053player->getVolume (  )) ;
 }
@@ -505,6 +518,124 @@ String doSysList(const char* p) {
     }
   } 
   return ret + "]}";
+}
+
+bool isAnnouncemode() {
+  return ((announceMode !=0 ) && (announceMode <= 2));
+}
+
+void defaultAlertStop()
+{
+  char s[stationBefore.length() + 20];
+  announceMode = 0;
+  String info = stationBefore ;
+  dbgprint("Running defaultAlertStop, volume=%d, mute=%d, url=%s", volumeBefore, muteBefore, stationBefore.c_str());
+  muteflag = muteBefore ;
+  ini_block.reqvol = volumeBefore ;
+  sprintf(s, "station=%s", stationBefore.c_str());
+  analyzeCmd(s);
+  setLastStation(info);
+
+}
+
+void setAnnouncemode(uint8_t mode) {
+  if (mode != announceMode)
+  {
+    if (0 == announceMode)
+    {
+      stationBefore = currentStation;
+      muteBefore = muteflag ;
+      volumeBefore = ini_block.reqvol ;
+      muteflag = false ;
+    }
+    else 
+    {
+    }
+    if (mode == 0)
+    {
+      if (announceMode == 1)
+      {
+        announceMode = 0;
+        String info = stationBefore;
+        char s[stationBefore.length() + 20];
+        sprintf(s, "station=%s", stationBefore.c_str());
+        analyzeCmd(s);
+        setLastStation(info);
+      }
+      else if (announceMode == 2)
+      {
+        announceMode = 255;
+        const char *s = "::alertdone";
+        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        if (commands.length() > 0)
+          {
+            dbgprint("Now execute commands: %s", commands.c_str());
+            analyzeCmd(commands.c_str());
+            if (!isAnnouncemode())
+              announceMode = 0;
+          }
+        else
+        {
+          defaultAlertStop();
+          announceMode = 0;
+        }
+      }
+    }
+    else if ((announceMode < mode) || (announceMode == 255))
+    {
+      announceMode = mode;
+      if (mode == 2)
+      {
+        const char *s = "::alertstart";
+        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        if (commands.length() > 0)
+          {
+            //dbgprint("Now execute commands: %s", commands.c_str());
+            analyzeCmd(commands.c_str());
+          }
+        else
+          dbgprint("Nothing to do for '%s'!", s);
+      }
+      announceStart = millis();
+      if (0 == announceStart)
+        announceStart = 1;
+    } 
+  }  
+
+}
+
+void getAnnounceInfo(String& url, String& info, uint8_t id) {
+  int idx = url.indexOf(' ');
+  if (idx > 0)
+  {
+    info = url.substring(idx + 1);
+    info.trim();
+    url = url.substring(0, idx);
+  }
+  else
+  {
+    const char *defaultinfo = "Alarm!";
+    const char *searchkey = NULL;
+    switch(id)
+    {
+      case 1:
+        searchkey = "@$announceinfo";
+        defaultinfo = "Announcement";
+        break;
+      case 2:
+        searchkey = "@$alertinfo";
+        defaultinfo = "Alert!";
+        break;
+      default:
+        break;
+    }
+    if (searchkey) {
+      info = String(searchkey);
+      chomp_nvs(info);
+    }
+    if (info.length() == 0)
+      info = String(defaultinfo);
+  }
 }
 
 
@@ -4092,42 +4223,40 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if (ret = (param == "announce"))
   {
+    String info;
+    getAnnounceInfo(value, info, 1);
     extern uint8_t announceMode;
     if (0 == announceMode)
     {
-      stationBefore = currentStation;
-      announceMode = 1;
+      setAnnouncemode(1);
     }
-
     host = value;
     hostreq = true;  
-    currentStation = value;
+    if (info.length() > 0)
+      value = value + '#' + info;
+    setLastStation(value);
 
 //    analyzeCmd("station", value.c_str());
   }
   else if (ret = (param == "alert"))
   {
-
-    const char *s = "::alertstart";
+    String info;
+    getAnnounceInfo(value, info, 2);
+    dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
     if (0 == announceMode)
     {
       stationBefore = currentStation;
     }
     if (announceMode < 2)
     {
-      announceMode = 2;
-      String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
-      if (commands.length() > 0)
-        {
-          //dbgprint("Now execute commands: %s", commands.c_str());
-          analyzeCmd(commands.c_str());
-        }
-      else
-        dbgprint("Nothing to do for '%s'!", s);
+      setAnnouncemode(2);
     }
     host = value;
     hostreq = true;  
-    currentStation = value;
+    if (info.length() > 0)
+      value = value + '#' + info;
+    setLastStation(value);
+
     //analyzeCmd("station", value.c_str());
   }
   else if (ret = (param == "espnowmode"))
@@ -4380,7 +4509,7 @@ void doGenreConfig(String param, String value)
 String doGenre(String param, String value)
 {
   String ret = "";
-  if (announceMode)
+  if (isAnnouncemode())
     return "Command 'genre' not allowed in Announce-Mode";
 
   if (value.startsWith("--")) 
@@ -4622,7 +4751,7 @@ String readStationBeforeURL(void *)
 String doGpreset(String value)
 {
   String ret = "";
-  if (announceMode)
+  if (isAnnouncemode())
     return "Commmand 'gpreset' not allowed in Announce-Mode";
   int ivalue = value.toInt();
   if (genreId != 0) 
@@ -5202,6 +5331,7 @@ String readfavfrompref ( int16_t idx )
   sprintf ( tkey, "fav_%02d", idx ) ;              // Form the search key
   if ( !nvssearch ( tkey ) )                           // Does _x[x[x]] exists?
   {
+      //Serial.printf("Favorite Key('%s') not in preferences!" , tkey);
       return String ( "" ) ;                           // Not found
   }
   // Get the contents
@@ -5346,6 +5476,7 @@ String getFavoriteJson(int idx, int rMin, int rMax)
     return "";
   String favinfo = String("{\"idx\": \"") + idx;
   String url = readfavfrompref ( idx );
+  //Serial.printf("readfavfrompref(%d) is: '%s'\r\n", idx, url.c_str());
   String lastHost = currentStation;
   chomp(lastHost);
   String name;
@@ -5378,7 +5509,7 @@ String doFavorite (String param, String value)
   bool numberGiven;
   const char* value_cstr = value.c_str();
   String ret = "";
-  if (announceMode)
+  if (isAnnouncemode())
     return "Command 'favorite' not allowed in Announce-Mode";
   if (param != "favorite")
     return "Unexpected command word: " + param;
