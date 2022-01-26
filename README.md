@@ -1,6 +1,6 @@
 # Latest changes
 *20220126*
-  - BIG NEW FEATURE: you can interrupt the current stream to play [announcements/alerts](#play_announcements_or_alerts) from mp3-URLs. I use this to relay the doorbell or to play voice mail sent to a Messenger. 
+  - BIG NEW FEATURE: you can interrupt the current stream to play [announcements/alerts](#play-announcements-or-alerts) from mp3-URLs. I use this to relay the doorbell or to play voice mail sent to a Messenger. 
   - [Receiving](#using-inputs-to-read-mqtt-messages) MQTT-Messages outside the name scope of the radio (set by *mqtt_prefix* in the preferences) is now possible.
   - Bugfix for setting NVS-preferences from the command-interface.  
 
@@ -98,7 +98,7 @@ Input Handling](#extended-input-handling) if you are not interested to use the f
 	  which will be used as paramter (if not found, will be substituted by empty string)
   - the _*NAME*_ of the radio can be defined as build flag in _platformio.ini_ [see below](#defining-the-radio-name)
   - [ESP-Now](#using-esp-now) can be used to send command(s) to the radio
-  - you can interrupt the current stream to play [announcements/alerts](#play_announcements_or_alerts) from mp3-URLs.
+  - you can interrupt the current stream to play [announcements/alerts](#play-announcements-or-alerts) from mp3-URLs.
 
 
 
@@ -693,16 +693,17 @@ The command _espnowmode=n_ can be used to control, how the radio behaves upon re
 
 A simple client to send serial input over espnow to the radio can be found at [RetroRadio/espnow/serialtoespnow/](espnow/serialtoespnow/).
 
-# Play Announcements or Alerts
+## Play Announcements or Alerts
 Announcements (or Alerts) will interrupt the current stream to play some info. Announcements/Alerts can be played from any URL that can be played by the radio. Currently that means "http"-type URLs (not https://). And I tested with mp3 so far only.
 
 Basic usage:
 - _announce=URL_ will play the _URL_ if this is a URL for a mp3-file and will return to the station played before.
 - the URL must not contain any whitespace
+- URL must be given without leading *http://* 
 - if the URL is not available/not a valid file, the radio will return to the previous station after a few seconds
 - while the announcement is playing, certain commands that change the stream are not available (_preset_, _channel_, _genre_, _favorite_ etc.)
 - _mute_ is turned off before the announcement starts (but volume level is not changed)
-- URL must be given without leading *http://* 
+
 
 Without any judgement on the quality, here is an example for a URL that was returned by searchengine after searching for "free mp3 ringtones"
 
@@ -721,18 +722,18 @@ announce=dl.prokerala.com/downloads/ringtones/files/dl/mp3/krishna-bhagwan-bansu
 When playing an announcement, you can not change to a "standard-stream" (preset, favorite). You can stop the playout of the announcement using the command _stop_. 
 While playing the announcement, you can however cancel the current announcement by starting a new announcement (if an announcement was cancelled by another announcement, the radio will not return to the interrupted announcement but to the last "regular" stream that played before).
 
-The announcement will be played at the same volume-setting the radio is currently on. If the volume is set to Zero or the radio is muted, nothing will be heared. To ensure audible output, the command _alert_ can be used.
+The announcement will be played at the same volume-setting the radio is currently on. If the volume is set to Zero, nothing will be heared. To ensure audible output, the command _alert_ can be used.
 
 The command _alert_ is similar but allows for some more control, if needed:
-- if _alert_ starts, RAM/NVS are searched for the key _::alertstart_. If that key has any value assigned, the defined value of that key will be executed before the stream starts (that way it is possible to set a defined value) 
+- if _alert_ starts, RAM/NVS are searched for the key _::alertstart_. If that key has any value assigned, the defined value of that key will be executed as commands-sequence before the stream starts (that way it is possible i. e. to set a defined value for volume) 
 - if _alert_ ends, RAM/NVS are searched for the key _::alertdone_
 - if _::alertdone_ is not defined, the radio will restore the previous _mute_-state, the previous _volume_ and the previous _station_
-- if you define _::alertdone_, you are responsible to recover self (if needed)
-  - the previous station using _~url_before_
-  - the previous mute state using _~mute_before_
-  - the previous volume using _~volume_before_
+- if you define _::alertdone_, you are responsible to recover self (if needed) from [system variables](#using-inputs-to-read-internal-variables)
+  - the previous station using *~url_before*
+  - the previous mute state using *~mute_before*
+  - the previous volume using *~volume_before*
 
-For tis command the Station Name changes to **"Alert!"** while playing. There are two possibilities to change that assignment:
+For this command the Station Name changes to **"Alert!"** while playing. There are two possibilities to change that assignment:
 - you can override the default text by setting _$alertinfo_ in RAM or NVS (preferences)
 - by adding any text after the URL in the command (that will override the _$alertinfo_-setting in RAM/NVS)
 
