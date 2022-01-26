@@ -1,4 +1,10 @@
 # Latest changes
+*20220126*
+  - BIG NEW FEATURE: you can interrupt the current stream to play [announcements/alerts](#play-announcements-or-alerts) from mp3-URLs. I use this to relay the doorbell or to play voice mail sent to a Messenger. 
+  - [Receiving](#using-inputs-to-read-mqtt-messages) MQTT-Messages outside the name scope of the radio (set by *mqtt_prefix* in the preferences) is now possible.
+  - Some commands (_favorite_, _genre_, _ram_, _nvs_) now return a value that can be used from http-interface
+  - Bugfix for setting NVS-preferences from the command-interface.  
+
 *20220122*
   - You can now [send](#sending-mqtt-messages) and [receive](#using-inputs-to-read-mqtt-messages) MQTT-Messages using the command-interface
   - When defining [Inputs](#extended-input-handling), the properties are no longer case sensitive (so _info_, _Info_ or _iNFo_ are all treated the same) (the propery parameters are still case sensitive)
@@ -93,6 +99,7 @@ Input Handling](#extended-input-handling) if you are not interested to use the f
 	  which will be used as paramter (if not found, will be substituted by empty string)
   - the _*NAME*_ of the radio can be defined as build flag in _platformio.ini_ [see below](#defining-the-radio-name)
   - [ESP-Now](#using-esp-now) can be used to send command(s) to the radio
+  - you can interrupt the current stream to play [announcements/alerts](#play-announcements-or-alerts) from mp3-URLs.
 
 
 
@@ -687,6 +694,51 @@ The command _espnowmode=n_ can be used to control, how the radio behaves upon re
 
 A simple client to send serial input over espnow to the radio can be found at [RetroRadio/espnow/serialtoespnow/](espnow/serialtoespnow/).
 
+## Play Announcements or Alerts
+Announcements (or Alerts) will interrupt the current stream to play some info. Announcements/Alerts can be played from any URL that can be played by the radio. Currently that means "http"-type URLs (not https://). And I tested with mp3 so far only.
+
+Basic usage:
+- _announce=URL_ will play the _URL_ if this is a URL for a mp3-file and will return to the station played before.
+- the URL must not contain any whitespace
+- URL must be given without leading *http://* 
+- if the URL is not available/not a valid file, the radio will return to the previous station after a few seconds
+- while the announcement is playing, certain commands that change the stream are not available (_preset_, _channel_, _genre_, _favorite_ etc.)
+- _mute_ is turned off before the announcement starts (but volume level is not changed)
+
+
+Without any judgement on the quality, here is an example for a URL that was returned by searchengine after searching for "free mp3 ringtones"
+
+```
+announce=dl.prokerala.com/downloads/ringtones/files/dl/mp3/krishna-bhagwan-bansuri-54467-55307.mp3
+```
+
+You might have noticed that the Station Name has changed to **"Announcement"** while playing. There are two possibilities to change that assignment:
+- you can override the default text by setting _$announceinfo_ in RAM or NVS (preferences)
+- by adding any text after the URL in the command (that will override the _$announceinfo_-setting in RAM/NVS)
+
+```
+announce=dl.prokerala.com/downloads/ringtones/files/dl/mp3/krishna-bhagwan-bansuri-54467-55307.mp3 Just an example!
+```
+
+When playing an announcement, you can not change to a "standard-stream" (preset, favorite). You can stop the playout of the announcement using the command _stop_. 
+While playing the announcement, you can however cancel the current announcement by starting a new announcement (if an announcement was cancelled by another announcement, the radio will not return to the interrupted announcement but to the last "regular" stream that played before).
+
+The announcement will be played at the same volume-setting the radio is currently on. If the volume is set to Zero, nothing will be heared. To ensure audible output, the command _alert_ can be used.
+
+The command _alert_ is similar but allows for some more control, if needed:
+- if _alert_ starts, RAM/NVS are searched for the key _::alertstart_. If that key has any value assigned, the defined value of that key will be executed as commands-sequence before the stream starts (that way it is possible i. e. to set a defined value for volume) 
+- if _alert_ ends, RAM/NVS are searched for the key _::alertdone_
+- if _::alertdone_ is not defined, the radio will restore the previous _mute_-state, the previous _volume_ and the previous _station_
+- if you define _::alertdone_, you are responsible to recover self (if needed) from [system variables](#using-inputs-to-read-internal-variables)
+  - the previous station using *~url_before*
+  - the previous mute state using *~mute_before*
+  - the previous volume using *~volume_before*
+
+For the command _alert_ the Station Name changes to **"Alert!"** while playing. There are two possibilities to change that assignment:
+- you can override the default text by setting _$alertinfo_ in RAM or NVS (preferences)
+- by adding any text after the URL in the command (that will override the _$alertinfo_-setting in RAM/NVS)
+
+**A general word of warning**: this feature might cause unexpected behaviour if called with illegal parameters. One known issue is that the command _stop_, when issued in "announcement-mode" will cancel the announcement but will continue with the previous stream. I found it working reliable with valid URLs but only have limited experience with invalid input data. Please let me know if you were able to crash the radio using this feature.
 
 # Extended Input Handling
 ## General
@@ -1364,6 +1416,7 @@ in.mqttecho=src=m echo,onchange={mqttpub reply=?},start
 ```
   - This example defines an Input with the name _mqttecho_
   - The property _src_ is set to _m echo_ which defines it as source MQTT and the (sub-) topic _echo_. This subtopic will be attached to the default mqtt-prefix of the radio (i. e. _ESP32Radio_) to form the full topic that the input will listen to (i. e. _ESP32Radio/echo_).
+  - If you want to react to messages outside the default "scope" of the radio, add a '/'-sign before the topic name (So _src=m /echo_ will listen to the topic _echo_ and not to _ESP32Radio/echo_). Note that the leading '/' will be deleted before subsribing to that topic.
   - The property _onchange_ defines the reaction that will be executed whenever a new message arrives (note that it will also fire if the message content of the new message is identical to the last message). In our case it would simply publish the message received to MQTT using the sub-topic _reply_ (to be extended to the full topic, i. e. _ESP32Radio/reply_ in our example)
   - _start_ will activate the input (_stop_ would halt it).
   - the property _info_ can be used as usual to display information on the input

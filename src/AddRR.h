@@ -246,7 +246,14 @@ class VS1053
 
 // prototypes for functions/global data in main.cpp()
 extern String            host;                                  // host to connect to
-extern String            lastStation ;                          // URL [optional #name] of last host request (not chomped)
+extern bool              hostreq ;                              // Request for new host
+extern bool              muteflag ;
+extern uint8_t           announceMode ;                         // Announcement mode...
+extern uint32_t          announceStart ;                        // when has announceMode started?
+
+
+extern String            currentStation ;                       // URL [optional #name] of last host request (not chomped)
+extern String            stationBefore;
 extern String            ipaddress ;                            // Own IP-address
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data
@@ -280,6 +287,8 @@ extern void              mqttInputBegin() ;
 char*       dbgprint( const char* format, ... ) ;
 void        tftlog ( const char *str ) ;
 void        chomp ( String &str ) ;
+void        chomp_nvs ( String &str ) ;
+
 esp_err_t   nvsclear ( ) ;
 String      nvsgetstr ( const char* key ) ;
 bool        nvssearch ( const char* key ) ;
@@ -293,6 +302,8 @@ const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
 void mqttpubFavNotPlaying();
+void setAnnouncemode(uint8_t mode);
+bool isAnnouncemode();
 /*
 void favplayreport(String url);
 void favplayrequestinfo(String url, bool rescan = false);

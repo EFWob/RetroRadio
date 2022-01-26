@@ -145,20 +145,46 @@ class RetroRadioInputReaderEvent : public RetroRadioInputReader {
 
 class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
   public:
-    RetroRadioInputReaderMqtt(RetroRadioInput* input, const char *topic) : RetroRadioInputReaderEvent(input, 'm') {
+    RetroRadioInputReaderMqtt(RetroRadioInput* input, const char *topic, bool isLocal = true) : RetroRadioInputReaderEvent(input, 'm') {
+      String mqttprefix = nvsgetstr("mqttprefix");
       if (NULL == topic)
         topic = "";
-      _topic = strdup(topic);
-      _mqttReaderList.push_back(this);
+      if (topic[0] == '/')
+      {
+        isLocal = false;
+        topic++;
+      }
+      int tlen = strlen(topic)  + (isLocal?(mqttprefix.length() + 2):1);
+      _topic =  (char *)malloc(tlen);
+      if (_topic)
+      {
+        if (isLocal)
+        {
+          if (mqttprefix.length() > 0)
+          {
+            strcpy(_topic, mqttprefix.c_str());
+            if (strlen(topic))
+              strcat(_topic, "/");
+          }
+          else
+            _topic[0] = 0;
+          strcat(_topic, topic);
+        }  
+        else
+          strcpy(_topic, topic);
+        _mqttReaderList.push_back(this);
+      }
     };
 
 //ini_block.mqttprefix.length()
 
     virtual ~RetroRadioInputReaderMqtt() {
       std::vector<RetroRadioInputReaderMqtt *>::iterator it =  _mqttReaderList.begin();
+      dbgprint("Erasing MQTT Input Reader..., topic: %s", (_topic == NULL?"<null>????":_topic));
       while (it != _mqttReaderList.end()) {
         if (*it == this)
         {
+          dbgprint("Found in List, erase list...");
           _mqttReaderList.erase(it);
           it = _mqttReaderList.end();
         }
@@ -185,6 +211,7 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
       RetroRadioInputReaderEvent::start();
       if (mqtt_on)
       {
+        /*
         char s[ini_block.mqttprefix.length() + strlen(_topic) + 2];
         strcpy(s, ini_block.mqttprefix.c_str());
         if (strlen(_topic) > 0)
@@ -192,7 +219,9 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
           strcat(s, "/");
           strcat(s, _topic);
         }
-        mqttclient.subscribe ( s );
+        */
+        if (_topic)
+          mqttclient.subscribe ( _topic );
       }
     };
 
@@ -200,6 +229,7 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
       RetroRadioInputReaderEvent::stop();
       if (mqtt_on)
       {
+        /*
         char s[ini_block.mqttprefix.length() + strlen(_topic) + 2];
         strcpy(s, ini_block.mqttprefix.c_str());
         if (strlen(_topic) > 0)
@@ -207,11 +237,14 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
           strcat(s, "/");
           strcat(s, _topic);
         }
-        mqttclient.unsubscribe ( s );
+        */
+        if (_topic)
+          mqttclient.unsubscribe ( _topic );
       }
     };
 
     String info() {        
+      /*
         char buf[100];
         String ret;
         char s[ini_block.mqttprefix.length() + strlen(_topic) + 2];
@@ -221,9 +254,10 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
           strcat(s, "/");
           strcat(s, _topic);
         }
-      ret = String("Waiting for MQTT-Messages on Topic: ") + String(s);
+      */
+      return String("Waiting for MQTT-Messages on Topic: ") + String(_topic);
  //     ret = ret + "  *\r\n";
-      return ret;
+      //return ret;
     }
 
     static void begin() {
@@ -234,6 +268,7 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
     };
 
     static void fire(const char *topic, const char *payload) {
+      /*
       int len = ini_block.mqttprefix.length();
       if (strlen(topic) < len)
         return;
@@ -241,9 +276,10 @@ class RetroRadioInputReaderMqtt : public RetroRadioInputReaderEvent {
         topic = "";
       else
         topic = topic + len + 1;
+      */
       for(int i = 0; i < _mqttReaderList.size();i++)
       {
-        //dbgprint("FireCheck[%d]: %s==%s?->payload(%s)", i, topic, _mqttReaderList[i]->_topic, payload);
+        dbgprint("FireCheck[%d]: %s==%s?->payload(%s)", i, topic, _mqttReaderList[i]->_topic, payload);
         if (_mqttReaderList[i]->_started) 
         {
           if (0 == strcmp(topic, _mqttReaderList[i]->_topic))
@@ -266,9 +302,9 @@ void mqttInputBegin() {
   RetroRadioInputReaderMqtt::begin();
 }
 
-void doGenre ( String param, String value );
+String doGenre ( String param, String value );
 void doGenreConfig ( String param, String value );
-void doGpreset ( String value );
+String doGpreset ( String value );
 String doFavorite ( String param, String value );
 void setupReadFavorites ( void );
 extern int8_t playingstat;
@@ -279,14 +315,19 @@ int16_t numChannels = 0;              // Number of channels defined in current c
 bool setupDone = false;               // All setup for RetroRadio finished?
 int16_t currentFavorite = 0;              // currently playing favorite
 std::vector<char*> espnowBacklog;     // Backlog of command(s) received by espnow
+bool muteBefore = false;              // how was mute before announceMode started?
+uint8_t volumeBefore = 0;             // how was volume set before announceMode started?
+uint32_t announceStart = 0;           // when has announceMode started?
 
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
 String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
+String readBool(void *);                 // Takes a void pointer and returns the content, assumes ptr to bool
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
 String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
 String readStationURL(void *);          // Returns the URL (followed by #stationName) of current station
+String readStationBeforeURL(void *);    // Returns the URL (followed by #stationName) of station before
 String readMqttStatus(void *);          // Returns "1" if MQTT is connected, "0" else
 
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
@@ -313,6 +354,7 @@ struct {                           // A table of known internal variables that c
   String (*readf)(void*);
 } sysVarReferences[] = {
   {"volume", &ini_block.reqvol, readUint8},
+  {"volume_before", &volumeBefore, readUint8},
   {"preset", &ini_block.newpreset, readInt16},
   {"toneha", &ini_block.rtone[0], readUint8},
   {"tonehf", &ini_block.rtone[1], readUint8},
@@ -327,9 +369,12 @@ struct {                           // A table of known internal variables that c
   {"gpreset", &genrePreset, readInt16},
   {"glist", NULL, readGenrePlaylist},
   {"url", NULL, readStationURL},
+  {"url_before", NULL, readStationBeforeURL},
   {"mqtt_on", NULL, readMqttStatus},
   {"playing", &playingstat, readInt8},
-  {"favorite", &currentFavorite, readInt16}
+  {"favorite", &currentFavorite, readInt16},
+  {"mute", &muteflag, readBool},
+  {"mute_before", &muteBefore, readBool},
 };
 
 
@@ -436,6 +481,12 @@ String readInt16(void *ref) {
   return String( (*((int16_t*)ref)));
 }
 
+String readBool(void *ref) {
+  return String( (*((bool*)ref)));
+}
+
+
+
 String readVolume(void* ref) {
   return String(vs1053player->getVolume (  )) ;
 }
@@ -447,18 +498,145 @@ String readMqttStatus(void *) {
   return "0";
 }
 
-void doSysList(const char* p) {
+String doSysList(const char* p) {
+  String ret = "{\"syslist\"=[";
+  bool first = true;
   doprint("Known system variables (%d entries)", KNOWN_SYSVARIABLES);
   for (int i = 0; i < KNOWN_SYSVARIABLES; i++)
   { 
     bool match = p == NULL;
     if (!match)
       match = (NULL != strstr(sysVarReferences[i].id, p));
-    if (match)  
-      doprint("%2d: '%s' = %s", i, sysVarReferences[i].id, sysVarReferences[i].readf(sysVarReferences[i].ref).c_str());
+    if (match)  {
+      String s = sysVarReferences[i].readf(sysVarReferences[i].ref);
+      doprint("%2d: '%s' = %s", i, sysVarReferences[i].id, s.c_str());
+      if (first)
+        first = false;
+      else
+        ret = ret + ",";
+      ret = ret + "{\"id\": \"" + String(sysVarReferences[i].id) + "\", \"val\":\"" + s + "\"}"; 
+    }
   } 
+  return ret + "]}";
 }
 
+bool isAnnouncemode() {
+  return ((announceMode !=0 ) && (announceMode <= 2));
+}
+
+void defaultAlertStop()
+{
+  char s[stationBefore.length() + 20];
+  announceMode = 0;
+  String info = stationBefore ;
+  dbgprint("Running defaultAlertStop, volume=%d, mute=%d, url=%s", volumeBefore, muteBefore, stationBefore.c_str());
+  muteflag = muteBefore ;
+  ini_block.reqvol = volumeBefore ;
+  sprintf(s, "station=%s", stationBefore.c_str());
+  analyzeCmd(s);
+  setLastStation(info);
+
+}
+
+void setAnnouncemode(uint8_t mode) {
+  if (mode != announceMode)
+  {
+    if (0 == announceMode)
+    {
+      stationBefore = currentStation;
+      muteBefore = muteflag ;
+      volumeBefore = ini_block.reqvol ;
+      muteflag = false ;
+    }
+    else 
+    {
+    }
+    if (mode == 0)
+    {
+      if (announceMode == 1)
+      {
+        announceMode = 0;
+        String info = stationBefore;
+        char s[stationBefore.length() + 20];
+        sprintf(s, "station=%s", stationBefore.c_str());
+        analyzeCmd(s);
+        setLastStation(info);
+      }
+      else if (announceMode == 2)
+      {
+        announceMode = 255;
+        const char *s = "::alertdone";
+        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        if (commands.length() > 0)
+          {
+            dbgprint("Now execute commands: %s", commands.c_str());
+            analyzeCmd(commands.c_str());
+            if (!isAnnouncemode())
+              announceMode = 0;
+          }
+        else
+        {
+          defaultAlertStop();
+          announceMode = 0;
+        }
+      }
+    }
+    else if ((announceMode < mode) || (announceMode == 255))
+    {
+      announceMode = mode;
+      if (mode == 2)
+      {
+        const char *s = "::alertstart";
+        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        if (commands.length() > 0)
+          {
+            //dbgprint("Now execute commands: %s", commands.c_str());
+            analyzeCmd(commands.c_str());
+          }
+        else
+          dbgprint("Nothing to do for '%s'!", s);
+      }
+      announceStart = millis();
+      if (0 == announceStart)
+        announceStart = 1;
+    } 
+  }  
+
+}
+
+void getAnnounceInfo(String& url, String& info, uint8_t id) {
+  int idx = url.indexOf(' ');
+  if (idx > 0)
+  {
+    info = url.substring(idx + 1);
+    info.trim();
+    url = url.substring(0, idx);
+  }
+  else
+  {
+    const char *defaultinfo = "Alarm!";
+    const char *searchkey = NULL;
+    switch(id)
+    {
+      case 1:
+        searchkey = "@$announceinfo";
+        defaultinfo = "Announcement";
+        break;
+      case 2:
+        searchkey = "@$alertinfo";
+        defaultinfo = "Alert!";
+        break;
+      default:
+        break;
+    }
+    if (searchkey) {
+      info = String(searchkey);
+      chomp_nvs(info);
+    }
+    if (info.length() == 0)
+      info = String(defaultinfo);
+  }
+}
 
 
 // Obsolete?
@@ -2207,13 +2385,14 @@ void RetroRadioInput::setReader(String value) {
   if ((value.c_str()[0] == '@') || (value.c_str()[0] == '&'))
   {
     chomp_nvs(value);
-    value.toLowerCase();
+    //value.toLowerCase();
     if (value.length() == 0)
       value = "-1";
     idx = value.substring(1).toInt();
     //Serial.printf("Source of input after chomp nvs is: %s\r\n", value.c_str());
   }
-  switch (value.c_str()[0]) {
+  char c;
+  switch (c = value.c_str()[0]) {
     case 'd': 
       reader = new RetroRadioInputReaderDigital(idx, _mode);
       break;
@@ -2231,6 +2410,7 @@ void RetroRadioInput::setReader(String value) {
     case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
       break;
     case 'm': 
+    case 'M':
         value = value.substring(1);
         value.trim();
         reader = new RetroRadioInputReaderMqtt(this, value.c_str());
@@ -2592,44 +2772,60 @@ void ramdelkey ( const char* key)
 // - command "ramlist": list the full RAM content to Serial (even if DEBUG = 0)                    *
 // - if parameter p != NULL, only show entries which have *p as substring in keyname               *
 //**************************************************************************************************
-void doRamlist(const char* p) {
+String doRamlist(const char* p) {
+  String ret = "{\"ramlist\"=[";
+  bool first = true;
   doprint("RAM content (%d entries)", ramContent.size());
   auto search = ramContent.begin();
   int i = 0;
   while (search != ramContent.end()) {
     bool match = (p == NULL);
-    if (!match)
+    if (!match) 
       match = (NULL != strstr(search->first.c_str(), p));
-    if (match)
+    if (match) {
       doprint(" %2d: '%s' = '%s'", ++i, search->first.c_str(), search->second.c_str());
+      if (first)
+        first = false;
+      else
+        ret = ret + ",";
+      ret = ret + "{\"id\": \"" + search->first + "\", \"val\":\"" + search->second + "\"}"; 
+
+    }
     search++;
   }
+  return ret + "]}";
 }
 
 
-void doRam(const char* param, String value) {
+
+String doRam(const char* param, String value) {
   const char *s = param;
   char* s1;
+  String ret;
   while (*s && (*s <= ' '))
     s++;
   if ( strchr ( s, '?' ) )
   {
     if ( value != "0" )
-      doRamlist(value.c_str());
+      ret = doRamlist(value.c_str());
     else
-      doRamlist ( NULL );
+      ret = doRamlist ( NULL );
   }
   else if ( strchr ( s, '-' ) ) 
   {
     ramdelkey ( value.c_str() );
+    ret = "RAM." + value + " is now deleted.";
   }
   else if ( (s1 = strchr ( s, '.' )) )
   {
     String str = String ( s1 + 1 ) ;
     chomp_nvs ( str ) ;
-    if ( str.length() > 0 )
+    if ( str.length() > 0 ) {
       ramsetstr ( str.c_str(), value);
+      ret = "RAM." + str + " is now: " + value;
+    }
   }
+  return ret;
 }
 
 //**************************************************************************************************
@@ -2653,8 +2849,7 @@ nvs_stats_t nvs_stats;
     if (!match)
       match =  strstr(key, p) != NULL;
     if (match)
-      doprint(" %3d: '%s' = '%s'", ++idx, key, nvsgetstr(key));
-    i++;
+      doprint(" %3d: '%s' = '%s'", ++idx, key, nvsgetstr(key).c_str());
   }
   nvs_get_stats(NULL, &nvs_stats);
   doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
@@ -2702,11 +2897,11 @@ void doChannels(String value) {
 }
 
 void doChannel(String value, int ivalue) {
-  if ((ivalue == -1) && (currentChannel >= 0))
+  if ((ivalue == -1) && (currentChannel >= 0))                // request to stop channel mode?
   {
-    currentChannel = -1 - currentChannel;
+    currentChannel = -1 - currentChannel;                     // invalidate channel but remember last set...
   }
-  else if ((genreId > 0) && (genrePresets > 1))                             // Are we in genre playmode?
+  else if ((genreId > 0) && (genrePresets > 1))               // Are we in genre playmode?
   {
     int32_t curPreset, newPreset;
     curPreset  = newPreset = genrePreset;
@@ -2725,7 +2920,7 @@ void doChannel(String value, int ivalue) {
     else if (value == "any")
       while (newPreset == curPreset)
         newPreset = random(genrePresets);
-    else if ((ivalue > 0) && (ivalue <= numChannels) && (ivalue != currentChannel))   // could be cannel = number
+    else if ((ivalue > 0) && (ivalue <= numChannels) && (ivalue != currentChannel))   // could be channel = number
     {
       if (currentChannel < 0)
       {
@@ -3898,9 +4093,9 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     {
       char * s1 = strpbrk ( s + 1, "?-" );
       if ( s1 ) 
-        doRam ( s1, value );
+        strcpy(reply, doRam ( s1, value ).c_str());
       else
-        doRam ( s , value );
+        strcpy(reply, doRam ( s , value ).c_str());
     }
     else  if ( firstChar == '&' )
     {
@@ -3913,9 +4108,9 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     else  if ( firstChar == '~' )
     {
       if (value != "0")
-        doSysList(value.c_str());
+        strcpy(reply, doSysList(value.c_str()).c_str());
       else
-        doSysList(NULL);
+        strcpy(reply, doSysList(NULL).c_str());
     }
   
   }
@@ -3925,11 +4120,11 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if ( (ret = ( param.startsWith ( "genre" ))) ) 
   {
-    doGenre ( param, value );
+    strcpy(reply, doGenre ( param, value ).c_str());
   }
   else if ( (ret = (param == "gpreset")) ) 
   {
-    doGpreset ( value );
+    strcpy(reply, doGpreset ( value ).c_str());
   }
 
 //  else if ( (ret = param.startsWith("ifnot")) )
@@ -3963,7 +4158,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else if ( (ret = (param.startsWith("ram" ))) ) 
   {
     //Serial.println("RAM FROM NEW SOURCE!!!");
-    doRam ( paramOriginal.c_str() + 3, value ) ;
+    strcpy(reply, doRam ( paramOriginal.c_str() + 3, value ).c_str()) ;
   }
   else if ( (ret = (param.startsWith("in"))) )
   {
@@ -3994,7 +4189,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     returnFlag = true ;
     char *s1 = strchr ( param.c_str() , '.' ) ; 
     if ( s1 )
-      doRam ( s1, value ) ;
+      strcpy(reply, doRam ( s1, value ).c_str()) ;
   }
   else if ((param == "preset") && ((value == "--stop") || (value.toInt() == -1)))
   {
@@ -4025,6 +4220,44 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
       strcpy(s + 1 + topic.length(), value.c_str());
       mqttpub_backlog.push_back(s);
     }
+  }
+  else if (ret = (param == "announce"))
+  {
+    String info;
+    getAnnounceInfo(value, info, 1);
+    extern uint8_t announceMode;
+    if (0 == announceMode)
+    {
+      setAnnouncemode(1);
+    }
+    host = value;
+    hostreq = true;  
+    if (info.length() > 0)
+      value = value + '#' + info;
+    setLastStation(value);
+
+//    analyzeCmd("station", value.c_str());
+  }
+  else if (ret = (param == "alert"))
+  {
+    String info;
+    getAnnounceInfo(value, info, 2);
+    dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
+    if (0 == announceMode)
+    {
+      stationBefore = currentStation;
+    }
+    if (announceMode < 2)
+    {
+      setAnnouncemode(2);
+    }
+    host = value;
+    hostreq = true;  
+    if (info.length() > 0)
+      value = value + '#' + info;
+    setLastStation(value);
+
+    //analyzeCmd("station", value.c_str());
   }
   else if (ret = (param == "espnowmode"))
   {
@@ -4077,8 +4310,8 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     //const char *ret = analyzeCmd ( param.c_str(), value.c_str() ) ;  
     strcpy(reply, analyzeCmd ( param.c_str(), value.c_str() )) ;  
-    dbgprint(reply);
-    return reply;
+    //dbgprint(reply);
+    //return reply;
   }
   return reply;
 }
@@ -4273,9 +4506,12 @@ void doGenreConfig(String param, String value)
     genres.dbgprint("Unknown genre config parameter '%s', ignored!", param.c_str());
 }
 
-void doGenre(String param, String value)
+String doGenre(String param, String value)
 {
-  
+  String ret = "";
+  if (isAnnouncemode())
+    return "Command 'genre' not allowed in Announce-Mode";
+
   if (value.startsWith("--")) 
   {
     //static bool gverbosestore;
@@ -4296,43 +4532,33 @@ void doGenre(String param, String value)
     if (gverbose)
       doprint("Genre controlCommand --%s ('%s')",
         param.c_str(), value.c_str());
-/*
-    if (param == "channels")
-    {
-      if (isdigit(value.c_str()[0]))
-        gchannels = value.toInt();
-      dbgprint("Genre channels are: %d", gchannels);
-    }
-    if (param == "clearall")
-      gnvsTaskList.push(new GnvsTask(GNVS_TASK_CLEAR));
-    else if (param ==  "dir")
-      dirGenre(&Serial, false);
-    else 
-    */
     if (param == "id")
     {
       if (isdigit(value.c_str()[0]))
         playGenre(value.toInt());
-      dbgprint("Current genre id is: %d", genreId);
+      ret = String(dbgprint("Current genre id is: %d", genreId));
     }
     else if (param == "preset")
     {    
-      doGpreset ( value );
+      ret = doGpreset ( value );
     }
     else if (param.startsWith("verb"))
     {
       if (isdigit(value.c_str()[0]))
         genres.config.verbose(value.toInt());//gverbose = value.toInt();
       genres.dbgprint("is in verbose-mode.");
+      ret="TODO: genres.config.verbose()";
     }
     else if (param == "stop")
     {
       playGenre(0);
       genres.dbgprint("stop playing from genre requested.");
+      ret = "TODO: playGenre(0)";
     } 
     else if (param == "deleteall")
     {
       genres.deleteAll();
+      ret = "TODO: genres.deleteAll()";
     }
 /*    
     else if (param == "load")
@@ -4358,19 +4584,22 @@ void doGenre(String param, String value)
     else if (param == "create")
     {
       genres.createGenre(value.c_str());
+      ret = "TODO: genres.createGenre";
     }
     else if (param == "delete")
     {
       genres.deleteGenre(value.toInt());
+      ret = "TODO: genres.deleteGenre";
     }
     else if (param == "find")
     {
       int id = genres.findGenre(value.c_str());
-      doprint("Genre '%s'=%d", value.c_str(), id);
+      ret = String(doprint("Genre '%s'=%d", value.c_str(), id));
     }
     else if (param == "format")
     {
       genres.format(value.toInt());
+      ret = "TODO: genres.format()";
     }
 /*   
     else if (param == "add")
@@ -4384,7 +4613,7 @@ void doGenre(String param, String value)
     else if (param == "count")
     {
       int ivalue = value.toInt();
-      doprint("Number urls in Genre with id=%d is: %d", ivalue, genres.count(ivalue));
+      ret = doprint("Number urls in Genre with id=%d is: %d", ivalue, genres.count(ivalue));
     }
     else if (param == "fill")
     {
@@ -4394,6 +4623,7 @@ void doGenre(String param, String value)
         sprintf(key, "genre%d", i);
         genres.createGenre(key);
       }
+      ret = "TODO genre=fill";
     }
     else if (param == "url")
     {
@@ -4403,7 +4633,7 @@ void doGenre(String param, String value)
         nb = atoi(s+1);
       else
         nb = 0;
-      doprint("URL[%d] of genre with id=%d is '%s'", nb, value.toInt(), genres.getUrl(value.toInt(), nb).c_str());
+      ret = String(doprint("URL[%d] of genre with id=%d is '%s'", nb, value.toInt(), genres.getUrl(value.toInt(), nb).c_str()));
     }
     else if (param == "addchunk")
     {
@@ -4418,20 +4648,24 @@ void doGenre(String param, String value)
             genres.addChunk(id, s + idx + 1, s[idx]);
         }
       }
+      ret="OK";
     }
     else if (param == "ls")
     {
       genres.ls();
+      ret = "TODO: genres.ls()";
     }
     else if (param == "lsjson")
     {
       //const char *s = param.c_str() + 6;
       genres.dbgprint("List genres as JSON, full=%d", value.toInt());
       genres.lsJson(Serial, value.toInt());
+      ret = "TODO: List genres as JSON";
     }
     else if (param == "test")
     {
       genres.test();
+      ret = "TODO: genres.test()";
     }
 
 /*    else if (param == "show")
@@ -4475,21 +4709,21 @@ void doGenre(String param, String value)
   {
     if (value.length() == 0) 
     {
-      doGenre("genre", "--stop");
+      ret = doGenre("genre", "--stop");
     }
     else
     {
       int id = searchGenre(value.c_str());
       if (id)
-        playGenre(id);
+        ret = playGenre(id);
       else
       {
-        doprint ("Error: Genre '%s' is not known.", value.c_str()) ;
+        ret = "Error: Genre '" + value + "' is not known." ;
       }
     }
   }
   // else   gnvsTaskList.push(new GnvsTask(value.c_str(), GNVS_TASK_OPEN));
-  return;
+  return ret;
 
 }
 
@@ -4505,12 +4739,20 @@ String readGenreName(void *)
 
 String readStationURL(void *)
 {
-  return lastStation;
+  return currentStation;
+} 
+
+String readStationBeforeURL(void *)
+{
+  return stationBefore;
 } 
 
 
-void doGpreset(String value)
+String doGpreset(String value)
 {
+  String ret = "";
+  if (isAnnouncemode())
+    return "Commmand 'gpreset' not allowed in Announce-Mode";
   int ivalue = value.toInt();
   if (genreId != 0) 
   {
@@ -4538,10 +4780,10 @@ void doGpreset(String value)
       {
         if (idx >= 0)
         {
-          doprint("Switch to GenreUrl: '%s', Station name is: '%s'", s.c_str(), s1.c_str());
+          ret = dbgprint("Switch to GenreUrl: '%s', Station name is: '%s'", s.c_str(), s1.c_str());
         }
         else
-          doprint("Switch to GenreUrl: '%s', Station name is not on file!", s.c_str());
+          ret = dbgprint("Switch to GenreUrl: '%s', Station name is not on file!", s.c_str());
 
       }
       if (s.length() > 0)
@@ -4558,20 +4800,21 @@ void doGpreset(String value)
       else
       {
       if (gverbose)
-        doprint("BUMMER: url not on file");
+        ret = doprint("BUMMER: url not on file");
 
       }
     }
     else
     {
       if (gverbose)
-        doprint("Id %d is not in genre:presets(%d)", ivalue);
+        ret = doprint("Id %d is not in genre:presets(%d)", ivalue);
     }
   }
   else
   {
-    dbgprint("BUMMER: genrePreset is called but no genre is selected!");
+    ret = dbgprint("BUMMER: genrePreset is called but no genre is selected!");
   }
+  return ret;
 }
 
 String urlDecode(String &SRC) {
@@ -5088,6 +5331,7 @@ String readfavfrompref ( int16_t idx )
   sprintf ( tkey, "fav_%02d", idx ) ;              // Form the search key
   if ( !nvssearch ( tkey ) )                           // Does _x[x[x]] exists?
   {
+      //Serial.printf("Favorite Key('%s') not in preferences!" , tkey);
       return String ( "" ) ;                           // Not found
   }
   // Get the contents
@@ -5204,7 +5448,7 @@ char tkey[12];
   sprintf(tkey, "fav_%02d", i);
   nvsdelkey ( tkey ) ;
   setmqttfavidx(i, i);
-  setLastStation(lastStation);
+  setLastStation(currentStation);
   //favplayrequestinfo("Rescan after delete!", true);
   return String("Favorite[") + i + "] deleted successfully!";
 }
@@ -5219,7 +5463,7 @@ char tkey[12];
   httpfavlistdirty = true;
   favlistversion++;
   sprintf(tkey, "fav_%02d", i);
-  nvssetstr ( tkey, lastStation ) ;
+  nvssetstr ( tkey, currentStation ) ;
   setmqttfavidx(i, i);
   currentFavorite = i;
   return String("Added Favorite as number ") + i;
@@ -5232,7 +5476,8 @@ String getFavoriteJson(int idx, int rMin, int rMax)
     return "";
   String favinfo = String("{\"idx\": \"") + idx;
   String url = readfavfrompref ( idx );
-  String lastHost = lastStation;
+  //Serial.printf("readfavfrompref(%d) is: '%s'\r\n", idx, url.c_str());
+  String lastHost = currentStation;
   chomp(lastHost);
   String name;
   int delim = url.indexOf('#');
@@ -5264,6 +5509,8 @@ String doFavorite (String param, String value)
   bool numberGiven;
   const char* value_cstr = value.c_str();
   String ret = "";
+  if (isAnnouncemode())
+    return "Command 'favorite' not allowed in Announce-Mode";
   if (param != "favorite")
     return "Unexpected command word: " + param;
   c = tolower(*value_cstr);
@@ -5305,7 +5552,7 @@ String doFavorite (String param, String value)
   {
     int emptyIndex = 0;
     int foundIndex = 0;
-    String currentUrl = lastStation;
+    String currentUrl = currentStation;
     chomp(currentUrl);
     bool deleted = false;
     for(int i = rMin;i <= rMax;i++)
@@ -5400,7 +5647,7 @@ String doFavorite (String param, String value)
 
 void scanFavorite()
 {
-String currentUrl = lastStation;
+String currentUrl = currentStation;
 chomp(currentUrl);
   int foundIndex = 0;
   for (int i = 1;(i < 101) && (0 == foundIndex);i++)
