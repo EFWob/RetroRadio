@@ -15,6 +15,8 @@
 #include <genre_html.h>
 #include <genres.h>
 #include <ArduinoJson.h>
+#include <freertos/task.h>
+
 
 #if !defined(WRAPPER)
 #define TIME_DEBOUNCE 0
@@ -136,7 +138,8 @@ class RetroRadioInputReaderEvent : public RetroRadioInputReader {
             substitute(cmd, data);
             if (_input->_show > 0)
               doprint("Resulting execution is: %s", cmd.c_str());
-            analyzeCmdsRR(cmd);
+            //analyzeCmdsRR(cmd);
+            cmd_backlog.push_back(cmd);
           }
       };
     protected:
@@ -338,6 +341,7 @@ static uint16_t genrePreset;                              // Nb of current prese
 static bool gverbose = true ;                        // Verbose output on any genre related activity
 //static int gchannels = 0 ;                           // channels are active on genre
 uint8_t gmaintain = 0;                 // Genre-Maintenance-mode? (play is suspended)
+bool resumeFlag = false;
 
 extern WiFiClient        cmdclient ;                        // An instance of the client for commands
 extern String httpheader ( String contentstype );           // get httpheader for OK response with contentstype
@@ -441,12 +445,11 @@ char* doprint ( const char* format, ... )
 {
   static char sbuf[2 * DEBUG_BUFFER_SIZE] ;                // For debug lines
   va_list varArgs ;                                    // For variable number of params
-#if defined(NOSERIAL)
-  sbuf[0] = 0 ;
-#else
   va_start ( varArgs, format ) ;                       // Prepare parameters
   vsnprintf ( sbuf, sizeof(sbuf), format, varArgs ) ;  // Format the message
+  sbuf[2 * DEBUG_BUFFER_SIZE - 1] = 0;
   va_end ( varArgs ) ;                                 // End of using parameters
+#if !defined(NOSERIAL)
   if ( DEBUG )                                         // DEBUG on?
   {
     Serial.print ( "D: " ) ;                           // Yes, print prefix
@@ -454,6 +457,17 @@ char* doprint ( const char* format, ... )
   Serial.println ( sbuf ) ;                            // always print the info
   Serial.flush();
  #endif
+  if (DEBUGMQTT)
+    if (mqtt_on)
+    {
+      char *s = (char *)malloc(10 + strlen(sbuf));
+      if (s)
+      {
+        strcpy(s, "debug");
+        strcpy(s + 6, sbuf);
+        mqttpub_backlog.push_back(s);
+      }
+    }
   return sbuf ;                                        // Return stored string
 }
 
@@ -521,11 +535,11 @@ String doSysList(const char* p) {
 }
 
 bool isAnnouncemode() {
-  return ((announceMode !=0 ) && (announceMode <= 2));
+  return 0 != (announceMode & ~ANNOUNCEMODE_RUNDOWN);
+  //return ((announceMode !=0 ) && (announceMode <= 2));
 }
 
-void defaultAlertStop()
-{
+void announceRecoveryFull() {
   char s[stationBefore.length() + 20];
   announceMode = 0;
   String info = stationBefore ;
@@ -535,56 +549,112 @@ void defaultAlertStop()
   sprintf(s, "station=%s", stationBefore.c_str());
   analyzeCmd(s);
   setLastStation(info);
-
 }
 
-void setAnnouncemode(uint8_t mode) {
-  if (mode != announceMode)
+
+void announceRecoveryPrio3()
+{
+  int idx;
+  if (resumeFlag)
   {
-    if (0 == announceMode)
+    announceRecoveryFull();
+  }
+  else
+  {
+    host = currentStation;
+    idx = host.indexOf('#');
+    if (idx>0)
     {
-      stationBefore = currentStation;
-      muteBefore = muteflag ;
-      volumeBefore = ini_block.reqvol ;
-      muteflag = false ;
+      host = host.substring(0, idx);
+      host.trim();
     }
-    else 
-    {
+    hostreq = true;  
+    announceMode = ANNOUNCEMODE_PRIO3;
+  }
+}
+
+
+void announceRecoveryPrio1()
+{
+const char *s = "::alertdone";
+String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+  if ((commands.length() > 0) && !resumeFlag)
+  {
+    announceMode = ANNOUNCEMODE_RUNDOWN;
+    dbgprint("Now execute commands: %s", commands.c_str());
+    analyzeCmd(commands.c_str());
+    if (!isAnnouncemode()) {
+      announceMode = 0;        
     }
-    if (mode == 0)
+  }
+  else
+  {
+    announceRecoveryFull();
+  }
+}
+
+
+void announceRecoveryPrio0() {
+String info = stationBefore;
+char s[stationBefore.length() + 20];
+    announceMode = 0;
+    sprintf(s, "station=%s", stationBefore.c_str());
+    analyzeCmd(s);
+    setLastStation(info);        
+}
+
+bool setAnnouncemode(uint8_t mode) {
+bool ret = false;
+  if ((0 != mode) && (0 != (announceMode & ANNOUNCEMODE_NOCANCEL)))
+    return false;
+  if (0 == mode)
+  {
+    ret = true;
+    if (0 != (announceMode && ~ANNOUNCEMODE_RUNDOWN))
     {
-      if (announceMode == 1)
+      uint8_t recoverStrategy = announceMode & ANNOUNCEMODE_PRIOALL;
+      if (recoverStrategy & ANNOUNCEMODE_PRIO3)
       {
-        announceMode = 0;
-        String info = stationBefore;
-        char s[stationBefore.length() + 20];
-        sprintf(s, "station=%s", stationBefore.c_str());
-        analyzeCmd(s);
-        setLastStation(info);
+          announceRecoveryPrio3();
       }
-      else if (announceMode == 2)
+      else if (recoverStrategy & ANNOUNCEMODE_PRIO2)
       {
-        announceMode = 255;
-        const char *s = "::alertdone";
-        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
-        if (commands.length() > 0)
-          {
-            dbgprint("Now execute commands: %s", commands.c_str());
-            analyzeCmd(commands.c_str());
-            if (!isAnnouncemode())
-              announceMode = 0;
-          }
-        else
-        {
-          defaultAlertStop();
-          announceMode = 0;
-        }
+          announceRecoveryPrio0();
+      }
+      else if (recoverStrategy & ANNOUNCEMODE_PRIO1)
+      {
+          announceRecoveryPrio1();
+      }
+      else if (recoverStrategy & ANNOUNCEMODE_PRIO0)
+      {
+          announceRecoveryPrio0();
       }
     }
-    else if ((announceMode < mode) || (announceMode == 255))
+  }
+  else
+  {
+    dbgprint("Check if %d>=%d", mode, announceMode);
+    if ((mode >= announceMode) && (0 == (announceMode & ANNOUNCEMODE_RUNDOWN)))
     {
-      announceMode = mode;
-      if (mode == 2)
+      uint8_t newPrio = (ANNOUNCEMODE_PRIOALL + 1);
+      do 
+      {
+        newPrio = newPrio >> 1;
+      } while (newPrio && (0 == (mode & newPrio)));
+      if (0 == newPrio)
+        return false;
+      ret = true;
+      dbgprint("OK, An new announcement with at least same priority...");
+      if (0 == announceMode)
+      {
+        stationBefore = currentStation;
+        muteBefore = muteflag ;
+        volumeBefore = ini_block.reqvol ;
+        muteflag = false ;
+      }
+
+      mode = newPrio | (mode & ~ANNOUNCEMODE_PRIOALL);
+      if (((mode & 2) == 2) && ((announceMode & 2) != 2))
       {
         const char *s = "::alertstart";
         String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
@@ -596,12 +666,17 @@ void setAnnouncemode(uint8_t mode) {
         else
           dbgprint("Nothing to do for '%s'!", s);
       }
-      announceStart = millis();
-      if (0 == announceStart)
-        announceStart = 1;
-    } 
-  }  
-
+      announceMode = mode;
+    }
+  }   
+  if (ret)
+  {
+    resumeFlag = false;
+    announceStart = millis();
+    if (0 == announceStart)
+      announceStart = 1;
+  }
+  return ret;
 }
 
 void getAnnounceInfo(String& url, String& info, uint8_t id) {
@@ -1673,7 +1748,8 @@ void RetroRadioInput::doClickEvent(const char* type, int param)  {
       if (_show)
         doprint("in.%s on%s='%s'", getId(), type, commands.c_str());
       if ( commands.length() > 0 )
-        analyzeCmdsRR ( commands );
+        //analyzeCmdsRR ( commands );
+        cmd_backlog.push_back(commands);
     }
 }
 
@@ -2604,7 +2680,8 @@ int RetroRadioInput::read(bool doStart) {
       substitute(commands, String(x).c_str());
       if (_show > 0)
         doprint ( "Executing onchange: '%s'", commands.c_str() );
-      analyzeCmdsRR ( commands );
+      //analyzeCmdsRR ( commands );
+      cmd_backlog.push_back(commands);
     }
     if (x == 0) {                   // went to 0
       String commands = getEventCommands("0");
@@ -2613,7 +2690,8 @@ int RetroRadioInput::read(bool doStart) {
         substitute(commands, String(x).c_str());
         if (_show > 0)
           doprint ( "Executing on0: '%s'", commands.c_str() );
-        analyzeCmdsRR ( commands );
+        //analyzeCmdsRR ( commands );
+        cmd_backlog.push_back(commands);
       }
     } 
     if (_clickEvents > 0)
@@ -2625,7 +2703,9 @@ int RetroRadioInput::read(bool doStart) {
         substitute(commands, String(x).c_str());
         if (_show > 0)
           doprint ( "Executing onnot0: '%s'", commands.c_str() );
-        analyzeCmdsRR ( commands );
+        //analyzeCmdsRR ( commands );
+        cmd_backlog.push_back(commands);
+
       }
     }
 /*    
@@ -2969,7 +3049,8 @@ void doChannel(String value, int ivalue) {
       if (gverbose)
         doprint("Genre preset changed by channel command '%s' from %d to %d", value.c_str(), curPreset, newPreset) ;
       sprintf(cmd, "gpreset=%d", newPreset);
-      analyzeCmd( cmd );
+      //analyzeCmd( cmd );
+      cmd_backlog.push_back(String(cmd));
     }    
   }
   else if (channelList.size() > 0) {
@@ -3816,7 +3897,9 @@ void setupRR(uint8_t setupLevel) {
     setupDone = true;
     doprint("Try to open Genres on LITTLEFS!");
     if (genres.begin());
-      doprint("SPIFFS open for genres was a success!");
+    {
+      doprint("LITTLEFS open for genres was a success!");
+    }
     doprint("Running commands from NVS '%s'", s);
     analyzeCmdsRR ( nvsgetstr(s) );
     s[l + 1] = 0;
@@ -3870,6 +3953,7 @@ void favplayinfoloop();
 
 
 void loopRR() {
+  int i;
   scanIRRR();
   RetroRadioInput::checkAll();
   if (espnowBacklog.size() > 0)
@@ -3900,6 +3984,13 @@ void loopRR() {
     DEBUG = deb;
     */
   }
+  for (i = 0; i < cmd_backlog.size();i++)
+  {
+    dbgprint(analyzeCmdsRR(cmd_backlog[i]));
+    //cmd_backlog.erase(cmd_backlog.begin());
+  }
+  if (i > 0)
+    cmd_backlog.clear();
   genres.loop();
   //favplayinfoloop();
   if (mqttrcv_backlog.size() > 0)
@@ -3950,10 +4041,17 @@ static int calllevel = 0;
       param = "";
     if (doShow) doprint ( "call(%s)=%s", param.c_str(), value.c_str());  
     value = ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) ;
-    substitute(value, param.c_str());
-    if (doShow) doprint ( "call sequence (after substitution): %s", value.c_str());
-    doprint("callLevel: %d", ++calllevel);
-    analyzeCmdsRR ( value );  
+    value.trim();
+    if (value.length() > 0)
+    {
+      substitute(value, param.c_str());
+      if (doShow) doprint ( "call sequence (after substitution): %s", value.c_str());
+      doprint("callLevel: %d", ++calllevel);
+      analyzeCmdsRR ( value );  
+    }
+    else  
+      if (doShow)
+        doprint("No entry found!");
     calllevel--;
 }
 
@@ -4226,15 +4324,17 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     String info;
     getAnnounceInfo(value, info, 1);
     extern uint8_t announceMode;
-    if (0 == announceMode)
+    dbgprint("'announce' with announceMode==%d", announceMode);
+    if (setAnnouncemode(1))
     {
-      setAnnouncemode(1);
+      dbgprint("setAnnouncemode(1) SUCCESS!");
+      host = value;
+      hostreq = true;  
+      if (info.length() > 0)
+        value = value + '#' + info;
+      setLastStation(value);
     }
-    host = value;
-    hostreq = true;  
-    if (info.length() > 0)
-      value = value + '#' + info;
-    setLastStation(value);
+
 
 //    analyzeCmd("station", value.c_str());
   }
@@ -4243,21 +4343,53 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     String info;
     getAnnounceInfo(value, info, 2);
     dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
-    if (0 == announceMode)
+    if (setAnnouncemode(2)) 
     {
-      stationBefore = currentStation;
+      host = value;
+      hostreq = true;  
+      if (info.length() > 0)
+        value = value + '#' + info;
+      setLastStation(value);
     }
-    if (announceMode < 2)
-    {
-      setAnnouncemode(2);
-    }
-    host = value;
-    hostreq = true;  
-    if (info.length() > 0)
-      value = value + '#' + info;
-    setLastStation(value);
-
     //analyzeCmd("station", value.c_str());
+  }
+  else if (ret = (param == "alarm"))
+  {
+    String info;
+    getAnnounceInfo(value, info, 2);
+    dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
+    if (setAnnouncemode(ANNOUNCEMODE_PRIO3)) 
+    {
+      host = value;
+      hostreq = true;  
+      if (info.length() > 0)
+        value = value + '#' + info;
+      setLastStation(value);
+    }
+  }
+  else if (ret = (param == "upload"))
+  {
+    String filePath;
+    int idx = value.indexOf(' ');
+    if (idx < 0)
+      dbgprint("Both URL and 'path to upload file' (separated by space) must be given!");
+    else
+    {
+      filePath = value.substring(idx + 1);
+      value = value.substring(0, idx);
+      dbgprint("Download from URL='%s' to file='%s'", value.c_str(), filePath.c_str()); 
+      uploadfile.begin(filePath);
+    }
+  }
+  else if (ret = (param == "resume"))
+  {
+    if (announceMode != 0)
+    {
+      resumeFlag = true;
+      analyzeCmd("stop");
+      //setAnnouncemode(0);
+    }
+    
   }
   else if (ret = (param == "espnowmode"))
   {
@@ -4317,6 +4449,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
 }
 
 
+static char cmdReply[8000] ;                      // Reply to client, will be returned
 
 //**************************************************************************************************
 //                                   A N A L Y Z E C M D R R                                       *
@@ -4326,12 +4459,12 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
 //**************************************************************************************************
 const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
 {
-  static char reply[8000] ;                      // Reply to client, will be returned
+  
   uint16_t commands_executed = 0 ;               // How many commands have been executed
 
-  *reply = 0;
+  *cmdReply = 0;
   if (returnFlag)
-    return reply;
+    return cmdReply;
   char * cmds = strdup ( commands ) ;
   if ( cmds )
   {
@@ -4385,22 +4518,22 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
       if (*value)
         {
           *value = '\0' ;                              // Separate command from value
-          analyzeCmdRR ( reply, s, value + 1, returnFlag ) ;        // Analyze command and handle it
+          analyzeCmdRR ( cmdReply, s, value + 1, returnFlag ) ;        // Analyze command and handle it
           *value = '=' ;                               // Restore equal sign
         }
       else
         {
-          analyzeCmdRR ( reply, s, "", returnFlag ) ;              // No value, assume zero
+          analyzeCmdRR ( cmdReply, s, "", returnFlag ) ;              // No value, assume zero
         }
       yield();
       commands_executed++ ;
       s = next ;
     }
     if (commands_executed > 1)
-      snprintf ( reply, sizeof ( reply ), "Executed %d command(s) from sequence %s", commands_executed, cmds ) ;
+      snprintf ( cmdReply, sizeof ( cmdReply ), "Executed %d command(s) from sequence %s", commands_executed, cmds ) ;
     free ( cmds ) ;
   }
-  return reply ;
+  return cmdReply ;
 }
 
 
@@ -4477,7 +4610,8 @@ bool playGenre(int id)
     doprint("Active genre is now: '%s' (id: %d), random start gpreset=%d (of %d)",
         genres.getName(id).c_str(), id, genrePreset, genrePresets);
   sprintf(cmd, "gpreset=%d", genrePreset);
-  analyzeCmd(cmd);
+  //analyzeCmd(cmd);
+  doGpreset(String(genrePreset));
   return true;
 }
 
@@ -4753,6 +4887,26 @@ String doGpreset(String value)
   String ret = "";
   if (isAnnouncemode())
     return "Commmand 'gpreset' not allowed in Announce-Mode";
+  dbgprint("doGpreset started with value=%s", value.c_str());
+  /*  
+  extern TaskHandle_t maintask;
+  StackType_t stackSize = uxTaskGetStackSize(maintask);
+ 
+  dbgprint("Task stack size is: %d", stackSize);
+
+  TaskStatus_t xTaskDetails;
+ 
+    vTaskGetInfo( // The handle of the task being queried. 
+                  NULL,
+                  // The TaskStatus_t structure to complete with information
+                  //on xTask. 
+                  &xTaskDetails,
+                  // Include the stack high water mark value in the
+                  //TaskStatus_t structure. 
+                  1,
+                  // Include the task state in the TaskStatus_t structure. 
+                  0 );
+  */
   int ivalue = value.toInt();
   if (genreId != 0) 
   {
@@ -4769,7 +4923,9 @@ String doGpreset(String value)
       sprintf(key, "%d_%d", genreId, ivalue);
       genrePreset = ivalue;
       //s = gnvsgetstr(key);
+      dbgprint("Try to get URL for genreId=%d, ivalue=%d", genreId, ivalue);
       temp = s = genres.getUrl(genreId, ivalue, false);
+      genres.dbgprint("URL#Station found: %s", s.c_str());
       idx = s.indexOf('#');
       if (idx >= 0)
       {
@@ -5731,6 +5887,147 @@ void favplayinfoloop() {
 }
 */
 
+
+bool UploadFile::begin(String path, bool writeFlag) {
+  int idx = 0;
+  if (_isOpen)
+    return false;
+  _littleFSBegun = false;
+  _isSD = false;
+  path.trim();
+  String lpath = path;
+  lpath.toLowerCase();
+  if (lpath.substring(0, 7) == "file://")
+  {
+    idx = 7;
+    while ((lpath.c_str()[idx] >= 0) && (lpath.c_str()[idx] <= ' '))
+      idx++;
+  }
+  lpath = lpath.substring(idx);
+  if (lpath.substring(0, 3) == "sd:")
+  {
+    _isSD = true;
+    idx = idx + 3;
+    while ((path.c_str()[idx] >= 0) && (path.c_str()[idx] <= ' '))
+      idx++;
+  }
+  path = path.substring(idx);
+  if (path.length() == 0)
+    return false;
+  if (path.indexOf(' ') >= 0)
+    return false;
+  if (path.c_str()[0] != '/')
+    path = '/' + path;
+  if (_isSD)
+    path = "/up/l/o/a/d" + path;
+  else
+    path = "/upload" + path;
+  dbgprint("Path to uploadFile is %s%s", _isSD?"SD:":"LittleFS:", path.c_str());
+  FS *fs = NULL;
+  if (_isSD)
+  {
+#ifdef SDCARD
+    extern bool SD_okey;
+    if (SD_okey)
+     fs = &SD;
+    else
+#endif
+      dbgprint("SD not available for UPLOAD!");
+  }
+  else
+  {
+    if (genres.begun() && (!genres.isSD()))
+    {
+      fs = &LITTLEFS;
+      dbgprint("Reusing LittleFS from Genres");
+    }
+    else
+    {
+      dbgprint("Try to open LittleFS");
+      if (_littleFSBegun = LITTLEFS.begin())
+        fs = &LITTLEFS;
+    }
+  }
+  if (NULL == fs)
+    dbgprint("Could not access filesystem for upload file.");
+  else
+  {
+    if (writeFlag)
+    {
+      char s[path.length() + 1];
+      strcpy(s, path.c_str());
+      char *p = strrchr(s, '/');
+      if (p)
+        *p = 0;
+      else 
+        *s = 0;
+      p = *s?s:NULL;
+      while (p) 
+      {
+          p = strchr(p + 1, '/');
+          if (p) {
+              *p = 0;
+          }
+          claim_spi();
+          bool res = fs->exists(s);
+          release_spi();
+          if (!res)
+          {
+              dbgprint("Creating directory '%s' for Sounds", s);
+              claim_spi();
+              res = fs->mkdir(s);
+              release_spi();
+          }
+          if (!res)
+              p = NULL;
+          else if (p)
+              *p = '/';
+        }
+      //directory should now exist...
+      }
+
+    _soundFile = fs->open(path.c_str(), writeFlag?FILE_WRITE:FILE_READ);  
+    if (!(_isOpen = _soundFile))
+      dbgprint("Error opening file %s for %s!", path.c_str(),writeFlag?"writing":"reading");
+    else
+      dbgprint("Success opening file %s for %s!", path.c_str(),writeFlag?"writing":"reading");
+    
+
+  }
+
+//DEBUG!!!!
+  close();
+//DEBUG!!!!
+
+
+
+  if (!_isOpen)
+    if (_littleFSBegun)
+    {
+      LITTLEFS.end();
+      _littleFSBegun = false;
+    }
+  return _isOpen;
+};
+
+void UploadFile::close() {
+  if (!_isOpen)
+    return;
+  _isOpen = false;
+  _soundFile.close();
+  if (_littleFSBegun)
+  {
+    LITTLEFS.end();
+    _littleFSBegun = false;
+  }
+}
+
+
+void UploadFile::claim_spi() {if (_isSD) claimSPI("sound");};            
+void UploadFile::release_spi() {if (_isSD) releaseSPI();};         
+
+
+UploadFile uploadfile;
 
 #else
 

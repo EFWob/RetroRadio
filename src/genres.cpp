@@ -1,4 +1,3 @@
-//#include "OdroidExtra.h"
 #include "genres.h"
 #include <SD.h>
 
@@ -178,6 +177,7 @@ String Genres::fileName(const char *name) {
     String ret = String(_nameSpace);  
     if (name)
         ret = ret + "/" + name;
+    //dbgprint("Filename: %s", ret.c_str());    
     return ret;
 }
 
@@ -971,7 +971,13 @@ bool ret = false;
 
 String Genres::getUrl(int id, uint16_t number, bool cutName) {
 String res = "";
-    
+   /*
+    size_t countNb = count(id);
+    dbgprint("Start getUrl");
+    dbgprint("count(%d)=%d", id, countNb);
+    dbgprint("this=%ld", this);
+    dbgprint("_fs=%ld", _fs); Serial.flush();
+    */
     if (_fs && (count(id) > number))
     {
         File fileIdx, fileUrls;
@@ -980,7 +986,9 @@ String res = "";
         size_t chunkSize, idxSize, urlSize;
         seekPosition = seekPosition * 4;
         uint8_t *idxCache;
+        //dbgprint("Start getUrlCache");Serial.flush();
         uint8_t *urlCache = getUrlCache(id, urlSize, fileUrls, fileIdx, &idxCache, idxSize);
+        //dbgprint("Done getUrlCache");
         if (NULL != idxCache)
         {
           idxCache = idxCache + seekPosition;
@@ -1231,7 +1239,6 @@ void Genres::cleanGenre(int id, bool deleteLinks)
         /*
         if (root && (root.isDirectory()))
         {
-
             sprintf(s, "%s/idx", s0);
             File file = _fs->open(s, "w");
             if (file)
@@ -1345,8 +1352,10 @@ uint8_t * Genres::getUrlCache(int id, size_t &urlSize, File& fileUrls, File& fil
 char path[20];
 
   *idxCache = NULL;
+
   if (0 == count(id))
     return NULL;
+
   if (_urlCache)
     if (_urlId == id)
     {
@@ -1368,6 +1377,7 @@ char path[20];
     }
     else
       invalidateUrlCache(-1);
+  //dbgprint("Try to open Genre-URL-Files now!");    Serial.flush();
   sprintf(path, "%d/idx", id);
   claim_spi_genre(_isSD);
   fileIdx = _fs->open(fileName(path).c_str(), "r");        
@@ -1386,6 +1396,8 @@ char path[20];
       fileUrls.read(_urlCache, urlSize);
       fileUrls.close();
       _urlSize = urlSize;
+      if (_idxCache)
+        free(_idxCache);
       if (NULL != (_idxCache = (uint8_t *)gmalloc(idxSize)))
       {
         fileIdx.read(_idxCache, idxSize);
@@ -1418,8 +1430,9 @@ void Genres::invalidateUrlCache(int id)
     {
       free(_urlCache);
       _urlCache = NULL;
-      if (_idxCache)
-        _idxCache = NULL;
+      if (_idxCache) 
+        free(_idxCache);
+      _idxCache = NULL;
       _urlId = -1;
       _idxSize = 0;
       _urlSize = 0;

@@ -1,4 +1,9 @@
 # Latest changes
+*20220214*
+  - Bug fix: memory leak around caching genre-playlists removed.
+  - Stack issue of main task: if commands (by scripting) are nested too much, radio might crash due to stack overflow. I have somewhat solved this by not executing commands direct but using an (internal) backlog. However, it might still happen and then currently the only solution is to edit the core as described here: https://community.platformio.org/t/esp32-stack-configuration-reloaded/20994
+  - For debugging it is now possible to mirror the Serial output to MQTT if _DEBUG=1_ AND _DEBUGMQTT=1_ The output will be mirrored to the topic _MQTT-Prefix/debug_
+
 *20220126*
   - BIG NEW FEATURE: you can interrupt the current stream to play [announcements/alerts](#play-announcements-or-alerts) from mp3-URLs. I use this to relay the doorbell or to play voice mail sent to a Messenger. 
   - [Receiving](#using-inputs-to-read-mqtt-messages) MQTT-Messages outside the name scope of the radio (set by *mqtt_prefix* in the preferences) is now possible.
