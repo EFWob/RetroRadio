@@ -75,6 +75,8 @@ friend class GenreConfig;
         GenreConfig config;
         void *gmalloc(size_t size, bool forcePSRAM = false);
         bool loop();
+        bool begun() {return _begun;};
+        bool isSD() {return _begun?_isSD:false;};
     protected:
         bool _begun = false;
         bool _wasBegun = false;

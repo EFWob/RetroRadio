@@ -386,6 +386,7 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datast
 bool              connectDelay = false ;                 // Station with ConnectDelay 
 #endif
 int               DEBUG = 1 ;                            // Debug on/off
+int               DEBUGMQTT = 0 ;                        // MQTT Debbug on/off
 int               numSsid ;                              // Number of available WiFi networks
 int               bestSsid = -1 ;                        // Best (acceptable) SSID found
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
@@ -475,6 +476,7 @@ uint8_t                 namespace_ID ;                   // Namespace ID found
 std::vector<const char *> keynames ;                     // Keynames in NVS 
 std::vector<const char *> mqttpub_backlog ;              // Backlog for MQTT-messages to be sent
 std::vector<const char *> mqttrcv_backlog ;              // Backlog for MQTT-messages received
+std::vector<String>       cmd_backlog ;                  // Backlog for Commands to be executed
 
 // Rotary encoder stuff
 #define sv DRAM_ATTR static volatile
@@ -1352,6 +1354,7 @@ String nvsgetstr ( const char* key )
     dbgprint ( "nvs_get_str failed %X for key %s, keylen is %d, len is %d!",
                nvserr, key, strlen ( key), len ) ;
     dbgprint ( "Contents: %s", nvs_buf ) ;
+    nvs_buf[0] = 0;
   }
   return String ( nvs_buf ) ;
 }
@@ -1617,18 +1620,29 @@ char* dbgprint ( const char* format, ... )
 {
   static char sbuf[DEBUG_BUFFER_SIZE] ;                // For debug lines
   va_list varArgs ;                                    // For variable number of params
-#if defined(NOSERIAL)
-  sbuf[0] = 0;
-#else
+//  sbuf[0] = 0;
   va_start ( varArgs, format ) ;                       // Prepare parameters
   vsnprintf ( sbuf, sizeof(sbuf), format, varArgs ) ;  // Format the message
+  sbuf[DEBUG_BUFFER_SIZE - 1] = 0;
   va_end ( varArgs ) ;                                 // End of using parameters
   if ( DEBUG )                                         // DEBUG on?
   {
+#if !defined(NOSERIAL)
     Serial.print ( "D: " ) ;                           // Yes, print prefix
     Serial.println ( sbuf ) ;                          // and the info
+#endif
+    if (DEBUGMQTT)
+      if (mqtt_on)
+      {
+        char* s = (char *)malloc(10 + strlen(sbuf));
+        if (s)
+        {
+          strcpy(s, "debug");
+          strcpy(s + 6, sbuf);
+          mqttpub_backlog.push_back(s);
+        }
+      }
   }
-#endif  
   return sbuf ;                                        // Return stored string
 }
 
@@ -3001,8 +3015,9 @@ void onMqttMessage ( char* topic, byte* payload, unsigned int len )
     strncpy ( cmd, (char*)payload, len ) ;            // Make copy of message
     cmd[len] = '\0' ;                                 // Take care of delimeter
     dbgprint ( "MQTT message arrived [%s], lenght = %d, %s", topic, len, cmd ) ;
-    reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
-    dbgprint ( reply ) ;                              // Result for debugging
+    //reply = analyzeCmd ( cmd ) ;                      // Analyze command and handle it
+    //dbgprint ( reply ) ;                              // Result for debugging
+    cmd_backlog.push_back(String(cmd));
   } else
   {
     char *msg = (char *)malloc(len + 2 + strlen(topic));
@@ -4727,20 +4742,20 @@ void mp3loop()
     if (announceMode != 0)
       if (datamode == DATA)
       {
-
-        static uint8_t countdown = 0;
+#define COUNTDOWNSTART 512
+        static uint16_t countdown = COUNTDOWNSTART;
         int dqused = QSIZ - uxQueueSpacesAvailable( dataqueue ) ;
         if (dqused <  5) 
         {
           //dbgprint ("Dataqueue (almost) empty at: %d", dqused);
           if (0 != dqused)
-            countdown = 0;
+            countdown = COUNTDOWNSTART;
           else
-            if (!++countdown)
+            if (!--countdown)
               setdatamode( STOPREQD );
         }
         else
-          countdown = 0;
+          countdown = COUNTDOWNSTART;
       }
       else
       {
@@ -4889,8 +4904,8 @@ void mp3loop()
 
 void setLastStation(String latest)
 {
-  if ( 0 == announceMode )
-    stationBefore = currentStation ;
+  //if ( 0 == announceMode )
+  //  stationBefore = currentStation ;
   currentStation = latest;
   int idx = latest.indexOf('#');
   if (idx >= 0)
@@ -5817,7 +5832,7 @@ const char* analyzeCmd ( const char* par, const char* val )
               uxQueueMessagesWaiting ( dataqueue ),
               av,
               mbitrate ) ;
-    dbgprint ( "Stack maintask is %d", uxTaskGetStackHighWaterMark ( maintask ) ) ;
+    dbgprint ( "Stack maintask is %d (size is: %d)", uxTaskGetStackHighWaterMark ( maintask ) , CONFIG_ARDUINO_LOOP_STACK_SIZE) ;
     dbgprint ( "Stack playtask is %d", uxTaskGetStackHighWaterMark ( xplaytask ) ) ;
     dbgprint ( "Stack spftask  is %d", uxTaskGetStackHighWaterMark ( xspftask ) ) ;
     dbgprint ( "ADC reading is %d", adcval ) ;
@@ -5890,9 +5905,11 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "debug" )                     // debug on/off request?
   {
-#if !defined(NOSERIAL)
     DEBUG = ivalue ;                                  // Yes, set flag accordingly
-#endif
+  }
+  else if ( argument == "debugmqtt" )                 // debug output to MQTT on/off request?
+  {
+    DEBUGMQTT = ivalue ;                              // Yes, set flag accordingly
   }
   else if ( argument == "getnetworks" )               // List all WiFi networks?
   {

@@ -4,9 +4,21 @@
 #include <nvs.h>
 #include <memory>
 #include <PubSubClient.h>
+#include <FS.h>
+#include <SD.h>
 #ifndef NVS_KEY_NAME_MAX_SIZE
 #define NVS_KEY_NAME_MAX_SIZE 16
 #endif
+#define ANNOUNCEMODE_RUNDOWN ((uint8_t)0x80)
+#define ANNOUNCEMODE_NOCANCEL ((uint8_t)0x40)
+#define ANNOUNCEMODE_PRIO0    ((uint8_t)0x1)
+#define ANNOUNCEMODE_PRIO1    ((uint8_t)0x2)
+#define ANNOUNCEMODE_PRIO2    ((uint8_t)0x4)
+#define ANNOUNCEMODE_PRIO3    ((uint8_t)0x8)
+#define ANNOUNCEMODE_PRIOALL  (ANNOUNCEMODE_PRIO0 | ANNOUNCEMODE_PRIO1 | ANNOUNCEMODE_PRIO2 | ANNOUNCEMODE_PRIO3)  
+
+
+#define UP_AND_RUNNING() (NULL != xplaytask)
 
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
@@ -187,7 +199,8 @@ class VS1053
     inline void control_mode_off() const
     {
       digitalWrite ( cs_pin, HIGH ) ;             // End control mode
-      SPI.endTransaction() ;                      // Allow other SPI users
+      SPI.endTransaction() ;                      // Allow ovoid        claimSPI ( const char* p ) ;                // Claim SPI bus for exclusive access
+void        releaseSPI() ;                              // Release the claimther SPI users
     }
 
     inline void data_mode_on() const
@@ -244,7 +257,24 @@ class VS1053
 
 } ;
 
+class UploadFile {
+public:
+  UploadFile() {};
+  bool begin(String path, bool writeFlag = true);
+  void close();
+  operator bool() {return _isOpen;};
+protected:
+  inline void claim_spi();  
+  inline void release_spi();
+private:
+  bool _isOpen = false;
+  bool _isSD = false;
+  bool _littleFSBegun = false;
+  File _soundFile;
+};
+
 // prototypes for functions/global data in main.cpp()
+extern UploadFile        uploadfile ;                           // File to upload alarm/alert sound to...
 extern String            host;                                  // host to connect to
 extern bool              hostreq ;                              // Request for new host
 extern bool              muteflag ;
@@ -260,6 +290,7 @@ extern ini_struct        ini_block ;                            // Holds configu
 extern VS1053*           vs1053player ;                         // The object for the MP3 player
 //extern char              nvskeys[MAXKEYS][16] ;                 // Space for NVS keys
 extern int               DEBUG ;                                // Debug on/off
+extern int               DEBUGMQTT ;                            // MQTT Debbug on/off
 extern progpin_struct    progpin[] ;                            // Input pins and programmed function
 extern uint32_t          nvshandle  ;                           // Handle for nvs access
 extern uint32_t          ir_0 ;                                 // Average duration of an IR short pulse
@@ -276,13 +307,14 @@ extern int               mqttfavendidx;                         // last idx of f
 extern std::vector<const char *> keynames ;                        // Keynames in NVS
 extern std::vector<const char *> mqttpub_backlog ;              // backlog of MQTT-Messages to send
 extern std::vector<const char *> mqttrcv_backlog ;              // Backlog for MQTT-messages received
-
+extern std::vector<String>       cmd_backlog ;                  // Backlog for Commands to be executed
 extern uint8_t           namespace_ID ;                         // Namespace ID found
 extern bool              resetreq ;                             // Request to reset the ESP32
 extern PubSubClient      mqttclient ;
 extern bool              mqtt_on;
 extern void              mqttInputBegin() ;
-
+extern void        claimSPI ( const char* p ) ;                // Claim SPI bus for exclusive access
+extern void        releaseSPI() ;                              // Release the claim
 
 char*       dbgprint( const char* format, ... ) ;
 void        tftlog ( const char *str ) ;
@@ -302,7 +334,7 @@ const char* analyzeCmd ( const char* par, const char* val ) ;
 void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
 void mqttpubFavNotPlaying();
-void setAnnouncemode(uint8_t mode);
+bool setAnnouncemode(uint8_t mode);
 bool isAnnouncemode();
 /*
 void favplayreport(String url);
