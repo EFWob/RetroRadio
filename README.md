@@ -108,7 +108,9 @@ build_flags =
 	-DLOOPTASKSTACK=10000
 ```
 
-This will result in creation of an additional task (named _looptask_) with a stack size of 10000 bytes. There is no precise calculation for the "right" stack size to be defined here. If you see unexpected resets increasing the size might help.
+This will result in creation of an additional task (named _looptask_) with a stack size of 10000 bytes. There is no precise calculation for the "right" stack size to be defined here. If you see unexpected resets increasing the size might help. 
+
+You can use the command _test_ to observe the maximum stack usage for the task _looptask_ (the number shown is the lowest number of unused bytes in the stack that has been seen until now).
 
 This approach should be the preferred solution as it does remove the need to mess around with the core sources and it can be easily adopted to different stack sizes for different build environments. 
 The only drawback is that the RAM allocated for the main task is more or less unused (and thus wasted). However, RAM is not really a problem for the project as a whole.
