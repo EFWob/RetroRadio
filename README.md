@@ -1,4 +1,7 @@
 # Latest changes
+*20220225*
+  - Better fix for the [stack problem](#potential-stack-issue).
+
 *20220214*
   - Bug fix: memory leak around caching genre-playlists removed.
   - Stack issue of main task: if commands (by scripting) are nested too much, radio might crash due to stack overflow. I have somewhat solved this by not executing commands direct but using an (internal) backlog. However, it might still happen and then currently the only solution is to edit the core as described here: https://community.platformio.org/t/esp32-stack-configuration-reloaded/20994
@@ -85,6 +88,32 @@ with a few things to notice:
   out of NVS-space.
 - for 4MB (standard) flash sizes I use the partion-table _radio4MB_default.csv_ that can be found at the _/etc_ folder in this repository. This layout is not compatible to the _default_ partition, notably for the NVS section. That means you must reload the default preferences (and edit the wifi credentials) if you flash using this partition table.
 - Currently it is tested in platformio-environment only. The platformio.ini file has already some entries. Mainly to maintain different radios (with differen MCUs and pinouts). For starters, you can try the environment _plain devkit_, which uses the default partition table and thus should keep your NVS-settings.
+
+
+## Potential stack issue
+
+The stack of the main task might be too small if a lot of (nested) scripting is used. 
+
+Unfortunately, the size of the task (8kB) can only be changed by changing the core is changed as described here: https://community.platformio.org/t/esp32-stack-configuration-reloaded/20994
+
+There are of course drawbacks:
+ - This change affects to all projects that will be compiled using this core and (even worse)
+ - This change will be undone if a new core gets installed (you have to change the new core again)
+
+Therefore I implemented a diffent solution: in _platformio.ini_ a build flag can be defined as:
+
+```
+build_flags = 
+	... other stuff ...
+	-DLOOPTASKSTACK=10000
+```
+
+This will result in creation of an additional task (named _looptask_) with a stack size of 10000 bytes. There is no precise calculation for the "right" stack size to be defined here. If you see unexpected resets increasing the size might help. 
+
+You can use the command _test_ to observe the maximum stack usage for the task _looptask_ (the number shown is the lowest number of unused bytes in the stack that has been seen until now).
+
+This approach should be the preferred solution as it does remove the need to mess around with the core sources and it can be easily adopted to different stack sizes for different build environments. 
+The only drawback is that the RAM allocated for the main task is more or less unused (and thus wasted). However, RAM is not really a problem for the project as a whole.
 
 # Generic additions
 ## Summary

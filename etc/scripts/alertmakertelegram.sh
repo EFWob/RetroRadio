@@ -8,7 +8,7 @@
 # Parameter $3 secret bot token
 # 
 # can be called using xargs from i.e. MQTT-message with parameters separated by spaces:
-#     mosquitto_sub -t "radioalertstelegram" | xargs -L1 ./alermakertelegram.sh
+#     mosquitto_sub -t "radioalerttelegram" | xargs -L1 ./alermakertelegram.sh
 
 echo "Parameter1=$1"
 echo "Parameter2=$2"
