@@ -259,6 +259,9 @@ void        tftset ( uint16_t inx, const char *str ) ;
 void        tftset ( uint16_t inx, String& str ) ;
 void        playtask ( void * parameter ) ;             // Task to play the stream
 void        spftask ( void * parameter ) ;              // Task for special functions
+#ifdef LOOPTASKSTACK
+void        looptask ( void * parameter ) ;             // Task for special functions
+#endif
 void        gettime() ;
 void        reservepin ( int8_t rpinnr ) ;
 void        claimSPI ( const char* p ) ;                // Claim SPI bus for exclusive access
@@ -400,6 +403,9 @@ HardwareSerial*   nxtserial = NULL ;                     // Serial port for NEXT
 TaskHandle_t      maintask ;                             // Taskhandle for main task
 TaskHandle_t      xplaytask ;                            // Task handle for playtask
 TaskHandle_t      xspftask ;                             // Task handle for special functions
+#ifdef LOOPTASKSTACK
+TaskHandle_t      xlooptask ;                            // Task handle for special loop task (bigger stack)
+#endif
 SemaphoreHandle_t SPIsem = NULL ;                        // For exclusive SPI usage
 hw_timer_t*       timer = NULL ;                         // For timer
 char              timetxt[9] ;                           // Converted timeinfo
@@ -3884,6 +3890,16 @@ if (false == NetworkFound)
     NULL,                                                 // parameter of the task
     1,                                                    // priority of the task
     &xspftask ) ;                                         // Task handle to keep track of created task
+#ifdef LOOPTASKSTACK
+  xTaskCreate (
+    looptask,                                             // Task to handle special functions.
+    "Looptask",                                           // name of task.
+    LOOPTASKSTACK,                                        // Stack size of task
+    NULL,                                                 // parameter of the task
+    1,                                                    // priority of the task
+    &xlooptask                                            // Task handle to keep track of created task
+     ) ;                                                  // 
+#endif
 }
 
 
@@ -4927,6 +4943,10 @@ void setLastStation(String latest)
 // Main loop of the program.                                                                       *
 //**************************************************************************************************
 void loop()
+#ifdef LOOPTASKSTACK
+{}
+void doLoop()
+#endif
 {
 #if defined(RETRORADIO)
   loopRR();
@@ -5832,7 +5852,10 @@ const char* analyzeCmd ( const char* par, const char* val )
               uxQueueMessagesWaiting ( dataqueue ),
               av,
               mbitrate ) ;
-    dbgprint ( "Stack maintask is %d (size is: %d)", uxTaskGetStackHighWaterMark ( maintask ) , CONFIG_ARDUINO_LOOP_STACK_SIZE) ;
+    dbgprint ( "Stack maintask is %d", uxTaskGetStackHighWaterMark ( maintask ) ) ;
+#ifdef LOOPTASKSTACK
+    dbgprint ( "Stack looptask is %d", uxTaskGetStackHighWaterMark ( xlooptask ) ) ;
+#endif    
     dbgprint ( "Stack playtask is %d", uxTaskGetStackHighWaterMark ( xplaytask ) ) ;
     dbgprint ( "Stack spftask  is %d", uxTaskGetStackHighWaterMark ( xspftask ) ) ;
     dbgprint ( "ADC reading is %d", adcval ) ;
@@ -6230,3 +6253,15 @@ void spftask ( void * parameter )
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }
+
+#ifdef LOOPTASKSTACK
+
+void looptask ( void * parameter )
+{
+  while ( true )
+  {
+    doLoop();
+  }
+}
+
+#endif

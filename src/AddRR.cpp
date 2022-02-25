@@ -714,6 +714,88 @@ void getAnnounceInfo(String& url, String& info, uint8_t id) {
 }
 
 
+/**********************************************************************************************************/
+/*                             R E A D A R G U M E N T S                                                  */
+/**********************************************************************************************************/
+/* Split arguments contained in parameter value and separate them into std::vector args                   */
+/* A single argument is either                                                                            */
+/*     - a word (separated by space)                                                                      */
+/*     - a sequence of words surrounded by double quotes ("this is a sequence")                           */
+/*        - if double quotes are needed within a sequence, they must be doubled (c-style), i. e.          */
+/*          "this is a sequence containing a ""quoted"" word"                                             */
+/*     - surrounding quotation marks will be deleted before storing the argument into the vector          */
+/*     - Both forms can be mixed, but a whitespace is also requested after/before quotation marks:        */
+/*          Parameter1 "This is param2" another param                                                     */
+/*        will result in 4 arguments:                                                                     */
+/*            1: Parameter1                                                                               */
+/*            2: This is param2                                                                           */
+/*            3: another                                                                                  */    
+/*            4: param                                                                                    */
+/**********************************************************************************************************/
+
+void readArguments(std::vector<String>& args, String value) {
+  args.clear();
+  value.trim();
+  char *cpy = strdup(value.c_str());
+  if (cpy)
+  {
+    char *start = cpy;
+    do 
+    {
+      while ((*start > 0) && (*start < ' '))
+        start++;
+      if (*start)
+      {
+        char *nextStart;
+        if (*start == '"')
+        {
+          bool done = false;
+          start++;
+          nextStart = start;
+          do {
+            nextStart = strchr(nextStart, '"');
+            if (!nextStart)
+              done = true;
+            else {
+              strcpy(nextStart, nextStart + 1);
+              done = ('"' != *nextStart);
+              if (!done)
+                nextStart++;
+            }
+          } while (!done);
+        }
+        else
+        {
+          nextStart = start + 1;
+          while (*nextStart > ' ')
+            nextStart++;
+        }
+        if (nextStart)
+          if (*nextStart)
+          {
+            *nextStart = 0;
+            nextStart++;
+          }
+        args.push_back(String(start));
+        if (nextStart)
+          start = nextStart;
+        else
+          start = start + strlen(start);
+      }
+    } while (*start);
+    free(cpy);
+  }
+}
+
+void doArguments(String value)
+{
+  std::vector<String> args;
+  readArguments(args,value);
+  dbgprint("Found %d arguments!", args.size());
+  for (int i= 0;i < args.size();i++)
+    dbgprint("%2d: %s", i, args[i].c_str());
+}
+
 // Obsolete?
 void readDataList(std::vector<int16_t>& v, String value) {
   char *s = strdup(value.c_str());
@@ -4390,6 +4472,10 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
       //setAnnouncemode(0);
     }
     
+  }
+  else if (ret = (param == "arguments"))
+  {
+    doArguments(value);
   }
   else if (ret = (param == "espnowmode"))
   {
