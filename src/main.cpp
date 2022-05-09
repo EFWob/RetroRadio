@@ -203,6 +203,10 @@
 #include <driver/adc.h>
 #include <Update.h>
 #include <base64.h>
+#if defined(BLUETOOTH)
+#include "BluetoothA2DPSink.h"
+BluetoothA2DPSink a2dp_sink;
+#endif
 // Number of entries in the queue
 #define QSIZ 400
 // Debug buffer size
@@ -3601,6 +3605,21 @@ void sendCrossOriginHeader() {
 //cmdserver.send(204);
 }
 
+
+#if defined(BLUETOOTH)
+void bt_data_stream(const uint8_t *data, uint32_t length) {
+static uint32_t lastReport = 0;
+static uint32_t totalBytes = 0;
+  totalBytes += length;
+  if (millis() - lastReport > 2000)  
+  {
+    dbgprint("Newly rcvd BT-Bytes: %ld", totalBytes);
+    totalBytes = 0;
+    lastReport = millis();
+  }
+}
+#endif
+
 //**************************************************************************************************
 //                                           S E T U P                                             *
 //**************************************************************************************************
@@ -3899,6 +3918,10 @@ if (false == NetworkFound)
     1,                                                    // priority of the task
     &xlooptask                                            // Task handle to keep track of created task
      ) ;                                                  // 
+#endif
+#if defined(BLUETOOTH)
+  a2dp_sink.set_stream_reader(bt_data_stream, false);
+  a2dp_sink.start(RADIONAME, false);
 #endif
 }
 
