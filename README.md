@@ -1,4 +1,7 @@
 # Latest changes
+*20220509*
+- Hot fix for new Espressif platform Espressiv 32 v4.1.0. This version comes with some updated library references that break the compile. The solution here is simple by forcing Espressif 32 v3.3 (see platformio.ini)
+
 *20220225*
   - Better fix for the [stack problem](#potential-stack-issue).
 

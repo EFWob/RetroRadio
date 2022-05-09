@@ -5852,6 +5852,7 @@ const char* analyzeCmd ( const char* par, const char* val )
               uxQueueMessagesWaiting ( dataqueue ),
               av,
               mbitrate ) ;
+    dbgprint ("This is test!!!!") ;
     dbgprint ( "Stack maintask is %d", uxTaskGetStackHighWaterMark ( maintask ) ) ;
 #ifdef LOOPTASKSTACK
     dbgprint ( "Stack looptask is %d", uxTaskGetStackHighWaterMark ( xlooptask ) ) ;

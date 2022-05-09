@@ -4040,13 +4040,14 @@ void loopRR() {
   RetroRadioInput::checkAll();
   if (espnowBacklog.size() > 0)
   {
-    char *s = espnowBacklog[0];
+    char *s0 = espnowBacklog[0];
     //char *mac = s + strlen(s) + 1;
     dbgprint("Command from ESP-Now[%02X.%02X.%02X.%02X.%02X.%02X]: %s", 
-        s[0], s[1], s[2], s[3], s[4], s[5], s + 6);
-    analyzeCmdsRR(String(s + 6));
+        s0[0], s0[1], s0[2], s0[3], s0[4], s0[5], s0 + 6);
+    analyzeCmdsRR(String(s0 + 6));
+
     espnowBacklog.erase(espnowBacklog.begin());
-    free(s);
+    free(s0);
   }
   if (numLoops) {
     static int step = 0;
