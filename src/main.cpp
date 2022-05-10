@@ -204,8 +204,9 @@
 #include <Update.h>
 #include <base64.h>
 #if defined(BLUETOOTH)
-#include "BluetoothA2DPSink.h"
+#include <BluetoothA2DPSink.h>
 BluetoothA2DPSink a2dp_sink;
+static bool bt_mode = false;
 #endif
 // Number of entries in the queue
 #define QSIZ 400
@@ -310,7 +311,7 @@ struct ini_struct
   String         mqttpasswd ;                         // Password for MQTT authentication
   uint8_t        reqvol ;                             // Requested volume
   uint8_t        rtone[4] ;                           // Requested bass/treble settings
-  int16_t        newpreset ;                          // Requested preset
+  int16_t        newpreset ;                          // Requested preset|........D.......|
   String         clk_server ;                         // Server to be used for time of day clock
   int8_t         clk_offset ;                         // Offset in hours with respect to UTC
   int8_t         clk_dst ;                            // Number of hours shift during DST
@@ -392,6 +393,7 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datast
 #if defined(RETRORADIO)
 bool              connectDelay = false ;                 // Station with ConnectDelay 
 #endif
+bool              dsp_available = false ;                // Display available?
 int               DEBUG = 1 ;                            // Debug on/off
 int               DEBUGMQTT = 0 ;                        // MQTT Debbug on/off
 int               numSsid ;                              // Number of available WiFi networks
@@ -444,6 +446,7 @@ bool              hostreq = false ;                      // Request for new host
 bool              reqtone = false ;                      // New tone setting requested
 bool              muteflag = false ;                     // Mute output
 bool              resetreq = false ;                     // Request to reset the ESP32
+String            resettarget ;                          // Target for reset (only "bt" supportet)
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
 bool              mqtt_on = false ;                      // MQTT in use
@@ -2816,6 +2819,8 @@ void readIOprefs()
   };
   struct iosetting klist[] = {                            // List of I/O related keys
     { "pin_ir",        &ini_block.ir_pin,           -1 },
+    { "pin_bt",        &ini_block.bt_pin,           -1 },
+    { "bt_auto",       &ini_block.bt_auto,           0 },
     { "pin_enc_clk",   &ini_block.enc_clk_pin,      -1 },
     { "pin_enc_dt",    &ini_block.enc_dt_pin,       -1 },
     { "pin_enc_sw",    &ini_block.enc_sw_pin,       -1 },
@@ -2855,10 +2860,14 @@ void readIOprefs()
       {
         count++ ;                                         // Yes, count number of filled keys
         ival = val.toInt() ;                              // Convert value to integer pinnumber
-        reservepin ( ival ) ;                             // Set pin to "reserved"
+        if ((NULL == strstr(klist[i].gname, "_bt")) &&
+            (NULL == strstr(klist[i].gname, "bt_")))      // Ignore BT-settings, else 
+          reservepin ( ival ) ;                             // Set pin to "reserved"
       }
     }
     *p = ival ;                                           // Set pinnumber in ini_block
+    if (ival >= 0)
+      pinMode(ival, INPUT_PULLUP);
     dbgprint ( "%s set to %d",                            // Show result
                klist[i].gname,
                ival ) ;
@@ -3607,14 +3616,73 @@ void sendCrossOriginHeader() {
 
 
 #if defined(BLUETOOTH)
+class ResetPin {
+  public:
+    ResetPin(int8_t pin) {
+      if ((_pin = pin) >= 0)
+      {
+        pinMode(_pin, INPUT_PULLUP);
+        _longpressIgnore = pressed();
+      }
+    };
+    bool pressed() {
+      bool ret = false;
+      if (_pin >=0 )
+      {
+        ret = !digitalRead(_pin);
+        if (!ret)
+          _longpressIgnore = false;
+      }
+      return ret;
+    }
+    uint32_t longpresstime()
+    {
+      if (_pin < 0)
+        return 0;
+      if (_longpressIgnore)
+      {
+        if (!pressed())
+          _longpressIgnore = 0;
+        _pressStart = 0;
+        return 0;
+      }
+      if (pressed())
+      {
+        if (0 == _pressStart)
+          _pressStart = millis();
+        return millis() - _pressStart;
+      }
+      else
+      {
+        return _pressStart = 0;  
+      }   
+    }
+
+  protected:
+    int8_t _pin = -1 ;
+    uint32_t _pressStart = 0;
+    bool _longpressIgnore;
+};
+
+ResetPin *resetpin = NULL;
+
 void bt_data_stream(const uint8_t *data, uint32_t length) {
 static uint32_t lastReport = 0;
-static uint32_t totalBytes = 0;
+static uint32_t totalBytes = 0, chunks = 0;
+static uint32_t maxTransfertime = 0;
+uint32_t x;
   totalBytes += length;
+  chunks++;
+  x = millis();
+  vs1053player->playChunk((uint8_t *)data, length);
+  x = millis() - x;
+  if (x > maxTransfertime)
+    maxTransfertime = x;
   if (millis() - lastReport > 2000)  
   {
-    dbgprint("Newly rcvd BT-Bytes: %ld", totalBytes);
-    totalBytes = 0;
+    dbgprint("Newly rcvd BT-Bytes: %ld, in %ld chunks (average: %ld), max. Transfertime: %d", 
+      totalBytes, chunks, totalBytes / chunks, maxTransfertime);
+    totalBytes = chunks = maxTransfertime = 0;
     lastReport = millis();
   }
 }
@@ -3657,6 +3725,8 @@ void setup()
              ESP.getCpuFreqMHz(),
              VERSION,
              ESP.getFreeHeap() ) ;                       // Normally about 170 kB
+
+        
 #if defined ( BLUETFT )                                // Report display option
   dbgprint ( dtyp, "BLUETFT" ) ;
 #endif
@@ -3686,6 +3756,7 @@ void setup()
 #endif
   maintask = xTaskGetCurrentTaskHandle() ;               // My taskhandle
   SPIsem = xSemaphoreCreateMutex(); ;                    // Semaphore for SPI bus
+  dbgprint("Start searching NVS partition");
   pi = esp_partition_find ( ESP_PARTITION_TYPE_DATA,     // Get partition iterator for
                             ESP_PARTITION_SUBTYPE_ANY,   // the NVS partition
                             partname ) ;
@@ -3716,6 +3787,26 @@ void setup()
   ini_block.espnowmodetarget = 3 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
+  if (nvssearch("resettarget"))
+  {
+    resettarget = nvsgetstr("resettarget");
+    dbgprint("resettarget found in preferences: %s", resettarget.c_str());
+    nvsdelkey("resettarget");
+  }
+
+#if defined(BLUETOOTH)
+  bt_mode = resettarget == "bt";
+  if (resettarget != "radio")
+  {
+    if (ini_block.bt_pin != -1)
+    {
+      resetpin = new ResetPin(ini_block.bt_pin);
+      if (!bt_mode)
+        bt_mode = resetpin->pressed();
+    }
+  }
+#endif
+
   for ( i = 0 ; (pinnr = progpin[i].gpio) >= 0 ; i++ )   // Check programmable input pins
   {
     pinMode ( pinnr, INPUT_PULLUP ) ;                    // Input for control button
@@ -3731,10 +3822,8 @@ void setup()
     }
     dbgprint ( "GPIO%d is %s", pinnr, p ) ;
   }
-#if defined(RETRORADIO)  
-  setupRR (SETUP_START);
-#endif
-  readprogbuttons() ;                                    // Program the free input pins
+
+
   SPI.begin ( ini_block.spi_sck_pin,                     // Init VSPI bus with default or modified pins
               ini_block.spi_miso_pin,
               ini_block.spi_mosi_pin ) ;
@@ -3743,20 +3832,15 @@ void setup()
                               ini_block.vs_dreq_pin,
                               ini_block.vs_shutdown_pin,
                               ini_block.vs_shutdownx_pin ) ;
-  if ( ini_block.ir_pin >= 0 )
-  {
-    dbgprint ( "Enable pin %d for IR",
-               ini_block.ir_pin ) ;
-    pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
-    attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
-                      isr_IR, CHANGE ) ;
-  }
+  vs1053player->begin() ;                                // Initialize VS1053 player
+
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
     dbgprint ( "Start display" ) ;
     if ( dsp_begin() )                                   // Init display
     {
+      dsp_available = true ;
       dsp_setRotation() ;                                // Use landscape format
       dsp_erase() ;                                      // Clear screen
       dsp_setTextSize ( 1 ) ;                            // Small character font
@@ -3778,6 +3862,80 @@ void setup()
     pinMode ( ini_block.tft_blx_pin, OUTPUT ) ;          // Yes, enable output
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
+
+
+#if defined(BLUETOOTH)
+  if (vs1053player->clock() <= 200000)
+    bt_mode = false ;
+  if (bt_mode)
+  {
+  uint8_t pcm_header[] = {
+  0x52, 0x49, 0x46, 0x46, 0xff, 0xff, 0xff, 0xff, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
+  0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x44, 0xac, 0x00, 0x00, 0x10, 0xb1, 0x02, 0x00, 
+  0x04, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0xff, 0xff, 0xff, 0xff };    
+    a2dp_sink.set_stream_reader(bt_data_stream, false);
+    a2dp_sink.start(RADIONAME, ini_block.bt_auto);
+    dbgprint ( "Bluetooth (auto=%d) started.  Free memory now %d",
+             ini_block.bt_auto, ESP.getFreeHeap() ) ;                       // Normally about 170 kB
+    if (dsp_available)
+    {
+      dsp_print ( "Bluetooth mode, connect to: " ) ;
+      dsp_println ( RADIONAME );
+    }
+    vs1053player->playChunk (pcm_header, sizeof(pcm_header));
+    ini_block.reqvol = 100;
+    vs1053player->setVolume(100);
+    while(1)
+    {
+      scanserial();
+      if ( resetreq )                                   // Reset requested?
+      {
+        //vs1053player->stopSong() ;
+        //vs1053player->softReset() ;
+        //if (resettarget == "bt")                        
+        if (resettarget.length() > 0)
+          nvssetstr("resettarget", resettarget) ;             // 
+        delay(500);
+        ESP.restart() ;                                 // Reboot
+      }      
+      if (muteflag)
+        {
+        if (vs1053player->getVolume() > 0)
+          vs1053player->setVolume(0) ;
+        }
+      else 
+        {
+          if (vs1053player->getVolume() != ini_block.reqvol)
+            vs1053player->setVolume(ini_block.reqvol) ;
+        }
+      if (resetpin)
+      { 
+        uint32_t x = resetpin->longpresstime();
+        if (x > 0)
+        //if (resetpin->pressed())
+        {
+          dbgprint("Longpress BT = %ld", x);
+        }
+      }
+    }
+  }
+#endif
+
+  if ( ini_block.ir_pin >= 0 )
+  {
+    dbgprint ( "Enable pin %d for IR",
+               ini_block.ir_pin ) ;
+    pinMode ( ini_block.ir_pin, INPUT ) ;                // Pin for IR receiver VS1838B
+    attachInterrupt ( ini_block.ir_pin,                  // Interrupts will be handle by isr_IR
+                      isr_IR, CHANGE ) ;
+  }
+
+
+#if defined(RETRORADIO)  
+  setupRR (SETUP_START);
+#endif
+  readprogbuttons() ;                                    // Program the free input pins
+
   dbgprint("SDCARD geht los\r\n\r\n\r\n\r\n");
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
 #if defined(RETRORADIO)
@@ -3797,8 +3955,6 @@ void setup()
   readprefs ( false ) ;                                  // Read preferences
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                RADIONAME ) ;
-  vs1053player->begin() ;                                // Initialize VS1053 player
-  delay(10);
   setup_CH376() ;                                        // Init CH376 if configured
 #if defined(RETRORADIO)
 if (false == NetworkFound)
@@ -3918,10 +4074,6 @@ if (false == NetworkFound)
     1,                                                    // priority of the task
     &xlooptask                                            // Task handle to keep track of created task
      ) ;                                                  // 
-#endif
-#if defined(BLUETOOTH)
-  a2dp_sink.set_stream_reader(bt_data_stream, false);
-  a2dp_sink.start(RADIONAME, false);
 #endif
 }
 
@@ -4991,10 +5143,18 @@ void doLoop()
     update_software ( "lstmods",                    // Update sketch from remote file
                       UPDATEHOST, BINFILE ) ;
     resetreq = true ;                               // And reset
+    resettarget = "update";
   }
   if ( resetreq )                                   // Reset requested?
   {
-    delay ( 1000 ) ;                                // Yes, wait some time
+    //vs1053player->stopSong() ;
+    //vs1053player->softReset() ;
+    //if (resettarget == "bt")                        
+    if (resettarget.length() > 0)
+      nvssetstr("resettarget", resettarget) ;             // force BT after reset
+    //else
+    //  delay ( 900 ) ;                              // wait some time
+    delay(500);
     ESP.restart() ;                                 // Reboot
   }
   scanserial() ;                                    // Handle serial input
@@ -5586,7 +5746,10 @@ const char* analyzeCmd ( const char* str )
   char*        value ;                           // Points to value after equalsign in command
   const char*  res ;                             // Result of analyzeCmd
 #if defined(RETRORADIO)
-  return analyzeCmdsRR ( String(str) ) ; 
+#if defined(BLUETOOTH)
+  if (!bt_mode)
+#endif
+    return analyzeCmdsRR ( String(str) ) ; 
 #endif
   value = strstr ( str, "=" ) ;                  // See if command contains a "="
   if ( value )
@@ -5731,9 +5894,18 @@ const char* analyzeCmd ( const char* par, const char* val )
     if (newMuteflag != muteflag)
     {
       muteflag = !muteflag ;                            // Request volume to zero/normal
-      mqttpub.trigger(MQTT_MUTE);
+      if (!bt_mode)
+        mqttpub.trigger(MQTT_MUTE);
     }
   }
+  else if ( argument ==  "reset"  )         // Reset request
+  {
+    resetreq = true ;                                 // Reset all
+    resettarget = value ;
+    resettarget.toLowerCase() ;
+  }
+  else if (bt_mode)
+    ;
   else if ( argument == "offline")
   {
         mqttpub.trigger ( MQTT_IP ) ;                 // Publish own IP
@@ -5851,10 +6023,6 @@ const char* analyzeCmd ( const char* par, const char* val )
       sprintf ( reply, "%s - %s", icyname.c_str(),
                 icystreamtitle.c_str() ) ;            // Streamtitle from metadata
     }
-  }
-  else if ( argument.startsWith ( "reset" ) )         // Reset request
-  {
-    resetreq = true ;                                 // Reset all
   }
   else if ( argument.startsWith ( "update" ) )        // Update request
   {
@@ -6282,6 +6450,7 @@ void spftask ( void * parameter )
 
 void looptask ( void * parameter )
 {
+
   while ( true )
   {
     doLoop();
