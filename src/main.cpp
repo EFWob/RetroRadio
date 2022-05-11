@@ -2880,10 +2880,8 @@ void readIOprefs()
               int value = val.toInt();
               if (value > 0)
               {
-                if (value > 100)
-                  ival = 100;
-                else if (value < 5)
-                  ival = 5;           
+                if (value > 127)
+                  ival = 127;
               }
             }
             dbgprint("Reset time for BT set to %d", ival);

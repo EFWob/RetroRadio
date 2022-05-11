@@ -216,7 +216,7 @@ The next limitation is that the BT libraries require quite some flash space. As 
 __To compile the BT support, you have to define the build-flag -DBLUETOOTH in the respective environment in *platformio.ini*!__
 
 
-BT support is in an experimental statge, currently the display will also not be updated. The only available command interface is Serial input, the command set is reduced to __volume__, __mute__ and __reset__.
+BT support is in an experimental state, currently the display will also not be updated. The only available command interface is Serial input, the command set is reduced to __volume__, __mute__ and __reset__.
 There is currently no possiblity to control the BT source by radio buttons or the like.
 
 The BT-name will be the same as the radio name. 
