@@ -4014,7 +4014,12 @@ void setupRR(uint8_t setupLevel) {
       i++;
     } while (i < 11);
     retroRadioLoops[numLoops] = NULL;
-
+    if (-1 == ini_block.bt_off)
+      if (0 <= ini_block.bt_pin)
+      {
+        String s = String("in.**bt**=src=d") + ini_block.bt_pin + ",on0={reset=bt},start";
+        analyzeCmd(s.c_str());
+      }
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
     doprint("This is ESP32 chip with %d CPU cores, WiFi%s%s, ",

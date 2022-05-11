@@ -86,6 +86,10 @@ struct ini_struct
   int8_t         clk_offset ;                         // Offset in hours with respect to UTC
   int8_t         clk_dst ;                            // Number of hours shift during DST
   int8_t         ir_pin ;                             // GPIO connected to output of IR decoder
+  int8_t         bt_pin ;                             // GPIO connected check for user request of Bluetooth (startup)
+  int8_t         bt_auto ;                            // If set to != 0, auto connect to avaiable BT-device
+  int8_t         bt_off ;                             // Timeout for reset in BT mode to restart radio
+  int8_t         bt_vol ;                             // Volume setting for BT mode
   int8_t         enc_clk_pin ;                        // GPIO connected to CLK of rotary encoder
   int8_t         enc_dt_pin ;                         // GPIO connected to DT of rotary encoder
   int8_t         enc_sw_pin ;                         // GPIO connected to SW of rotary encoder
@@ -236,6 +240,10 @@ void        releaseSPI() ;                              // Release the claimther
                             size_t len ) ;               // the chip.  Blocks until complete.
     // Returns true if more data can be added
     // to fifo
+    uint32_t clock() {return VS1053_SPI._clock;} ;       // Get current clock setting of SPI for VS1053.
+                                                         // Returns 0 if not initialized
+                                                         // 200000 in slow mode, above if in fast mode
+
     void     stopSong() ;                                // Finish playing a song. Call this after
     // the last playChunk call.
     void     setVolume ( uint8_t vol ) ;                 // Set the player volume.Level from 0-100,
@@ -325,6 +333,7 @@ esp_err_t   nvsclear ( ) ;
 String      nvsgetstr ( const char* key ) ;
 bool        nvssearch ( const char* key ) ;
 esp_err_t   nvssetstr ( const char* key, String val ) ;
+void        nvsdelkey ( const char* k);
 void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n );
 //void        fillkeylist() ;
 void fillkeylist(std::vector<const char*>& keynames, uint8_t namespaceid);
