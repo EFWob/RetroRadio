@@ -88,6 +88,8 @@ struct ini_struct
   int8_t         ir_pin ;                             // GPIO connected to output of IR decoder
   int8_t         bt_pin ;                             // GPIO connected check for user request of Bluetooth (startup)
   int8_t         bt_auto ;                            // If set to != 0, auto connect to avaiable BT-device
+  int8_t         bt_off ;                             // Timeout for reset in BT mode to restart radio
+  int8_t         bt_vol ;                             // Volume setting for BT mode
   int8_t         enc_clk_pin ;                        // GPIO connected to CLK of rotary encoder
   int8_t         enc_dt_pin ;                         // GPIO connected to DT of rotary encoder
   int8_t         enc_sw_pin ;                         // GPIO connected to SW of rotary encoder

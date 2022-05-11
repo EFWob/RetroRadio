@@ -1,4 +1,7 @@
 # Latest changes
+*20220511*
+  - BIG NEW FEATURE: you can now use the radio as [Blutetooth](#bluetooth) audio player.
+  
 *20220509*
 - Hot fix for new Espressif platform Espressiv 32 v4.1.0. This version comes with some updated library references that break the compile. The solution here is simple by forcing Espressif 32 v3.3 (see platformio.ini)
 
@@ -122,6 +125,7 @@ The only drawback is that the RAM allocated for the main task is more or less un
 ## Summary
 Generic additions are not specific to the Retro radio idea but can be used in general with the ESP32 Radio. You can skip to section [Extended
 Input Handling](#extended-input-handling) if you are not interested to use the following features for now:
+ - The radio can be used as [Bluetooth](#bluetooth) audio player.
  - [Ethernet](#ethernet-support) can be used (I had to place one radio at a spot with weak WLAN reception)
  - [Philips RC5 protocol](#added-support-for-rc5-remotes-philips) is implemented to be used in addition/instead of to the NEC protocol. 
  - A [channel concept](#channel-concept) is introduced to simplify a re-mapping of presets.
@@ -201,6 +205,45 @@ For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be 
 
 More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
  
+
+## Bluetooth
+### BT limitations
+The ESP32 does not seam to support both network access and bluetooth at the same time. As a result, you can not access the Web-interface in BT mode. The decision to switch to BT (or to default radio) is done at startup (after either Power On, HW or SW reset). To switch from one mode to another requires also a reset. Mechanisms have been implemented to make that switch as smooth as possible.
+
+The next limitation is that the BT libraries require quite some flash space. As a result, you have to change the partition layout to increase the flash size for the app. I have one example in this repository (see [etc/radio4MB_bigApp.csv](etc/radio4MB_bigApp.csv)) that keeps the NVS- and FS-partition and doubles the size of the app by getting rid of the space used for OTA updates (compared with [etc/radio4MB_default.csv](etc/radio4MB_default.csv))
+
+
+__To compile the BT support, you have to define the build-flag -DBLUETOOTH in the respective environment in *platformio.ini*!__
+
+
+BT support is in an experimental statge, currently the display will also not be updated. The only available command interface is Serial input, the command set is reduced to __volume__, __mute__ and __reset__.
+There is currently no possiblity to control the BT source by radio buttons or the like.
+
+### Enter BT mode
+- At startup, NVS is searched if the key __boottarget__ exists. If the value of that key is __bt__ the radio will enter BT mode. 
+- The key __boottarget__ will be deleted immediately after evaluation. Setting __boottarget__ will only control the next reset.
+- To simplify the context switch, the command __reset__ does now accept an argument that will be stored to NVS using the key __boottarget__ before the actual reset is performed. So when in radio modus, the command __reset=bt__ will store __bt__ to NVS-key __boottarget__ before performing the reset. After the reset, that NVS key will be evaluated and as a result radio will start in BT-mode.
+- If the key __boottarget__ does not exists or is set to any value other than __bt__, the radio will start in default radio mode.
+
+You can also attach a momentary switch to a pin to decide the bootmode at reset time
+- In NVS preferences, you can set __bt_pin=xx__ to define a GPIO (number __xx__) to be evaluated at startup. If the defined pin is __LOW__ at startup, the radio will switch to BT-Mode (or otherwise start radio mode as usual)
+- The pin is evaluated roundabout 1 second after reset.
+- The pin can be overloaded with some radio functionality as it is only evaluated at startup. I. e. if you have a MUTE-button, you can use this button to evaluate at startup if BT-Mode should be entered.
+- Note that the __boottarget__ flag will override the pin-reading: if __boottarget==radio__ or __boottarget==bt__ are set in NVS preferences, the radio will start in radio/BT-mode no matter what.
+
+If you defined such a pin, you can also use this pin to switch from BT to radio mode:
+- In NVS preferences, you can set __bt_off=nn__ to define a timeout __nn__ (a number between 1 and 127) in tenth of seconds the defined pin needs to be pulled to LOW in BT-mode to reset to radio mode. (There is no default mechanism to switch the radio from radio mode to BT mode using this pin. You can define this self in preferences by defining an [specific Input](#extended-input-handling).
+
+You can also attach a permanent switch (like a slide switch) to a pin. The only change to the setup for the momentary switch is to set __bt_off__ to __switch__ in NVS preferences. (i. e. __bt_off=switch__). In this case, the pin is not only evaluated at reset time but permanently:
+- At start, the radio will enter BT-mode if the pin reads __LOW__, else radio mode.
+- If the pin state changes in either mode (i. e. to __LOW__ in radio-mode or to __HIGH__ in BT-mode) the radio will reset to the other mode and again stay in this mode until the pin state changes again.
+- If using this mechanism, the __boottarget__ flag will be ignored at startup. The radio mode is decided by the switch state.
+
+Some details:
+- If you want to automatically connect to a (the last) known BT source if within reach, you can set the key __bt_auto=1__ in NVS preferences (defaults to __0__, i. e. not automatic reconnect)
+- The volume level will be controlled by the BT-source. If you want to limit the maximum volume, you can define __bt_vol=nn__ in NVS preferences (defaults to __100__) to set the maximum volume level of the VS1053 module. (this setting does not affect the volume setting of the BT-source)
+
+
 
 ## Ethernet support
 ### Caveat Emptor

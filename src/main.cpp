@@ -446,7 +446,7 @@ bool              hostreq = false ;                      // Request for new host
 bool              reqtone = false ;                      // New tone setting requested
 bool              muteflag = false ;                     // Mute output
 bool              resetreq = false ;                     // Request to reset the ESP32
-String            resettarget ;                          // Target for reset (only "bt" supportet)
+String            boottarget ;                           // Target at boot (only "bt"/"radio" supportet)
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
 bool              mqtt_on = false ;                      // MQTT in use
@@ -2819,8 +2819,10 @@ void readIOprefs()
   };
   struct iosetting klist[] = {                            // List of I/O related keys
     { "pin_ir",        &ini_block.ir_pin,           -1 },
-    { "pin_bt",        &ini_block.bt_pin,           -1 },
+    { "bt_pin",        &ini_block.bt_pin,           -1 },
     { "bt_auto",       &ini_block.bt_auto,           0 },
+    { "bt_off",        &ini_block.bt_off,            0 },
+    { "bt_vol",        &ini_block.bt_vol,          100 },
     { "pin_enc_clk",   &ini_block.enc_clk_pin,      -1 },
     { "pin_enc_dt",    &ini_block.enc_dt_pin,       -1 },
     { "pin_enc_sw",    &ini_block.enc_sw_pin,       -1 },
@@ -2860,14 +2862,36 @@ void readIOprefs()
       {
         count++ ;                                         // Yes, count number of filled keys
         ival = val.toInt() ;                              // Convert value to integer pinnumber
-        if ((NULL == strstr(klist[i].gname, "_bt")) &&
-            (NULL == strstr(klist[i].gname, "bt_")))      // Ignore BT-settings, else 
-          reservepin ( ival ) ;                             // Set pin to "reserved"
+        if (NULL == strstr(klist[i].gname, "bt_"))        // Ignore BT-settings, else 
+          {  
+            reservepin ( ival ) ;                             // Set pin to "reserved"
+            pinMode(ival, INPUT_PULLUP);
+          }
+        else
+        {
+          if (0 == strcmp("bt_off", klist[i].gname))
+          {
+            chomp(val);
+            val.toLowerCase();
+            if (val == "switch")
+              ival = -1;
+            else
+            {
+              int value = val.toInt();
+              if (value > 0)
+              {
+                if (value > 100)
+                  ival = 100;
+                else if (value < 5)
+                  ival = 5;           
+              }
+            }
+            dbgprint("Reset time for BT set to %d", ival);
+          }
+        }
       }
     }
     *p = ival ;                                           // Set pinnumber in ini_block
-    if (ival >= 0)
-      pinMode(ival, INPUT_PULLUP);
     dbgprint ( "%s set to %d",                            // Show result
                klist[i].gname,
                ival ) ;
@@ -3787,22 +3811,25 @@ void setup()
   ini_block.espnowmodetarget = 3 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
-  if (nvssearch("resettarget"))
+  if (nvssearch("boottarget"))
   {
-    resettarget = nvsgetstr("resettarget");
-    dbgprint("resettarget found in preferences: %s", resettarget.c_str());
-    nvsdelkey("resettarget");
+    boottarget = nvsgetstr("boottarget");
+    dbgprint("Boottarget found in preferences: %s", boottarget.c_str());
+    nvsdelkey("boottarget");
   }
 
 #if defined(BLUETOOTH)
-  bt_mode = resettarget == "bt";
-  if (resettarget != "radio")
+  bt_mode = (ini_block.bt_off == -1)?false:boottarget == "bt";
+  if ((boottarget != "radio") || (ini_block.bt_off == -1))
   {
     if (ini_block.bt_pin != -1)
     {
       resetpin = new ResetPin(ini_block.bt_pin);
       if (!bt_mode)
+      {
         bt_mode = resetpin->pressed();
+        dbgprint("BT-Pin evaluated, BT-Mode=%d", bt_mode);
+      }
     }
   }
 #endif
@@ -3863,6 +3890,7 @@ void setup()
   }
   blset ( true ) ;                                       // Enable backlight (if configured)
 
+  resetreq = false;
 
 #if defined(BLUETOOTH)
   if (vs1053player->clock() <= 200000)
@@ -3875,27 +3903,26 @@ void setup()
   0x04, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0xff, 0xff, 0xff, 0xff };    
     a2dp_sink.set_stream_reader(bt_data_stream, false);
     a2dp_sink.start(RADIONAME, ini_block.bt_auto);
-    dbgprint ( "Bluetooth (auto=%d) started.  Free memory now %d",
-             ini_block.bt_auto, ESP.getFreeHeap() ) ;                       // Normally about 170 kB
+    dbgprint ( "Bluetooth (auto=%d, off=%d) started.  Free memory now %d",
+             ini_block.bt_auto, ini_block.bt_off, ESP.getFreeHeap() ) ;                       // Normally about 170 kB
     if (dsp_available)
     {
       dsp_print ( "Bluetooth mode, connect to: " ) ;
       dsp_println ( RADIONAME );
     }
     vs1053player->playChunk (pcm_header, sizeof(pcm_header));
-    ini_block.reqvol = 100;
-    vs1053player->setVolume(100);
+    ini_block.reqvol = ini_block.bt_vol;
+    vs1053player->setVolume(ini_block.bt_vol);
+    dbgprint ( "Bluetooth volume set to: %d", ini_block.bt_vol );
     while(1)
     {
       scanserial();
       if ( resetreq )                                   // Reset requested?
       {
-        //vs1053player->stopSong() ;
-        //vs1053player->softReset() ;
-        //if (resettarget == "bt")                        
-        if (resettarget.length() > 0)
-          nvssetstr("resettarget", resettarget) ;             // 
-        delay(500);
+        if (boottarget.length() > 0)
+          nvssetstr("boottarget", boottarget) ;             // 
+        else
+          delay(500);
         ESP.restart() ;                                 // Reboot
       }      
       if (muteflag)
@@ -3909,16 +3936,30 @@ void setup()
             vs1053player->setVolume(ini_block.reqvol) ;
         }
       if (resetpin)
-      { 
-        uint32_t x = resetpin->longpresstime();
-        if (x > 0)
-        //if (resetpin->pressed())
-        {
-          dbgprint("Longpress BT = %ld", x);
-        }
-      }
+        if (ini_block.bt_off > 0)
+          { 
+          uint32_t x = resetpin->longpresstime();
+          if (x > ((uint32_t)ini_block.bt_off)*100)
+            {
+              resetreq = true;
+              boottarget = "radio";
+            }
+          }
+        else if (ini_block.bt_off == -1)
+          {
+            if (!resetpin->pressed())
+            {
+              delay(50);
+              if (!resetpin->pressed())
+                {
+                  resetreq = true;
+                  boottarget = "radio";
+                }
+            }
+          }
     }
   }
+
 #endif
 
   if ( ini_block.ir_pin >= 0 )
@@ -5143,15 +5184,14 @@ void doLoop()
     update_software ( "lstmods",                    // Update sketch from remote file
                       UPDATEHOST, BINFILE ) ;
     resetreq = true ;                               // And reset
-    resettarget = "update";
+    boottarget = "update";
   }
   if ( resetreq )                                   // Reset requested?
   {
     //vs1053player->stopSong() ;
     //vs1053player->softReset() ;
-    //if (resettarget == "bt")                        
-    if (resettarget.length() > 0)
-      nvssetstr("resettarget", resettarget) ;             // force BT after reset
+    if (boottarget.length() > 0)
+      nvssetstr("boottarget", boottarget) ;             // force BT after reset
     //else
     //  delay ( 900 ) ;                              // wait some time
     delay(500);
@@ -5901,8 +5941,8 @@ const char* analyzeCmd ( const char* par, const char* val )
   else if ( argument ==  "reset"  )         // Reset request
   {
     resetreq = true ;                                 // Reset all
-    resettarget = value ;
-    resettarget.toLowerCase() ;
+    boottarget = value ;
+    boottarget.toLowerCase() ;
   }
   else if (bt_mode)
     ;
