@@ -206,8 +206,8 @@
 #if defined(BLUETOOTH)
 #include <BluetoothA2DPSink.h>
 BluetoothA2DPSink a2dp_sink;
-static bool bt_mode = false;
 #endif
+static bool bt_mode = false;
 // Number of entries in the queue
 #define QSIZ 400
 // Debug buffer size
@@ -446,7 +446,7 @@ bool              hostreq = false ;                      // Request for new host
 bool              reqtone = false ;                      // New tone setting requested
 bool              muteflag = false ;                     // Mute output
 bool              resetreq = false ;                     // Request to reset the ESP32
-String            boottarget ;                           // Target at boot (only "bt"/"radio" supportet)
+String            bootmode = "radio" ;                   // Target at boot (only "bt"/"radio" supportet)
 bool              updatereq = false ;                    // Request to update software from remote host
 bool              NetworkFound = false ;                 // True if WiFi network connected
 bool              mqtt_on = false ;                      // MQTT in use
@@ -2349,7 +2349,7 @@ bool connectwifi()
   vTaskDelay ( 1000 / portTICK_PERIOD_MS ) ;            // Silly things to start connection
   WiFi.mode ( WIFI_STA ) ;
   vTaskDelay ( 1000 / portTICK_PERIOD_MS ) ;
-  if ( wifilist.size()  )                               // Any AP defined?
+  if ( wifilist.size() && (bootmode != "ap") )                               // Any AP defined?
   {
     if ( wifilist.size() == 1 )                         // Just one AP defined in preferences?
     {
@@ -3809,16 +3809,18 @@ void setup()
   ini_block.espnowmodetarget = 3 ;
   readIOprefs() ;                                        // Read pins used for SPI, TFT, VS1053, IR,
                                                          // Rotary encoder
-  if (nvssearch("boottarget"))
+  if (nvssearch("bootmode"))
   {
-    boottarget = nvsgetstr("boottarget");
-    dbgprint("Boottarget found in preferences: %s", boottarget.c_str());
-    nvsdelkey("boottarget");
+    bootmode = nvsgetstr("bootmode");
+    bootmode.trim();
+    bootmode.toLowerCase();
+    dbgprint("bootmode found in preferences: %s", bootmode.c_str());
+    nvsdelkey("bootmode");
   }
 
 #if defined(BLUETOOTH)
-  bt_mode = (ini_block.bt_off == -1)?false:boottarget == "bt";
-  if ((boottarget != "radio") || (ini_block.bt_off == -1))
+  bt_mode = (ini_block.bt_off == -1)?false:bootmode == "bt";
+  if ((bootmode == "bt") || ((bootmode == "radio") && (ini_block.bt_off == -1)))
   {
     if (ini_block.bt_pin != -1)
     {
@@ -3859,6 +3861,12 @@ void setup()
                               ini_block.vs_shutdownx_pin ) ;
   vs1053player->begin() ;                                // Initialize VS1053 player
 
+  if (vs1053player->clock() == 0)
+  {
+    bt_mode = false ;
+    bootmode = "ap" ;
+  }
+
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
@@ -3891,8 +3899,6 @@ void setup()
   resetreq = false;
 
 #if defined(BLUETOOTH)
-  if (vs1053player->clock() <= 200000)
-    bt_mode = false ;
   if (bt_mode)
   {
   uint8_t pcm_header[] = {
@@ -3917,8 +3923,8 @@ void setup()
       scanserial();
       if ( resetreq )                                   // Reset requested?
       {
-        if (boottarget.length() > 0)
-          nvssetstr("boottarget", boottarget) ;             // 
+        if (bootmode.length() > 0)
+          nvssetstr("bootmode", bootmode) ;             // 
         else
           delay(500);
         ESP.restart() ;                                 // Reboot
@@ -3940,7 +3946,7 @@ void setup()
           if (x > ((uint32_t)ini_block.bt_off)*100)
             {
               resetreq = true;
-              boottarget = "radio";
+              bootmode = "radio";
             }
           }
         else if (ini_block.bt_off == -1)
@@ -3951,7 +3957,7 @@ void setup()
               if (!resetpin->pressed())
                 {
                   resetreq = true;
-                  boottarget = "radio";
+                  bootmode = "radio";
                 }
             }
           }
@@ -3996,18 +4002,18 @@ void setup()
                                RADIONAME ) ;
   setup_CH376() ;                                        // Init CH376 if configured
 #if defined(RETRORADIO)
-if (false == NetworkFound)
-{
+    if (false == NetworkFound)
+      {
 #endif
-  p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
-  tftlog ( p ) ;                                         // On TFT too
-  NetworkFound = connectwifi() ;                         // Connect to WiFi network
+      p = dbgprint ( "Connect to WiFi" ) ;                   // Show progress
+      tftlog ( p ) ;                                         // On TFT too
+      NetworkFound = connectwifi() ;                         // Connect to WiFi network
  #if defined(RETRORADIO)
-}
+      }
  #endif
-  dbgprint ( "Start server for commands" ) ;
+    dbgprint ( "Start server for commands" ) ;
   //cmdserver.on("/genrelist", HTTP_OPTIONS, sendCrossOriginHeader);
-  cmdserver.begin() ;                                    // Start http server
+    cmdserver.begin() ;                                    // Start http server
   if ( NetworkFound )                                    // OTA and MQTT only if Wifi network found
   {
     dbgprint ( "Network found. Starting mqtt and OTA" ) ;
@@ -4089,31 +4095,34 @@ if (false == NetworkFound)
 #if defined(RETRORADIO)
   setupRR ( SETUP_DONE ) ;
 #endif  
-  xTaskCreatePinnedToCore (
-    playtask,                                             // Task to play data in dataqueue.
-    "Playtask",                                           // name of task.
-    1600,                                                 // Stack size of task
-    NULL,                                                 // parameter of the task
-    2,                                                    // priority of the task
-    &xplaytask,                                           // Task handle to keep track of created task
-    0 ) ;                                                 // Run on CPU 0
-  xTaskCreate (
-    spftask,                                              // Task to handle special functions.
-    "Spftask",                                            // name of task.
-    2048,                                                 // Stack size of task
-    NULL,                                                 // parameter of the task
-    1,                                                    // priority of the task
-    &xspftask ) ;                                         // Task handle to keep track of created task
+//  if (bootmode != "ap")
+  {
+    xTaskCreatePinnedToCore (
+      playtask,                                             // Task to play data in dataqueue.
+      "Playtask",                                           // name of task.
+      1600,                                                 // Stack size of task
+      NULL,                                                 // parameter of the task
+      2,                                                    // priority of the task
+      &xplaytask,                                           // Task handle to keep track of created task
+      0 ) ;                                                 // Run on CPU 0
+    xTaskCreate (
+      spftask,                                              // Task to handle special functions.
+      "Spftask",                                            // name of task.
+      2048,                                                 // Stack size of task
+      NULL,                                                 // parameter of the task
+      1,                                                    // priority of the task
+      &xspftask ) ;                                         // Task handle to keep track of created task
 #ifdef LOOPTASKSTACK
-  xTaskCreate (
-    looptask,                                             // Task to handle special functions.
-    "Looptask",                                           // name of task.
-    LOOPTASKSTACK,                                        // Stack size of task
-    NULL,                                                 // parameter of the task
-    1,                                                    // priority of the task
-    &xlooptask                                            // Task handle to keep track of created task
-     ) ;                                                  // 
+    xTaskCreate (
+      looptask,                                             // Task to handle special functions.
+      "Looptask",                                           // name of task.
+      LOOPTASKSTACK,                                        // Stack size of task
+      NULL,                                                 // parameter of the task
+      1,                                                    // priority of the task
+      &xlooptask                                            // Task handle to keep track of created task
+      ) ;                                                  // 
 #endif
+  }
 }
 
 
@@ -4848,6 +4857,9 @@ void mp3loop()
   uint32_t        timing ;                               // Startime and duration this function
   uint32_t        qspace ;                               // Free space in data queue
 
+  if (bootmode == "ap")
+    return;
+
   // Try to keep the Queue to playtask filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |               // Test op playing
                     METADATA | PLAYLISTINIT |
@@ -5182,14 +5194,14 @@ void doLoop()
     update_software ( "lstmods",                    // Update sketch from remote file
                       UPDATEHOST, BINFILE ) ;
     resetreq = true ;                               // And reset
-    boottarget = "update";
+    bootmode = "";
   }
   if ( resetreq )                                   // Reset requested?
   {
     //vs1053player->stopSong() ;
     //vs1053player->softReset() ;
-    if (boottarget.length() > 0)
-      nvssetstr("boottarget", boottarget) ;             // force BT after reset
+    if (bootmode.length() > 0)
+      nvssetstr("bootmode", bootmode) ;             // force BT after reset
     //else
     //  delay ( 900 ) ;                              // wait some time
     delay(500);
@@ -5939,8 +5951,49 @@ const char* analyzeCmd ( const char* par, const char* val )
   else if ( argument ==  "reset"  )         // Reset request
   {
     resetreq = true ;                                 // Reset all
-    boottarget = value ;
-    boottarget.toLowerCase() ;
+    bootmode = value ;
+    bootmode.toLowerCase() ;
+  }
+  else if ( argument == "test" )                      // Test command
+  {
+    if ( localfile )
+    {
+      av = mp3filelength ;                            // Available bytes in file
+    }
+    else
+    {
+      av = mp3client.available() ;                    // Available in stream
+    }
+    if (!bt_mode)
+    {
+      sprintf ( reply, "Free memory is %d, chunks in queue %d, stream %d, bitrate %d kbps",
+                ESP.getFreeHeap(),
+                uxQueueMessagesWaiting ( dataqueue ),
+                av,
+                mbitrate ) ;
+      dbgprint ( "Stack maintask is %d", uxTaskGetStackHighWaterMark ( maintask ) ) ;
+  #ifdef LOOPTASKSTACK
+      dbgprint ( "Stack looptask is %d", uxTaskGetStackHighWaterMark ( xlooptask ) ) ;
+  #endif    
+      dbgprint ( "Stack playtask is %d", uxTaskGetStackHighWaterMark ( xplaytask ) ) ;
+      dbgprint ( "Stack spftask  is %d", uxTaskGetStackHighWaterMark ( xspftask ) ) ;
+      dbgprint ( "ADC reading is %d", adcval ) ;
+      dbgprint ( "scaniocount is %d", scaniocount ) ;
+      dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
+      dbgprint ( "%d IR interrupts seen", ir_intcount ) ;
+      dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
+      dbgprint ( "WiFi RSSI: %d", WiFi.RSSI());
+      dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+    }
+    else 
+      sprintf ( reply, "Free memory is %d",
+                ESP.getFreeHeap());
+    dbgprint ( "Total PSRAM: %d", ESP.getPsramSize());
+    dbgprint ( "Free PSRAM: %d", ESP.getFreePsram());    
+    dbgprint ( "NAME = %s", RADIONAME);
+    dbgprint ( "Bootmode = %s", bootmode.c_str());
+    dbgprint ( reply );
+    max_mp3loop_time = 0 ;                            // Start new check
   }
   else if (bt_mode)
     ;
@@ -6065,41 +6118,6 @@ const char* analyzeCmd ( const char* par, const char* val )
   else if ( argument.startsWith ( "update" ) )        // Update request
   {
     updatereq = true ;                                // Reset all
-  }
-  else if ( argument == "test" )                      // Test command
-  {
-    if ( localfile )
-    {
-      av = mp3filelength ;                            // Available bytes in file
-    }
-    else
-    {
-      av = mp3client.available() ;                    // Available in stream
-    }
-    sprintf ( reply, "Free memory is %d, chunks in queue %d, stream %d, bitrate %d kbps",
-              ESP.getFreeHeap(),
-              uxQueueMessagesWaiting ( dataqueue ),
-              av,
-              mbitrate ) ;
-    dbgprint ("This is test!!!!") ;
-    dbgprint ( "Stack maintask is %d", uxTaskGetStackHighWaterMark ( maintask ) ) ;
-#ifdef LOOPTASKSTACK
-    dbgprint ( "Stack looptask is %d", uxTaskGetStackHighWaterMark ( xlooptask ) ) ;
-#endif    
-    dbgprint ( "Stack playtask is %d", uxTaskGetStackHighWaterMark ( xplaytask ) ) ;
-    dbgprint ( "Stack spftask  is %d", uxTaskGetStackHighWaterMark ( xspftask ) ) ;
-    dbgprint ( "ADC reading is %d", adcval ) ;
-    dbgprint ( "scaniocount is %d", scaniocount ) ;
-    dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
-    dbgprint ( "%d IR interrupts seen", ir_intcount ) ;
-    dbgprint ( "Total PSRAM: %d", ESP.getPsramSize());
-    dbgprint ( "Free PSRAM: %d", ESP.getFreePsram());    
-    dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
-    dbgprint ( "WiFi RSSI: %d", WiFi.RSSI());
-    dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
-
-    dbgprint ( reply );
-    max_mp3loop_time = 0 ;                            // Start new check
   }
   // Commands for bass/treble control
   else if ( argument.startsWith ( "tone" ) )          // Tone command

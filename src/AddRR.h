@@ -284,6 +284,7 @@ private:
 // prototypes for functions/global data in main.cpp()
 extern UploadFile        uploadfile ;                           // File to upload alarm/alert sound to...
 extern String            host;                                  // host to connect to
+extern String            bootmode ;
 extern bool              hostreq ;                              // Request for new host
 extern bool              muteflag ;
 extern uint8_t           announceMode ;                         // Announcement mode...

@@ -3833,9 +3833,12 @@ void setupRR(uint8_t setupLevel) {
 //  {
 #if (ETHERNET==1)
     //adc_power_on();                                     // Workaround to allow GPIO36/39 as IR-Input
-    NetworkFound = connecteth();                          // Try ethernet
-    if (NetworkFound)                                     // Ethernet success??
-      WiFi.mode(WIFI_OFF);
+    if (bootmode != "ap")
+    {
+      NetworkFound = connecteth();                        // Try ethernet
+      if (NetworkFound)                                   // Ethernet success??
+        WiFi.mode(WIFI_OFF);
+    }
 #endif
   }
   else if (setupLevel == SETUP_DONE)
