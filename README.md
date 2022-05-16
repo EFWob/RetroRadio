@@ -210,7 +210,7 @@ More on this (and on control flow in general) will be introduced if we get along
 ### BT limitations
 The ESP32 does not seem to support both network access and bluetooth at the same time. As a result, you can not access the Web-interface in BT mode. The decision to switch to BT (or to default radio) is done at startup (after either Power On, HW- or SW-reset). To switch from one mode to another requires also a reset. Mechanisms have been implemented to make that switch as smooth as possible.
 
-The next limitation is that the BT libraries require quite some flash space. As a result, you have to change the partition layout to increase the flash size for the app. I have one example in this repository (see [etc/radio4MB_bigApp.csv](etc/radio4MB_bigApp.csv)) that keeps the NVS- and FS-partition and doubles the size of the app by getting rid of the space used for OTA updates (compared with [etc/radio4MB_default.csv](etc/radio4MB_default.csv))
+The next limitation is that the BT libraries require quite some flash space. As a result, you have to change the partition layout to increase the flash size for the app. I have one example in this repository (see [etc/radio4MB_bigApp.csv](radio4MB_bigApp.csv)) that keeps the NVS- and FS-partition and doubles the size of the app by getting rid of the space used for OTA updates (compared with [etc/radio4MB_default.csv](radio4MB_default.csv))
 
 
 __To compile the BT support, you have to define the build-flag -DBLUETOOTH in the respective environment in *platformio.ini*!__
