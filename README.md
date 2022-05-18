@@ -222,8 +222,7 @@ More on this (and on control flow in general) will be introduced if we get along
 |----------|---------|
 | __radio__| Radio will start in default internet radio mode |
 | __bt__| Radio will start in Bluetooth-mode (if BT support has been compiled, see section [Bluetooth](#bluetooth), otherwise bootmode __radio__ will be assumed) |
-| __ap__ | Radio will start Accesspoint (as for initial configuration) and will not play radio or bluetooth.
-            _The radio will switch to this bootmode if the VS1053 module could not be installed properly!_ |
+| __ap__ | Radio will start Accesspoint (as for initial configuration) and will not play radio or bluetooth._The radio will switch to this bootmode if the VS1053 module could not be installed properly!_ |
 | any other | Radio will start with bootmode set to __radio__ |
 
 - From the command interface, the process of setting the key __bootmode__ in NVS is simplified by the extension of the command __reset__. This command takes now an argument and sets the __bootmode__ key according to the argument, i. e. __reset=ap__ will set the key __bootmode__ to __ap__ and resets the radio resulting in a restart in accesspoint-mode.
