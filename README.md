@@ -1,4 +1,7 @@
 # Latest changes
+*20220518*
+  - Documentation of [bootmode](#bootmode) added.
+
 *20220516*
   - Bugfix: Will again compile, if build flag __BLUETOOTH__ is not set in platformio.ini environment
   - I have learned that platformio will use partition tables found in the root directory of the project. Therefore [radio4MB_default.csv](radio4MB_default.csv) and [radio4MB_bigApp.csv](radio4MB_bigApp.csv) (needed for Bluetooth-support) are now added to the root directory of the repository.
@@ -219,11 +222,13 @@ More on this (and on control flow in general) will be introduced if we get along
 |----------|---------|
 | __radio__| Radio will start in default internet radio mode |
 | __bt__| Radio will start in Bluetooth-mode (if BT support has been compiled, see section [Bluetooth](#bluetooth), otherwise bootmode __radio__ will be assumed) |
-| __ap__ | Radio will start Accesspoint (as for initial configuration) and will not play radio or bluetooth |
+| __ap__ | Radio will start Accesspoint (as for initial configuration) and will not play radio or bluetooth.
+            _The radio will switch to this bootmode if the VS1053 module could not be installed properly!_ |
 | any other | Radio will start with bootmode set to __radio__ |
 
 - From the command interface, the process of setting the key __bootmode__ in NVS is simplified by the extension of the command __reset__. This command takes now an argument and sets the __bootmode__ key according to the argument, i. e. __reset=ap__ will set the key __bootmode__ to __ap__ and resets the radio resulting in a restart in accesspoint-mode.
-- The __bootmode__ key (if found in preferences) will be erase after every (re-)start. That makes by default at the time of the next reset no __bootmode__ key will be found in preferences and therefore the radio will start in radio mode.
+- The __bootmode__ key (if found in preferences) will be erased after every (re-)start. That makes by default at the time of the next reset no __bootmode__ key will be found in preferences and therefore the radio will start in radio mode.
+
 
 ## Bluetooth
 ### BT limitations
@@ -244,7 +249,6 @@ Ideas for further improvements are the possiblity to control the BT source by ra
 - At startup, NVS is searched if the key __bootmode__ exists. If the value of that key is __bt__ the radio will enter BT mode. 
 - The key __bootmode__ will be deleted immediately after evaluation. So a setting __bootmode__ will only control the next reset.
 - To simplify the context switch, the command __reset__ does now accept an argument that will be stored to NVS using the key __bootmode__ before the actual reset is performed. So when in radio mode, the command __reset=bt__ will store __bt__ to NVS-key __bootmode__ before performing the reset. After the reset, this NVS key will be evaluated and as a result radio will start in BT-mode.
-- If the key __bootmode__ does not exists or is set to any value other than __bt__, the radio will start in default radio mode.
 
 You can also attach a momentary switch to a pin to decide the bootmode at reset time
 - In NVS preferences, you can set __bt_pin=xx__ to define a GPIO (identified by number __xx__) to be evaluated at startup. If the defined pin is __LOW__ at startup, the radio will switch to BT-Mode (or otherwise start radio mode as usual)
