@@ -1,7 +1,7 @@
 # Latest changes
 *20220516*
   - Bugfix: Will again compile, if build flag __BLUETOOTH__ is not set in platformio.ini environment
-  - I learnt that platformio will use partition tables found in the root directory of the project. Therefore [radio4MB_default.csv](radio4MB_default.csv) and [radio4MB_bigApp.csv](radio4MB_bigApp.csv) (needed for Bluetooth-support) are now added to the root directory of the repository.
+  - I have learned that platformio will use partition tables found in the root directory of the project. Therefore [radio4MB_default.csv](radio4MB_default.csv) and [radio4MB_bigApp.csv](radio4MB_bigApp.csv) (needed for Bluetooth-support) are now added to the root directory of the repository.
 
 *20220511*
   - BIG NEW FEATURE: you can now use the radio as [Bluetooth](#bluetooth) audio player.
@@ -96,7 +96,7 @@ with a few things to notice:
 - You can use the command _test_ to check if there are still entries in NVS available. If the number of free entries is close to zero, or
   you see something like *nvssetstr failed!* in Serial output, or if entries have vanished from your preference settings, you are probably 
   out of NVS-space.
-- for 4MB (standard) flash sizes I use the partion-table _radio4MB_default.csv_ that can be found at the _/etc_ folder in this repository. This layout is not compatible to the _default_ partition, notably for the NVS section. That means you must reload the default preferences (and edit the wifi credentials) if you flash using this partition table.
+- for 4MB (standard) flash sizes I use the partion-table [radio4MB_default.csv](radio4MB_default.csv) that can be found at the _root_ folder in this repository. This layout is not compatible to the _default_ partition, notably for the NVS section. That means you must reload the default preferences (and edit the wifi credentials) if you flash using this partition table.
 - Currently it is tested in platformio-environment only. The platformio.ini file has already some entries. Mainly to maintain different radios (with differen MCUs and pinouts). For starters, you can try the environment _plain devkit_, which uses the default partition table and thus should keep your NVS-settings.
 
 
@@ -210,6 +210,21 @@ For convenience (if more then one line is needed) _::loop0_ to _::loog9_ can be 
 More on this (and on control flow in general) will be introduced if we get along with the examples and is [summarized below](#scripting-summary).
  
 
+## Bootmode
+
+- Normally, the radio starts in radio mode. 
+- If you want to start in a different mode (currently only __ap__ and __bt__ are defined in addition to __radio__) you have to set the NVS-key __bootmode__ in preferences before performing a restart of the radio (by either PowerOn-, SW- or HW-reset)
+
+| bootmode | Meaning |
+|----------|---------|
+| __radio__| Radio will start in default internet radio mode |
+| __bt__| Radio will start in Bluetooth-mode (if BT support has been compiled, see section [Bluetooth](#bluetooth), otherwise bootmode __radio__ will be assumed) |
+| __ap__ | Radio will start Accesspoint (as for initial configuration) and will not play radio or bluetooth |
+| any other | Radio will start with bootmode set to __radio__ |
+
+- From the command interface, the process of setting the key __bootmode__ in NVS is simplified by the extension of the command __reset__. This command takes now an argument and sets the __bootmode__ key according to the argument, i. e. __reset=ap__ will set the key __bootmode__ to __ap__ and resets the radio resulting in a restart in accesspoint-mode.
+- The __bootmode__ key (if found in preferences) will be erase after every (re-)start. That makes by default at the time of the next reset no __bootmode__ key will be found in preferences and therefore the radio will start in radio mode.
+
 ## Bluetooth
 ### BT limitations
 The ESP32 does not seem to support both network access and bluetooth at the same time. As a result, you can not access the Web-interface in BT mode. The decision to switch to BT (or to default radio) is done at startup (after either Power On, HW- or SW-reset). To switch from one mode to another requires also a reset. Mechanisms have been implemented to make that switch as smooth as possible.
@@ -269,12 +284,12 @@ There is a define in ***AddRR.h*** that reads `#define ETHERNET 2`
   for Olimex PoE/PoE ISO only
 * if changed to `#define ETHERNET 0` (or any value different from '1' or '2'), support for Ethernet is **not** compiled
 * if changed to `#define ETHERNET 1`, support for Ethernet is compiled regardless of the board setting
-* if this line is deleted/commented out, Ethernet support will **not** compiled in.
+* if this line is deleted/commented out, Ethernet support will **not** be compiled in.
 * if compiled with Ethernet support by the above rules, Ethernet can then be configured at runtime by preferences setting.
 * (If **ETHERNET** is defined as *build_flag* in _platformio.ini_, then this entry will override the `#define ETHERNET x` in ***AddRR.h***)
 * if compiled with Ethernet support, there is another define that controls the ethernet connection: `#define ETHERNET_CONNECT_TIMEOUT 5`
 	  that defines how long the radio should wait for an ethernet connection to be established (in seconds). If no IP connection over 
-	  ethernet is established in that timeframe, WiFi will be used. That value can be extended by preference settings (but not lowered). In
+	  ethernet is established in that timeframe, WiFi will be used. That value can be increased by preference settings (but not lowered). In
 	  my experience 4 seconds is too short. If the connection succeds earlier, the radio will commence earlier (and will not wait to consume
 	  the full timeframe defined by 'ETHERNET_CONNECT_TIMEOUT'). 
 * the following defines are used. They are set to default values in 'ETH.h' (and 'pins_ardunio.h' for ethernet boards). If you need to change
@@ -333,12 +348,12 @@ typedef enum {
 
 
 ## Channel concept
-The channel concept allows a simple re-mapping of the preferences. There are two new commands to implement the channel concept. (as usual, the
-commands can be defined either by preference settings or through the Input channels at runtime, i. e. Serial input).
+The channel concept allows a simple re-mapping of the __presets__ in preferences. There are two new commands to implement the channel concept. (as usual, the
+commands can be defined either by preference settings or through the available command interfaces at runtime, i. e. Serial input).
 
 - _channels = comma-delimited-integer-list_ will (re-)define the channel list. In the list numbers (decimal) are expected which are treated as 
    reference to _preset_X_ in the preferences. So _channels = 1, 2, 10, 11, 12, 13, 14, 15, 16_ defines 9 channels in total with Channel1 mapped to 
-   _preset_1_ to Channel9 mapped to _preset_16_
+   _preset_1_ up to Channel9 mapped to _preset_16_
 - That assignment does not change the current preset. To use that channel-list (i. e. to switch channel), the command _channel = Argument_ must be
     used.
 - Argument can be:
@@ -349,7 +364,7 @@ commands can be defined either by preference settings or through the Input chann
     in the channel list, i. e. if tuned to by other means, tune to Channel1).
   - The word 'down': if the current preset is not the first channel in the channe-list, tune to previous preset in channel-list. (if the current preset 
   	is not in the channel-list, i. e. if tuned to by other means, tune to ChannelMax).
-  - The number -1. This will not do any change to the current playing, but can be useful to force the radio to switch to a specific channel (which would not happen if that channel was the same that has been set by the previous call to the channel-command). 
+  - The number -1. This will not do any change to the current playing, but can be useful to force the radio to switch to a specific channel by a later __channel=x__-command (which would not happen if that channel was the same that has been set by the previous call to the channel-command). 
 
 
 ## Genre playlists
