@@ -321,6 +321,8 @@ std::vector<char*> espnowBacklog;     // Backlog of command(s) received by espno
 bool muteBefore = false;              // how was mute before announceMode started?
 uint8_t volumeBefore = 0;             // how was volume set before announceMode started?
 uint32_t announceStart = 0;           // when has announceMode started?
+int connectDelayBefore = 0;           // what was connectDelay before announceMode started?
+extern int connectDelay;
 
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
@@ -502,7 +504,10 @@ String readBool(void *ref) {
 
 
 String readVolume(void* ref) {
-  return String(vs1053player->getVolume (  )) ;
+  if (vs1053player)
+    return String(vs1053player->getVolume (  )) ;
+  else
+    return String(ini_block.reqvol);
 }
 
 String readMqttStatus(void *) {
@@ -546,6 +551,7 @@ void announceRecoveryFull() {
   dbgprint("Running defaultAlertStop, volume=%d, mute=%d, url=%s", volumeBefore, muteBefore, stationBefore.c_str());
   muteflag = muteBefore ;
   ini_block.reqvol = volumeBefore ;
+  connectDelay = connectDelayBefore;
   sprintf(s, "station=%s", stationBefore.c_str());
   analyzeCmd(s);
   setLastStation(info);
@@ -1347,6 +1353,24 @@ String searchElement(String input, int& idx, bool show = false, int* elements = 
   return result;
 }
 
+const char* doZeit() {
+static char zeitStr[80];
+  strcpy(zeitStr, "");
+  gettime();
+  if (timeinfo.tm_year) {
+    String cmd;
+    if (1 == timeinfo.tm_sec)
+      timeinfo.tm_sec = 2;
+    sprintf(zeitStr, "Es ist jetzt schon %d Uhr %d und %d Sekunden!", 
+          timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec
+          );
+    cmd = String("alert.tde=") + String(zeitStr);  
+    cmd_backlog.push_back(cmd);
+  }
+  return (const char*)&zeitStr;
+}
+
+
 void doIdx(String expression, String value, bool show, String ramKey, bool& returnFlag) {
   bool hasAnyEntry,justCount;
   int idx = 0;
@@ -2050,6 +2074,8 @@ void RetroRadioInput::setTiming(const char* timingName, int32_t ivalue) {
 //  - virtual, can be overidden by subclasses                                                      *
 //**************************************************************************************************
 void RetroRadioInput::setParameter(String param, String value, int32_t ivalue) {
+  ////
+  //dbgprint("PARAM: %s, VALUE: %s", param.c_str(), value.c_str());
   param.toLowerCase();
   if (param == "show") {
     _show = (uint32_t)ivalue * 1000UL;
@@ -2537,9 +2563,9 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
 void RetroRadioInput::setReader(String value) {
   RetroRadioInputReader *reader = NULL;
   chomp(value);
-  value.toLowerCase();
+  //value.toLowerCase();
   int idx = value.substring(1).toInt();
-  Serial.printf("SetReader, value = %s\r\n", value.c_str());
+  //dbgprint("SetReader, value = %s\r\n", value.c_str());
   if ((value.c_str()[0] == '@') || (value.c_str()[0] == '&'))
   {
     chomp_nvs(value);
@@ -2550,7 +2576,7 @@ void RetroRadioInput::setReader(String value) {
     //Serial.printf("Source of input after chomp nvs is: %s\r\n", value.c_str());
   }
   char c;
-  switch (c = value.c_str()[0]) {
+  switch (c = tolower(value.c_str()[0])) {
     case 'd': 
       reader = new RetroRadioInputReaderDigital(idx, _mode);
       break;
@@ -2568,7 +2594,7 @@ void RetroRadioInput::setReader(String value) {
     case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
       break;
     case 'm': 
-    case 'M':
+    //case 'M':
         value = value.substring(1);
         value.trim();
         reader = new RetroRadioInputReaderMqtt(this, value.c_str());
@@ -4257,6 +4283,36 @@ void domvcplsprefsfrom(String name, char mode) {
   */
 }
 
+//extern int connectDelay;
+
+void getTTSUrl(const char* cmd, String& value, int len) {
+  if (value.length() > 0)
+    if (cmd[len] == '.')
+      if (cmd[len + 1] == 't')
+      {
+        String ret;
+        String lang = String(cmd + len + 2);
+        if (!announceMode)
+          connectDelayBefore = connectDelay;
+        connectDelay = 8;
+        if (lang.length() == 0)
+          lang = "en";
+        const char *v = value.c_str();
+        int l = strlen(v);
+        for (int i = 0; i < l;i++)
+          if (v[i] == ' ')
+            ret = ret + "%20";
+          else if (v[i] == '=')
+          {
+            ret = ret + " " + String(v + i + 1);
+            break;
+          }
+          else
+            ret = ret + v[i];
+        value = String("translate.google.com/translate_tts?ie=UTF-8&tl=") + lang + String("&client=tw-ob&q=") + ret;
+      }
+}
+
 
 const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {
   const char *s; 
@@ -4317,7 +4373,10 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     strcpy(reply, doGpreset ( value ).c_str());
   }
-
+  else if ( (ret = (param == "zeit")))
+  {
+    strcpy(reply, doZeit());
+  }
 //  else if ( (ret = param.startsWith("ifnot")) )
 //  {
 //    doCalcIfWhile(param, "if", value, returnFlag, true);
@@ -4415,6 +4474,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else if (ret = (param == "announce"))
   {
     String info;
+    getTTSUrl(param.c_str(), value, strlen("announce"));
     getAnnounceInfo(value, info, 1);
     extern uint8_t announceMode;
     dbgprint("'announce' with announceMode==%d", announceMode);
@@ -4431,9 +4491,10 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
 
 //    analyzeCmd("station", value.c_str());
   }
-  else if (ret = (param == "alert"))
+  else if (ret = (param.startsWith("alert")))
   {
     String info;
+    getTTSUrl(param.c_str(), value, strlen("alert"));
     getAnnounceInfo(value, info, 2);
     dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
     if (setAnnouncemode(2)) 
@@ -4446,9 +4507,10 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     }
     //analyzeCmd("station", value.c_str());
   }
-  else if (ret = (param == "alarm"))
+  else if (ret = (param.startsWith("alarm")))
   {
     String info;
+    getTTSUrl(param.c_str(), value, strlen("alarm"));
     getAnnounceInfo(value, info, 2);
     dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
     if (setAnnouncemode(ANNOUNCEMODE_PRIO3)) 

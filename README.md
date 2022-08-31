@@ -799,6 +799,7 @@ The command _espnowmode=n_ can be used to control, how the radio behaves upon re
 A simple client to send serial input over espnow to the radio can be found at [RetroRadio/espnow/serialtoespnow/](espnow/serialtoespnow/).
 
 ## Play Announcements or Alerts
+### From URLs
 Announcements (or Alerts) will interrupt the current stream to play some info. Announcements/Alerts can be played from any URL that can be played by the radio. Currently that means "http"-type URLs (not https://). And I tested with mp3 so far only.
 
 Basic usage:
@@ -843,6 +844,9 @@ For the command _alert_ the Station Name changes to **"Alert!"** while playing. 
 - by adding any text after the URL in the command (that will override the _$alertinfo_-setting in RAM/NVS)
 
 **A general word of warning**: this feature might cause unexpected behaviour if called with illegal parameters. One known issue is that the command _stop_, when issued in "announcement-mode" will cancel the announcement but will continue with the previous stream. I found it working reliable with valid URLs but only have limited experience with invalid input data. Please let me know if you were able to crash the radio using this feature.
+
+### Using Text to Speech
+
 
 # Extended Input Handling
 ## General

@@ -186,6 +186,7 @@
 //#define ILI9341                      // ILI9341 240*320
 //#define NEXTION                      // Nextion display. Uses UART 2 (pin 16 and 17)
 //
+
 #include <Arduino.h>
 #include <nvs.h>
 #include <PubSubClient.h>
@@ -391,7 +392,7 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datast
 
 // Global variables
 #if defined(RETRORADIO)
-bool              connectDelay = false ;                 // Station with ConnectDelay 
+int               connectDelay = 0 ;                     // Station with ConnectDelay 
 #endif
 bool              dsp_available = false ;                // Display available?
 int               DEBUG = 1 ;                            // Debug on/off
@@ -1254,7 +1255,7 @@ void VS1053::AdjustRate ( long ppm2 )                  // Fine tune the data rat
 
 
 // The object for the MP3 player
-VS1053* vs1053player ;
+VS1053* vs1053player = NULL ;
 
 //**************************************************************************************************
 // End VS1053 stuff.                                                                               *
@@ -2236,8 +2237,9 @@ bool connecttohost()
   String      auth  ;                               // For basic authentication
   String      getreq ;                              // Get request
 
-  stop_mp3client() ;                                // Disconnect if still connected
   dbgprint ( "Connect to new host %s", host.c_str() ) ;
+
+  stop_mp3client() ;                                // Disconnect if still connected
   tftset ( 0, "ESP32-Radio" ) ;                     // Set screen segment text top line
   tftset ( 1, "" ) ;                                // Clear song and artist
   displaytime ( "" ) ;                              // Clear time on TFT screen
@@ -2298,10 +2300,11 @@ bool connecttohost()
              String ( "Connection: close\r\n\r\n" ) ;
     mp3client.print ( getreq ) ;                            // Send get request
 #if defined(RETRORADIO)
+    //connectDelay = true;
     dbgprint("CONNECTTOHOST connectDelay: %d", connectDelay );
     if (connectDelay)
 #endif
-    vTaskDelay ( 1000 / portTICK_PERIOD_MS ) ;              // Give some time to react
+    vTaskDelay ( connectDelay * 100 / portTICK_PERIOD_MS ) ;              // Give some time to react
     return true ;                                           // Send is probably okay
   }
   dbgprint ( "Request %s failed!", host.c_str() ) ;
@@ -2664,13 +2667,13 @@ String readhostfrompref ( int16_t preset )
   // Get the contents
 #if defined(RETRORADIO)
   String s = nvsgetstr ( tkey ) ;
-  connectDelay = (s.indexOf("##") > 0);
+  connectDelay = (s.indexOf("##") > 0)?10:0;
   if ( connectDelay) 
   {
     s = s.substring(0, s.indexOf("##"));
   } 
   else
-    connectDelay = ( s.indexOf("bbc") > 0 ) ;
+    connectDelay = ( s.indexOf("bbc") > 0 )?10:0 ;
   return s;
 #endif
   return nvsgetstr ( tkey ) ;                          // Get the station (or empty sring)
@@ -3693,19 +3696,22 @@ static uint32_t lastReport = 0;
 static uint32_t totalBytes = 0, chunks = 0;
 static uint32_t maxTransfertime = 0;
 uint32_t x;
-  totalBytes += length;
-  chunks++;
-  x = millis();
-  vs1053player->playChunk((uint8_t *)data, length);
-  x = millis() - x;
-  if (x > maxTransfertime)
-    maxTransfertime = x;
-  if (millis() - lastReport > 2000)  
+  if (vs1053player)
   {
-    dbgprint("Newly rcvd BT-Bytes: %ld, in %ld chunks (average: %ld), max. Transfertime: %d", 
-      totalBytes, chunks, totalBytes / chunks, maxTransfertime);
-    totalBytes = chunks = maxTransfertime = 0;
-    lastReport = millis();
+    totalBytes += length;
+    chunks++;
+    x = millis();
+    vs1053player->playChunk((uint8_t *)data, length);
+    x = millis() - x;
+    if (x > maxTransfertime)
+      maxTransfertime = x;
+    if (millis() - lastReport > 2000)  
+    {
+      dbgprint("Newly rcvd BT-Bytes: %ld, in %ld chunks (average: %ld), max. Transfertime: %d", 
+        totalBytes, chunks, totalBytes / chunks, maxTransfertime);
+      totalBytes = chunks = maxTransfertime = 0;
+      lastReport = millis();
+    }
   }
 }
 #endif
@@ -3866,7 +3872,6 @@ void setup()
     bt_mode = false ;
     bootmode = "ap" ;
   }
-
   if ( ( ini_block.tft_cs_pin >= 0  ) ||                 // Display configured?
        ( ini_block.tft_scl_pin >= 0 ) )
   {
@@ -3901,66 +3906,69 @@ void setup()
 #if defined(BLUETOOTH)
   if (bt_mode)
   {
-  uint8_t pcm_header[] = {
-  0x52, 0x49, 0x46, 0x46, 0xff, 0xff, 0xff, 0xff, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
-  0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x44, 0xac, 0x00, 0x00, 0x10, 0xb1, 0x02, 0x00, 
-  0x04, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0xff, 0xff, 0xff, 0xff };    
-    a2dp_sink.set_stream_reader(bt_data_stream, false);
-    a2dp_sink.start(RADIONAME, ini_block.bt_auto);
-    dbgprint ( "Bluetooth (auto=%d, off=%d) started.  Free memory now %d",
-             ini_block.bt_auto, ini_block.bt_off, ESP.getFreeHeap() ) ;                       // Normally about 170 kB
-    if (dsp_available)
+  if (vs1053player)  
     {
-      dsp_print ( "Bluetooth mode, connect to: " ) ;
-      dsp_println ( RADIONAME );
-    }
-    vs1053player->playChunk (pcm_header, sizeof(pcm_header));
-    ini_block.reqvol = ini_block.bt_vol;
-    vs1053player->setVolume(ini_block.bt_vol);
-    dbgprint ( "Bluetooth volume set to: %d", ini_block.bt_vol );
-    while(1)
-    {
-      scanserial();
-      if ( resetreq )                                   // Reset requested?
+    uint8_t pcm_header[] = {
+    0x52, 0x49, 0x46, 0x46, 0xff, 0xff, 0xff, 0xff, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20,
+    0x10, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x44, 0xac, 0x00, 0x00, 0x10, 0xb1, 0x02, 0x00, 
+    0x04, 0x00, 0x10, 0x00, 0x64, 0x61, 0x74, 0x61, 0xff, 0xff, 0xff, 0xff };    
+      a2dp_sink.set_stream_reader(bt_data_stream, false);
+      a2dp_sink.start(RADIONAME, ini_block.bt_auto);
+      dbgprint ( "Bluetooth (auto=%d, off=%d) started.  Free memory now %d",
+              ini_block.bt_auto, ini_block.bt_off, ESP.getFreeHeap() ) ;                       // Normally about 170 kB
+      if (dsp_available)
       {
-        if (bootmode.length() > 0)
-          nvssetstr("bootmode", bootmode) ;             // 
-        else
-          delay(500);
-        ESP.restart() ;                                 // Reboot
-      }      
-      if (muteflag)
+        dsp_print ( "Bluetooth mode, connect to: " ) ;
+        dsp_println ( RADIONAME );
+      }
+      vs1053player->playChunk (pcm_header, sizeof(pcm_header));
+      ini_block.reqvol = ini_block.bt_vol;
+      vs1053player->setVolume(ini_block.bt_vol);
+      dbgprint ( "Bluetooth volume set to: %d", ini_block.bt_vol );
+      while(1)
+      {
+        scanserial();
+        if ( resetreq )                                   // Reset requested?
         {
-        if (vs1053player->getVolume() > 0)
-          vs1053player->setVolume(0) ;
-        }
-      else 
-        {
-          if (vs1053player->getVolume() != ini_block.reqvol)
-            vs1053player->setVolume(ini_block.reqvol) ;
-        }
-      if (resetpin)
-        if (ini_block.bt_off > 0)
-          { 
-          uint32_t x = resetpin->longpresstime();
-          if (x > ((uint32_t)ini_block.bt_off)*100)
-            {
-              resetreq = true;
-              bootmode = "radio";
-            }
-          }
-        else if (ini_block.bt_off == -1)
+          if (bootmode.length() > 0)
+            nvssetstr("bootmode", bootmode) ;             // 
+          else
+            delay(500);
+          ESP.restart() ;                                 // Reboot
+        }      
+        if (muteflag)
           {
-            if (!resetpin->pressed())
-            {
-              delay(50);
-              if (!resetpin->pressed())
-                {
-                  resetreq = true;
-                  bootmode = "radio";
-                }
-            }
+          if (vs1053player->getVolume() > 0)
+            vs1053player->setVolume(0) ;
           }
+        else 
+          {
+            if (vs1053player->getVolume() != ini_block.reqvol)
+              vs1053player->setVolume(ini_block.reqvol) ;
+          }
+        if (resetpin)
+          if (ini_block.bt_off > 0)
+            { 
+            uint32_t x = resetpin->longpresstime();
+            if (x > ((uint32_t)ini_block.bt_off)*100)
+              {
+                resetreq = true;
+                bootmode = "radio";
+              }
+            }
+          else if (ini_block.bt_off == -1)
+            {
+              if (!resetpin->pressed())
+              {
+                delay(50);
+                if (!resetpin->pressed())
+                  {
+                    resetreq = true;
+                    bootmode = "radio";
+                  }
+              }
+            }
+      }
     }
   }
 
@@ -4100,7 +4108,7 @@ void setup()
     xTaskCreatePinnedToCore (
       playtask,                                             // Task to play data in dataqueue.
       "Playtask",                                           // name of task.
-      1600,                                                 // Stack size of task
+      4 * 1600,                                                 // Stack size of task
       NULL,                                                 // parameter of the task
       2,                                                    // priority of the task
       &xplaytask,                                           // Task handle to keep track of created task
@@ -4859,7 +4867,6 @@ void mp3loop()
 
   if (bootmode == "ap")
     return;
-
   // Try to keep the Queue to playtask filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |               // Test op playing
                     METADATA | PLAYLISTINIT |
@@ -5910,7 +5917,10 @@ const char* analyzeCmd ( const char* par, const char* val )
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
-    oldvol = vs1053player->getVolume() ;              // Get current volume
+    if (vs1053player)
+      oldvol = vs1053player->getVolume() ;              // Get current volume
+    else
+      oldvol = ini_block.reqvol ;
     if ( relative )                                   // + relative setting?
     {
       ini_block.reqvol = oldvol + ivalue ;            // Up/down by 0.5 or more dB
@@ -6144,7 +6154,8 @@ const char* analyzeCmd ( const char* par, const char* val )
   }
   else if ( argument == "rate" )                      // Rate command?
   {
-    vs1053player->AdjustRate ( ivalue ) ;             // Yes, adjust
+    if (vs1053player)
+      vs1053player->AdjustRate ( ivalue ) ;             // Yes, adjust
   }
   else if ( argument.startsWith ( "mqtt" ) )          // Parameter fo MQTT?
   {
@@ -6305,7 +6316,7 @@ void gettime()
   static int16_t delaycount = 0 ;                           // To reduce number of NTP requests
   static int16_t retrycount = 100 ;
 
-  if ( tft )                                                // TFT used?
+//  if ( tft )                                                // TFT used?
   {
     if ( timeinfo.tm_year )                                 // Legal time found?
     {
@@ -6377,43 +6388,45 @@ void playtask ( void * parameter )
 {
   while ( true )
   {
-    if ( xQueueReceive ( dataqueue, &inchunk, 5 ) )
+    if (vs1053player)
     {
-      while ( !vs1053player->data_request() )                       // If FIFO is full..
+      if ( xQueueReceive ( dataqueue, &inchunk, 5 ) )
       {
-        vTaskDelay ( 1 ) ;                                          // Yes, take a break
-      }
-      switch ( inchunk.datatyp )                                    // What kind of chunk?
-      {
-        case QDATA:
-          claimSPI ( "chunk" ) ;                                    // Claim SPI bus
-          vs1053player->playChunk ( inchunk.buf,                    // DATA, send to player
-                                    sizeof(inchunk.buf) ) ;
-          releaseSPI() ;                                            // Release SPI bus
-          totalcount += sizeof(inchunk.buf) ;                       // Count the bytes
-          break ;
-        case QSTARTSONG:
-          playingstat = 1 ;                                         // Status for MQTT
-          mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
-          claimSPI ( "startsong" ) ;                                // Claim SPI bus
-          vs1053player->startSong() ;                               // START, start player
-          releaseSPI() ;                                            // Release SPI bus
-          break ;
-        case QSTOPSONG:
-          playingstat = 0 ;                                         // Status for MQTT
-          mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
-          claimSPI ( "stopsong" ) ;                                 // Claim SPI bus
-          vs1053player->setVolume ( 0 ) ;                           // Mute
-          vs1053player->stopSong() ;                                // STOP, stop player
-          releaseSPI() ;                                            // Release SPI bus
-          while ( xQueueReceive ( dataqueue, &inchunk, 0 ) ) ;      // Flush rest of queue
-          vTaskDelay ( 500 / portTICK_PERIOD_MS ) ;                 // Pause for a short time
-          break ;
-        default:
-          break ;
+        while ( !vs1053player->data_request() )                       // If FIFO is full..
+        {
+          vTaskDelay ( 1 ) ;                                          // Yes, take a break
+        }
+        switch ( inchunk.datatyp )                                    // What kind of chunk?
+        {
+          case QDATA:
+            claimSPI ( "chunk" ) ;                                    // Claim SPI bus
+            vs1053player->playChunk ( inchunk.buf,                    // DATA, send to player
+                                      sizeof(inchunk.buf) ) ;
+            releaseSPI() ;                                            // Release SPI bus
+            totalcount += sizeof(inchunk.buf) ;                       // Count the bytes
+            break ;
+          case QSTARTSONG:
+            playingstat = 1 ;                                         // Status for MQTT
+            mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
+            claimSPI ( "startsong" ) ;                                // Claim SPI bus
+            vs1053player->startSong() ;                               // START, start player
+            releaseSPI() ;                                            // Release SPI bus
+            break ;
+          case QSTOPSONG:
+            playingstat = 0 ;                                         // Status for MQTT
+            mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
+            claimSPI ( "stopsong" ) ;                                 // Claim SPI bus
+            vs1053player->setVolume ( 0 ) ;                           // Mute
+            vs1053player->stopSong() ;                                // STOP, stop player
+            releaseSPI() ;                                            // Release SPI bus
+            while ( xQueueReceive ( dataqueue, &inchunk, 0 ) ) ;      // Flush rest of queue
+            vTaskDelay ( 500 / portTICK_PERIOD_MS ) ;                 // Pause for a short time
+            break ;
+          default:
+            break ;
+        }
       }
     }
-    //esp_task_wdt_reset() ;                                        // Protect against idle cpu
   }
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }
@@ -6447,16 +6460,19 @@ void handle_spec()
   claimSPI ( "hspec" ) ;                                      // Claim SPI bus
   if ( muteflag )                                             // Mute or not?
   {
-    vs1053player->setVolume ( 0 ) ;                           // Mute
+    if (vs1053player)
+      vs1053player->setVolume ( 0 ) ;                           // Mute
   }
   else
   {
-    vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
+    if (vs1053player)
+      vs1053player->setVolume ( ini_block.reqvol ) ;            // Unmute
   }
   if ( reqtone )                                              // Request to change tone?
   {
     reqtone = false ;
-    vs1053player->setTone ( ini_block.rtone ) ;               // Set SCI_BASS to requested value
+    if (vs1053player)
+      vs1053player->setTone ( ini_block.rtone ) ;               // Set SCI_BASS to requested value
   }
   if ( time_req )                                             // Time to refresh timetxt?
   {

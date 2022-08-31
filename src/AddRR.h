@@ -6,6 +6,7 @@
 #include <PubSubClient.h>
 #include <FS.h>
 #include <SD.h>
+#include <time.h>
 #ifndef NVS_KEY_NAME_MAX_SIZE
 #define NVS_KEY_NAME_MAX_SIZE 16
 #endif
@@ -354,6 +355,8 @@ String getFavoriteJson(int idx, int rMin=1, int rMax=100);
 void setLastStation(String last);
 void scanFavorite();
 
+extern struct tm         timeinfo ;                             // Will be filled by NTP server
+extern void gettime();
 
 
 #endif
