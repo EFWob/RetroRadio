@@ -328,11 +328,10 @@ String readUint8(void *);                // Takes a void pointer and returns the
 String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
 String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
 String readBool(void *);                 // Takes a void pointer and returns the content, assumes ptr to bool
+String readString(void *);               // Takes a void pointer and returns the content, assumes ptr to String
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
 String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
-String readStationURL(void *);          // Returns the URL (followed by #stationName) of current station
-String readStationBeforeURL(void *);    // Returns the URL (followed by #stationName) of station before
 String readMqttStatus(void *);          // Returns "1" if MQTT is connected, "0" else
 
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
@@ -374,8 +373,10 @@ struct {                           // A table of known internal variables that c
   {"gpresets", &genrePresets, readInt16},
   {"gpreset", &genrePreset, readInt16},
   {"glist", NULL, readGenrePlaylist},
-  {"url", NULL, readStationURL},
-  {"url_before", NULL, readStationBeforeURL},
+  {"url", &currentStation, readString},
+  {"url_before", &stationBefore, readString},
+  {"icyname", &icyname, readString},
+  {"icystreamtitle", &icystreamtitle, readString},
   {"mqtt_on", NULL, readMqttStatus},
   {"playing", &playingstat, readInt8},
   {"favorite", &currentFavorite, readInt16},
@@ -384,10 +385,6 @@ struct {                           // A table of known internal variables that c
 };
 
 
-String ramgetstr ( const char* key ) ;
-void ramsetstr ( const char* key, String val ) ;
-bool ramsearch ( const char* key ) ;
-void ramdelkey ( const char* key) ;
 const char* analyzeCmdsRR ( String s, bool& returnFlag ) ;
 
 #if !defined(ETHERNET)
@@ -501,6 +498,10 @@ String readBool(void *ref) {
   return String( (*((bool*)ref)));
 }
 
+String readString(void *ref) {
+  return  (*((String*)ref));
+}
+
 
 
 String readVolume(void* ref) {
@@ -554,7 +555,8 @@ void announceRecoveryFull() {
   connectDelay = connectDelayBefore;
   sprintf(s, "station=%s", stationBefore.c_str());
   analyzeCmd(s);
-  setLastStation(info);
+  knownstationname = knownstationnamebefore;
+  icystreamtitle = "";
 }
 
 
@@ -606,7 +608,8 @@ char s[stationBefore.length() + 20];
     announceMode = 0;
     sprintf(s, "station=%s", stationBefore.c_str());
     analyzeCmd(s);
-    setLastStation(info);        
+    knownstationname = knownstationnamebefore;
+    //setLastStation(info);        
 }
 
 bool setAnnouncemode(uint8_t mode) {
@@ -717,6 +720,12 @@ void getAnnounceInfo(String& url, String& info, uint8_t id) {
     if (info.length() == 0)
       info = String(defaultinfo);
   }
+  if (knownstationname.length() > 0)
+    knownstationnamebefore = knownstationname;
+  else
+    knownstationnamebefore = icyname;
+  knownstationname = info;
+  icystreamtitle = info;
 }
 
 
@@ -4299,6 +4308,52 @@ void getTTSUrl(const char* cmd, String& value, int len) {
           lang = "en";
         const char *v = value.c_str();
         int l = strlen(v);
+        String encodedString = "";
+        char c;
+        char code0;
+        char code1;
+//        char code2;
+        for (int i = 0; i < l; i++)
+        {
+          c = v[i];
+          if (c == ' ')
+          {
+            ret += '+';
+          }
+          else if (isalnum(c))
+          {
+            ret += c;
+          }
+          else if ('=' == c)
+          {
+            ret += '+';
+            i++;
+          }
+          else if ('#' == c)
+          {
+            break;
+          }
+          else
+          {
+            code1 = (c & 0xf) + '0';
+            if ((c & 0xf) > 9)
+            {
+              code1 = (c & 0xf) - 10 + 'A';
+            }
+            c = (c >> 4) & 0xf;
+            code0 = c + '0';
+            if (c > 9)
+            {
+              code0 = c - 10 + 'A';
+            }
+            //code2 = '\0';
+            ret += '%';
+            ret += code0;
+            ret += code1;
+            //encodedString+=code2;
+          }
+        }        
+/*        
         for (int i = 0; i < l;i++)
           if (v[i] == ' ')
             ret = ret + "%20";
@@ -4309,6 +4364,7 @@ void getTTSUrl(const char* cmd, String& value, int len) {
           }
           else
             ret = ret + v[i];
+*/
         value = String("translate.google.com/translate_tts?ie=UTF-8&tl=") + lang + String("&client=tw-ob&q=") + ret;
       }
 }
@@ -4471,21 +4527,18 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
       mqttpub_backlog.push_back(s);
     }
   }
-  else if (ret = (param == "announce"))
+  else if (ret = (param.startsWith("announce")))
   {
-    String info;
     getTTSUrl(param.c_str(), value, strlen("announce"));
-    getAnnounceInfo(value, info, 1);
     extern uint8_t announceMode;
     dbgprint("'announce' with announceMode==%d", announceMode);
     if (setAnnouncemode(1))
     {
+    String info;
       dbgprint("setAnnouncemode(1) SUCCESS!");
+      getAnnounceInfo(value, info, 1);
       host = value;
       hostreq = true;  
-      if (info.length() > 0)
-        value = value + '#' + info;
-      setLastStation(value);
     }
 
 
@@ -4493,33 +4546,28 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if (ret = (param.startsWith("alert")))
   {
-    String info;
     getTTSUrl(param.c_str(), value, strlen("alert"));
-    getAnnounceInfo(value, info, 2);
-    dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
     if (setAnnouncemode(2)) 
     {
+    String info;
       host = value;
       hostreq = true;  
-      if (info.length() > 0)
-        value = value + '#' + info;
-      setLastStation(value);
+      getAnnounceInfo(value, info, 2);
+      dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
     }
     //analyzeCmd("station", value.c_str());
   }
   else if (ret = (param.startsWith("alarm")))
   {
-    String info;
     getTTSUrl(param.c_str(), value, strlen("alarm"));
-    getAnnounceInfo(value, info, 2);
-    dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
     if (setAnnouncemode(ANNOUNCEMODE_PRIO3)) 
     {
+    String info;
+      getAnnounceInfo(value, info, 2);
+      dbgprint("Nach Infosplit: %s#%s", value.c_str(), info.c_str());
+
       host = value;
       hostreq = true;  
-      if (info.length() > 0)
-        value = value + '#' + info;
-      setLastStation(value);
     }
   }
   else if (ret = (param == "upload"))
@@ -5030,15 +5078,6 @@ String readGenreName(void *)
   return genres.getName( genreId );
 }
 
-String readStationURL(void *)
-{
-  return currentStation;
-} 
-
-String readStationBeforeURL(void *)
-{
-  return stationBefore;
-} 
 
 
 String doGpreset(String value)
@@ -5107,7 +5146,8 @@ String doGpreset(String value)
         sprintf(cmd, "station=%s", s.c_str());
         ini_block.newpreset = currentpreset;
         analyzeCmd(cmd);
-        setLastStation(temp);
+        knownstationname = s1;
+        //setLastStation(temp);
         //lastStation = temp;
 //        host = s;
 //        connecttohost();
@@ -5763,7 +5803,7 @@ char tkey[12];
   sprintf(tkey, "fav_%02d", i);
   nvsdelkey ( tkey ) ;
   setmqttfavidx(i, i);
-  setLastStation(currentStation);
+  //setLastStation(currentStation);
   //favplayrequestinfo("Rescan after delete!", true);
   return String("Favorite[") + i + "] deleted successfully!";
 }
@@ -5839,14 +5879,22 @@ String doFavorite (String param, String value)
       else
       {
         String s = readfavfrompref(idx);
-        String temp = s;
+        String temp = "";
+        int nameIdx = s.indexOf('#');
+        if (nameIdx >= 0)
+        {
+          temp = s.substring(nameIdx + 1);
+          temp.trim();
+        }
         chomp(s);
         s = "station=" + s;
         ini_block.newpreset = currentpreset;
         analyzeCmd(s.c_str());
-        setLastStation(temp);
+        //setLastStation(temp);
         //lastStation = temp;
         currentFavorite = idx;
+        if (nameIdx >= 0)
+          knownstationname = temp;
         ret = String("Favorite is now ") + idx;
       }  
       //setmqttfavidx(idx, idx);

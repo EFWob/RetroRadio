@@ -1,4 +1,10 @@
 # Latest changes
+*20220906*
+Summer is almost over, time to restart programming. Included in this update:
+  - [announcements/alerts](#using-text-to-speech) can now be used to read texts using Google Text-to-speech API.
+  - An even better fix for the [stack problem](#potential-stack-issue).
+  - Some cosmetic changes. Most notable: if (in preferences) a station name is defined for any *preset_xx*- or *fav_xx*-key (like *preset_0=url#This is number 1!*) that station name ("This is number 1!" in our example will always be used (for display) and will not be overriden by the _icyname_ included in the metadata of the stream.
+
 *20220518*
   - Documentation of [bootmode](#bootmode) added.
 
@@ -120,8 +126,9 @@ build_flags =
 	... other stuff ...
 	-DLOOPTASKSTACK=10000
 ```
+If that flag is not defined, (or below 9216), stack size will be set at 9126, which is sufficent for simple commands. That stack size is used for the additional task (named _looptask_) that will handle the main loop for command handling (among other stuff).
 
-This will result in creation of an additional task (named _looptask_) with a stack size of 10000 bytes. There is no precise calculation for the "right" stack size to be defined here. If you see unexpected resets increasing the size might help. 
+In the original implementation there was a task called _spftask_ that is now gone. The task will be executed in the context of the _maintask_ now (which handled the main loop originally).
 
 You can use the command _test_ to observe the maximum stack usage for the task _looptask_ (the number shown is the lowest number of unused bytes in the stack that has been seen until now).
 
@@ -814,7 +821,7 @@ Basic usage:
 Without any judgement on the quality, here is an example for a URL that was returned by searchengine after searching for "free mp3 ringtones"
 
 ```
-announce=dl.prokerala.com/downloads/ringtones/files/dl/mp3/krishna-bhagwan-bansuri-54467-55307.mp3
+announce=2u039f-a.akamaihd.net/downloads/ringtones/files/mp3/9164d87259ad4d3883b9b2e8e0b4a365-welike-2-57877.mp3
 ```
 
 You might have noticed that the Station Name has changed to **"Announcement"** while playing. There are two possibilities to change that assignment:
@@ -822,7 +829,7 @@ You might have noticed that the Station Name has changed to **"Announcement"** w
 - by adding any text after the URL in the command (that will override the _$announceinfo_-setting in RAM/NVS)
 
 ```
-announce=dl.prokerala.com/downloads/ringtones/files/dl/mp3/krishna-bhagwan-bansuri-54467-55307.mp3 Just an example!
+announce=2u039f-a.akamaihd.net/downloads/ringtones/files/mp3/9164d87259ad4d3883b9b2e8e0b4a365-welike-2-57877.mp3 Just an example!
 ```
 
 When playing an announcement, you can not change to a "standard-stream" (preset, favorite). You can stop the playout of the announcement using the command _stop_. 
@@ -846,7 +853,25 @@ For the command _alert_ the Station Name changes to **"Alert!"** while playing. 
 **A general word of warning**: this feature might cause unexpected behaviour if called with illegal parameters. One known issue is that the command _stop_, when issued in "announcement-mode" will cancel the announcement but will continue with the previous stream. I found it working reliable with valid URLs but only have limited experience with invalid input data. Please let me know if you were able to crash the radio using this feature.
 
 ### Using Text to Speech
+The commands _alert_ and _announcement_ can also be used with Text-to-Speech synthesis. The basic idea was taken from https://github.com/horihiro/esp8266-google-tts. As such, Google-TTS-API is used. 
 
+To use TTS simply add the suffix _.t_ to the command and give the text to read as argument. So _announce.t=Hello world!_ as an example.
+
+The Google-API is somwhat undocumented. So may be it is in experimental stage and might be gone in the future. For now it works.
+
+You can also chose the language of the voice by adding a language suffix. Again, the API is undefined, but I found the following to work (there will be more):
+- _en_ for English (that is also the default if no language suffix is given)
+- _de_ for German
+- _nl_ for Dutch
+- _fr_ for French
+- _ja_ for Japanese
+- _hu_ for Hungarian
+
+So if you want to try "Hello World!" in German, use _alert.tde=Hallo Welt!_
+
+This functionality can be used for instance for "headless" units to read the current stream title using _alert.t=~icystreamtitle_
+
+As a more sofisticated example, you can use a [MQTT-Input](#using-inputs-to-read-mqtt-messages) to react on incoming MQTT-Messages. Suppose you have an doorbell that sends a message to the topic _door/bell_ whenever someone rings your doorbell. In that case, you can define the input as: _in.mqttbell=src=m /the/bell,onchange={alert.t=There is someone at the door!},start_ to get notified if that happens.
 
 # Extended Input Handling
 ## General
@@ -1529,7 +1554,7 @@ in.mqttecho=src=m echo,onchange={mqttpub reply=?},start
   - _start_ will activate the input (_stop_ would halt it).
   - the property _info_ can be used as usual to display information on the input
   - all other properties (like _map_, _on0_ etc.) are not used for the MQTT input.
-  - You can subscribe to as many topics as needed for your application.
+  - You can subscribe to as many topics as needed for your application. You have to define an Input for each individual message.
   - You can not use (override) the command input topic (i. e. _ESP32Radio/command_ in our example)
 
 # Sending MQTT-Messages

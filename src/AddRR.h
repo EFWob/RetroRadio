@@ -295,6 +295,11 @@ extern uint32_t          announceStart ;                        // when has anno
 extern String            currentStation ;                       // URL [optional #name] of last host request (not chomped)
 extern String            stationBefore;
 extern String            ipaddress ;                            // Own IP-address
+extern String            icyname ;                              // Icecast station name
+extern String            icystreamtitle ;                       // Streamtitle from metadata
+extern String            knownstationname ;                     // Name of station in prefs/genrelist
+extern String            knownstationnamebefore ;               // To store original value in alert-mode
+
 extern bool              NetworkFound ;                         // True if WiFi network connected
 extern ini_struct        ini_block ;                            // Holds configurable data
 extern VS1053*           vs1053player ;                         // The object for the MP3 player
@@ -336,6 +341,9 @@ String      nvsgetstr ( const char* key ) ;
 bool        nvssearch ( const char* key ) ;
 esp_err_t   nvssetstr ( const char* key, String val ) ;
 void        nvsdelkey ( const char* k);
+
+
+
 void bubbleSortKeys ( std::vector<const char*>& keynames, uint16_t n );
 //void        fillkeylist() ;
 void fillkeylist(std::vector<const char*>& keynames, uint8_t namespaceid);
@@ -357,6 +365,13 @@ void scanFavorite();
 
 extern struct tm         timeinfo ;                             // Will be filled by NTP server
 extern void gettime();
+
+
+//AddRR.cpp
+String ramgetstr ( const char* key ) ;
+void ramsetstr ( const char* key, String val ) ;
+bool ramsearch ( const char* key ) ;
+void ramdelkey ( const char* key) ;
 
 
 #endif

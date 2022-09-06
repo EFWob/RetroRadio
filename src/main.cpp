@@ -241,6 +241,9 @@ static bool bt_mode = false;
 #define MQTT_SUBTOPIC     "command"           // Command to receive from MQTT
 //
 #define otaclient mp3client                   // OTA uses mp3client for connection to host
+#if (LOOPTASKSTACK < 9216)
+#define LOOPTASKSTACK 9216
+#endif
 
 #include "AddRR.h"
 
@@ -265,9 +268,7 @@ void        tftset ( uint16_t inx, const char *str ) ;
 void        tftset ( uint16_t inx, String& str ) ;
 void        playtask ( void * parameter ) ;             // Task to play the stream
 void        spftask ( void * parameter ) ;              // Task for special functions
-#ifdef LOOPTASKSTACK
 void        looptask ( void * parameter ) ;             // Task for special functions
-#endif
 void        gettime() ;
 void        reservepin ( int8_t rpinnr ) ;
 void        claimSPI ( const char* p ) ;                // Claim SPI bus for exclusive access
@@ -409,14 +410,11 @@ PubSubClient      mqttclient ( wmqttclient ) ;           // Client for MQTT subs
 HardwareSerial*   nxtserial = NULL ;                     // Serial port for NEXTION (if defined)
 TaskHandle_t      maintask ;                             // Taskhandle for main task
 TaskHandle_t      xplaytask ;                            // Task handle for playtask
-TaskHandle_t      xspftask ;                             // Task handle for special functions
-#ifdef LOOPTASKSTACK
 TaskHandle_t      xlooptask ;                            // Task handle for special loop task (bigger stack)
-#endif
 SemaphoreHandle_t SPIsem = NULL ;                        // For exclusive SPI usage
 hw_timer_t*       timer = NULL ;                         // For timer
 char              timetxt[9] ;                           // Converted timeinfo
-char              cmd[130] ;                             // Command from MQTT or Serial
+char              cmd[512] ;                             // Command from MQTT or Serial
 uint8_t           tmpbuff[6000] ;                        // Input buffer for mp3 or data stream 
 QueueHandle_t     dataqueue ;                            // Queue for mp3 datastream
 QueueHandle_t     spfqueue ;                             // Queue for special functions
@@ -432,6 +430,8 @@ int16_t           metalinebfx ;                          // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icystreamurl ;                         // StreamURL from metadata
 String            icyname ;                              // Icecast station name
+String            knownstationname ;                     // Station name in presets (overriden by icyname)
+String            knownstationnamebefore ;               // Station name in presets (overriden by icyname)
 String            ipaddress ;                            // Own IP-address
 String            favnotplaymsg ;
 //              "{\"idx\":\"0\", \"name\":\"\", \"url\":\"\", \"play\":\"1\"}";
@@ -2274,6 +2274,15 @@ bool connecttohost()
     port = host.substring ( inx + 1 ).toInt() ;     // Get portnumber as integer
     hostwoext = host.substring ( 0, inx ) ;         // Host without portnumber
   }
+  setLastStation(host);
+  if (knownstationname.length() > 0)
+    if (icyname != knownstationname)
+    {
+      icyname = knownstationname;
+      tftset ( 2, icyname ) ;                         // Set screen segment bottom part
+      mqttpub.trigger ( MQTT_ICYNAME ) ;              // Request publishing to MQTT
+      icystreamtitle = "";
+    }
   dbgprint ( "Connect to %s on port %d, extension %s",
              hostwoext.c_str(), port, extension.c_str() ) ;
   if ( mp3client.connect ( hostwoext.c_str(), port ) )
@@ -2446,7 +2455,7 @@ bool do_nextion_update ( uint32_t clength )
 
   if ( nxtserial )                                             // NEXTION active?
   {
-    vTaskDelete ( xspftask ) ;                                 // Prevent output to NEXTION
+    //vTaskDelete ( xspftask ) ;                                 // Prevent output to NEXTION
     delay ( 1000 ) ;
     nxtserial->printf ( "\xFF\xFF\xFF" ) ;                     // Empty command
     for ( int i = 0 ; i < 100 ; i++ )                          // Any input seen?
@@ -4108,11 +4117,12 @@ void setup()
     xTaskCreatePinnedToCore (
       playtask,                                             // Task to play data in dataqueue.
       "Playtask",                                           // name of task.
-      4 * 1600,                                                 // Stack size of task
+      1600,                                                 // Stack size of task
       NULL,                                                 // parameter of the task
       2,                                                    // priority of the task
       &xplaytask,                                           // Task handle to keep track of created task
       0 ) ;                                                 // Run on CPU 0
+/*    
     xTaskCreate (
       spftask,                                              // Task to handle special functions.
       "Spftask",                                            // name of task.
@@ -4120,7 +4130,7 @@ void setup()
       NULL,                                                 // parameter of the task
       1,                                                    // priority of the task
       &xspftask ) ;                                         // Task handle to keep track of created task
-#ifdef LOOPTASKSTACK
+*/
     xTaskCreate (
       looptask,                                             // Task to handle special functions.
       "Looptask",                                           // name of task.
@@ -4129,7 +4139,6 @@ void setup()
       1,                                                    // priority of the task
       &xlooptask                                            // Task handle to keep track of created task
       ) ;                                                  // 
-#endif
   }
 }
 
@@ -5105,8 +5114,16 @@ void mp3loop()
       {
         host = readhostfrompref() ;                       // Lookup preset in preferences
         //lastStation = host;
-        setLastStation(host);
-        chomp ( host ) ;                                  // Get rid of part after "#"
+        //setLastStation(host);
+        int inx = host.indexOf('#');
+        if (inx > 0)
+        {
+          knownstationname = host.substring(inx + 1) ;
+          knownstationname.trim();
+          chomp ( host ) ;                                  // Get rid of part after "#"
+        }
+        else
+          knownstationname = "" ;
         //favplayrequestinfo ( host );
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
@@ -5155,17 +5172,13 @@ void setLastStation(String latest)
 {
   //if ( 0 == announceMode )
   //  stationBefore = currentStation ;
-  currentStation = latest;
-  int idx = latest.indexOf('#');
-  if (idx >= 0)
+  //int idx = latest.indexOf('#');
+  dbgprint("SETLASTSTATION call: %s", latest.c_str()) ;
+  if (currentStation != latest)
   {
-    latest = latest.substring(idx + 1);
-    latest.trim();
+    currentStation = latest;
+    dbgprint("SETLASTSTATION currentStation: %s", latest.c_str()) ;
   }
-  else
-    latest = "No Name";
-  icyname = latest;
-  mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
   scanFavorite();
 }
 
@@ -5176,69 +5189,9 @@ void setLastStation(String latest)
 // Main loop of the program.                                                                       *
 //**************************************************************************************************
 void loop()
-#ifdef LOOPTASKSTACK
-{}
-void doLoop()
-#endif
 {
-#if defined(RETRORADIO)
-  loopRR();
-  if ( gmaintain )
-  {
-    scanserial() ;                                    // Handle serial input
-    return ;
-  }
-#endif  
-
-  mp3loop() ;                                       // Do mp3 related actions
-  if ( updatereq )                                  // Software update requested?
-  {
-    if ( displaytype == T_NEXTION )                 // NEXTION in use?
-    { 
-      update_software ( "lstmodn",                  // Yes, update NEXTION image from remote image
-                        UPDATEHOST, TFTFILE ) ;
-    }
-    update_software ( "lstmods",                    // Update sketch from remote file
-                      UPDATEHOST, BINFILE ) ;
-    resetreq = true ;                               // And reset
-    bootmode = "";
-  }
-  if ( resetreq )                                   // Reset requested?
-  {
-    //vs1053player->stopSong() ;
-    //vs1053player->softReset() ;
-    if (bootmode.length() > 0)
-      nvssetstr("bootmode", bootmode) ;             // force BT after reset
-    //else
-    //  delay ( 900 ) ;                              // wait some time
-    delay(500);
-    ESP.restart() ;                                 // Reboot
-  }
-  scanserial() ;                                    // Handle serial input
-  scanserial2() ;                                   // Handle serial input from NEXTION (if active)
-  scandigital() ;                                   // Scan digital inputs
-  scanIR() ;                                        // See if IR input
-  ArduinoOTA.handle() ;                             // Check for OTA
-  mp3loop() ;                                       // Do more mp3 related actions
-  handlehttpreply() ;
-  cmdclient = cmdserver.available() ;               // Check Input from client?
-  if ( cmdclient )                                  // Client connected?
-  {
-    dbgprint ( "Command client available" ) ;
-    handlehttp() ;
-  }
-  // Handle MQTT.
-  if ( mqtt_on )
-  {
-    mqttclient.loop() ;                             // Handling of MQTT connection
-  }
-  handleSaveReq() ;                                 // See if time to save settings
-  handleIpPub() ;                                   // See if time to publish IP
-  handleVolPub() ;                                  // See if time to publish volume
-  chk_enc() ;                                       // Check rotary encoder functions
-  check_CH376() ;                                   // Check Flashdrive insert/remove
+  spftask(NULL);
 }
-
 
 //**************************************************************************************************
 //                                    C H K H D R L I N E                                          *
@@ -5428,10 +5381,14 @@ void handlebyte_ch ( uint8_t b )
         }
         else if ( lcml.startsWith ( "icy-name:" ) )
         {
-          icyname = metaline.substring(9) ;            // Get station name
-          icyname.trim() ;                             // Remove leading and trailing spaces
+          if (0 == knownstationname.length())
+          {
+            String str = metaline.substring(9) ;         // Get station name
+            str.trim() ;                                 // Remove leading and trailing spaces
+            icyname = str ;
+            mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
+          }
           tftset ( 2, icyname ) ;                      // Set screen segment bottom part
-          mqttpub.trigger ( MQTT_ICYNAME ) ;           // Request publishing to MQTT
         }
         else if ( lcml.startsWith ( "transfer-encoding:" ) )
         {
@@ -5917,26 +5874,38 @@ const char* analyzeCmd ( const char* par, const char* val )
   if ( argument.indexOf ( "volume" ) >= 0 )           // Volume setting?
   {
     // Volume may be of the form "upvolume", "downvolume" or "volume" for relative or absolute setting
+    uint8_t reqvol;
     if (vs1053player)
       oldvol = vs1053player->getVolume() ;              // Get current volume
     else
       oldvol = ini_block.reqvol ;
     if ( relative )                                   // + relative setting?
     {
-      ini_block.reqvol = oldvol + ivalue ;            // Up/down by 0.5 or more dB
+      reqvol = oldvol + ivalue ;            // Up/down by 0.5 or more dB
     }
     else
     {
-      ini_block.reqvol = ivalue ;                     // Absolue setting
+      reqvol = ivalue ;                     // Absolue setting
     }
-    if ( ini_block.reqvol > 127 )                     // Wrapped around?
+    if ( reqvol > 127 )                     // Wrapped around?
     {
-      ini_block.reqvol = 0 ;                          // Yes, keep at zero
+      reqvol = 0 ;                          // Yes, keep at zero
     }
-    if ( ini_block.reqvol > 100 )
+    if ( reqvol > 100 )
     {
-      ini_block.reqvol = 100 ;                        // Limit to normal values
+      reqvol = 100 ;                        // Limit to normal values
     }
+    String cmds = "@:~volume";
+    chomp_nvs(cmds);
+    if (cmds.length() > 0)
+    {
+      ramsetstr("_para", String(reqvol));
+      analyzeCmdsRR(cmds);
+      if(ramsearch("_para"))
+        reqvol = ramgetstr("_para").toInt();
+    }
+    ini_block.reqvol = reqvol;
+
     muteflag = false ;                                // Stop possibly muting
     sprintf ( reply, "Volume is now %d",              // Reply new volume
               ini_block.reqvol ) ;
@@ -5981,12 +5950,10 @@ const char* analyzeCmd ( const char* par, const char* val )
                 uxQueueMessagesWaiting ( dataqueue ),
                 av,
                 mbitrate ) ;
-      dbgprint ( "Stack maintask is %d", uxTaskGetStackHighWaterMark ( maintask ) ) ;
-  #ifdef LOOPTASKSTACK
-      dbgprint ( "Stack looptask is %d", uxTaskGetStackHighWaterMark ( xlooptask ) ) ;
-  #endif    
+      dbgprint ( "Stack maintask is %d (spftask)", uxTaskGetStackHighWaterMark ( maintask ) ) ;
+      dbgprint ( "Stack looptask is %d ", uxTaskGetStackHighWaterMark ( xlooptask ) ) ;
       dbgprint ( "Stack playtask is %d", uxTaskGetStackHighWaterMark ( xplaytask ) ) ;
-      dbgprint ( "Stack spftask  is %d", uxTaskGetStackHighWaterMark ( xspftask ) ) ;
+      //dbgprint ( "Stack spftask  is %d", uxTaskGetStackHighWaterMark ( xspftask ) ) ;
       dbgprint ( "ADC reading is %d", adcval ) ;
       dbgprint ( "scaniocount is %d", scaniocount ) ;
       dbgprint ( "Max. mp3_loop duration is %d", max_mp3loop_time ) ;
@@ -5994,6 +5961,7 @@ const char* analyzeCmd ( const char* par, const char* val )
       dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
       dbgprint ( "WiFi RSSI: %d", WiFi.RSSI());
       dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
+      dbgprint ( "DEBUG icyname = %s", icyname.c_str() ) ;
     }
     else 
       sprintf ( reply, "Free memory is %d",
@@ -6104,10 +6072,11 @@ const char* analyzeCmd ( const char* par, const char* val )
       strcpy(reply, "Command 'station' not allowed in Announce-Mode");
       return reply;
     }
-    setLastStation(value);
+    //setLastStation(value);
     host = value ;                                    // Save it for storage and selection later
     //favplayrequestinfo ( host );
     hostreq = true ;                                  // Force this station as new preset
+    knownstationname = "" ;
     sprintf ( reply,
               "Select %s",                            // Format reply
               host.c_str() ) ;
@@ -6518,15 +6487,66 @@ void spftask ( void * parameter )
   //vTaskDelete ( NULL ) ;                                          // Will never arrive here
 }
 
-#ifdef LOOPTASKSTACK
 
 void looptask ( void * parameter )
 {
 
   while ( true )
   {
-    doLoop();
+    loopRR();
+    if ( gmaintain )
+    {
+      scanserial() ;                                    // Handle serial input
+      return ;
+    }
+
+    mp3loop() ;                                       // Do mp3 related actions
+    if ( updatereq )                                  // Software update requested?
+    {
+      if ( displaytype == T_NEXTION )                 // NEXTION in use?
+      { 
+        update_software ( "lstmodn",                  // Yes, update NEXTION image from remote image
+                          UPDATEHOST, TFTFILE ) ;
+      }
+      update_software ( "lstmods",                    // Update sketch from remote file
+                        UPDATEHOST, BINFILE ) ;
+      resetreq = true ;                               // And reset
+      bootmode = "";
+    }
+    if ( resetreq )                                   // Reset requested?
+    {
+      //vs1053player->stopSong() ;
+      //vs1053player->softReset() ;
+      if (bootmode.length() > 0)
+        nvssetstr("bootmode", bootmode) ;             // force BT after reset
+      //else
+      //  delay ( 900 ) ;                              // wait some time
+      delay(500);
+      ESP.restart() ;                                 // Reboot
+    }
+    scanserial() ;                                    // Handle serial input
+    scanserial2() ;                                   // Handle serial input from NEXTION (if active)
+    scandigital() ;                                   // Scan digital inputs
+    scanIR() ;                                        // See if IR input
+    ArduinoOTA.handle() ;                             // Check for OTA
+    mp3loop() ;                                       // Do more mp3 related actions
+    handlehttpreply() ;
+    cmdclient = cmdserver.available() ;               // Check Input from client?
+    if ( cmdclient )                                  // Client connected?
+    {
+      dbgprint ( "Command client available" ) ;
+      handlehttp() ;
+    }
+    // Handle MQTT.
+    if ( mqtt_on )
+    {
+      mqttclient.loop() ;                             // Handling of MQTT connection
+    }
+    handleSaveReq() ;                                 // See if time to save settings
+    handleIpPub() ;                                   // See if time to publish IP
+    handleVolPub() ;                                  // See if time to publish volume
+    chk_enc() ;                                       // Check rotary encoder functions
+    check_CH376() ;                                   // Check Flashdrive insert/remove
   }
 }
 
-#endif
