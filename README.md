@@ -3,7 +3,7 @@
 Summer is almost over, time to restart programming. Included in this update:
   - [announcements/alerts](#using-text-to-speech) can now be used to read texts using Google Text-to-speech API.
   - An even better fix for the [stack problem](#potential-stack-issue).
-  - Some cosmetic changes. Most notable: if (in preferences) a station name is defined for any *preset_xx*- or *fav_xx*-key (like *preset_0=url#This is number 1!*) that station name ("This is number 1!" in our example will always be used (for display) and will not be overriden by the _icyname_ included in the metadata of the stream.
+  - Some cosmetic changes. Most notable: if (in preferences) a station name is defined for any *preset_xx*- or *fav_xx*-key (like *preset_0=url#This is number 1!*) that station name ("This is number 1!" in our example) will always be used (for display) and will not be overriden by the _icyname_ included in the metadata of the stream.
 
 *20220518*
   - Documentation of [bootmode](#bootmode) added.
@@ -855,9 +855,9 @@ For the command _alert_ the Station Name changes to **"Alert!"** while playing. 
 ### Using Text to Speech
 The commands _alert_ and _announcement_ can also be used with Text-to-Speech synthesis. The basic idea was taken from https://github.com/horihiro/esp8266-google-tts. As such, Google-TTS-API is used. 
 
-To use TTS simply add the suffix _.t_ to the command and give the text to read as argument. So _announce.t=Hello world!_ as an example.
+To use TTS simply add the suffix _.t_ to the command and give the text to read as argument. Try _announce.t=Hello world!_ as an example.
 
-The Google-API is somwhat undocumented. So may be it is in experimental stage and might be gone in the future. For now it works.
+The Google-API is somewhat undocumented. So may be it is in experimental stage and might be gone in the future. For now it works.
 
 You can also chose the language of the voice by adding a language suffix. Again, the API is undefined, but I found the following to work (there will be more):
 - _en_ for English (that is also the default if no language suffix is given)
@@ -871,7 +871,7 @@ So if you want to try "Hello World!" in German, use _alert.tde=Hallo Welt!_
 
 This functionality can be used for instance for "headless" units to read the current stream title using _alert.t=~icystreamtitle_
 
-As a more sofisticated example, you can use a [MQTT-Input](#using-inputs-to-read-mqtt-messages) to react on incoming MQTT-Messages. Suppose you have an doorbell that sends a message to the topic _door/bell_ whenever someone rings your doorbell. In that case, you can define the input as: _in.mqttbell=src=m /the/bell,onchange={alert.t=There is someone at the door!},start_ to get notified if that happens.
+As a more sofisticated example, you can use a [MQTT-Input](#using-inputs-to-read-mqtt-messages) to react on incoming MQTT-Messages. Suppose you have an doorbell that sends a message to the topic _door/bell_ whenever someone rings your doorbell. In that case, you can define the input as: _in.mqttbell=src=m /door/bell,onchange={alert.t=There is someone at the door!},start_ to get notified if that happens.
 
 # Extended Input Handling
 ## General
