@@ -467,6 +467,7 @@ uint16_t          ir_value = 0 ;                         // IR code
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
 uint32_t          ir_1 = 1650 ;                          // Average duration of an IR long pulse
 struct tm         timeinfo ;                             // Will be filled by NTP server
+volatile bool     minuteflag = false ;                   // Will be set, if a minute (of NTP time) has elapsed
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint32_t          clength ;                              // Content length found in http header
@@ -1819,6 +1820,7 @@ void IRAM_ATTR timer100()
     if ( ++timeinfo.tm_sec >= 60 )                // Yes, update number of seconds
     {
       timeinfo.tm_sec = 0 ;                       // Wrap after 60 seconds
+      minuteflag = true;
       if ( ++timeinfo.tm_min >= 60 )
       {
         timeinfo.tm_min = 0 ;                     // Wrap after 60 minutes

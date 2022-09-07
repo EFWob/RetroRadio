@@ -364,6 +364,7 @@ void setLastStation(String last);
 void scanFavorite();
 
 extern struct tm         timeinfo ;                             // Will be filled by NTP server
+extern volatile bool     minuteflag;                            // Will be set if minute has elapsed
 extern void gettime();
 
 
