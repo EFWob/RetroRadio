@@ -1,4 +1,8 @@
 # Latest changes
+*20220907*
+  - [Text substitution](#text-substitution-for-command-arguments) is now possible for command arguments.
+  - That allows for more sophisticated things, for example for the [text to speech-interface](#using-text-to-speech) which will turn your radio in a talking clock (example for this feature added)
+
 *20220906*
 Summer is almost over, time to restart programming. Included in this update:
   - [announcements/alerts](#using-text-to-speech) can now be used to read texts using Google Text-to-speech API.
@@ -1570,7 +1574,7 @@ in.mqttecho=src=m echo,onchange={mqttpub reply=?},start
 ## Storing and retrieving values
 - values can be stored to NVS (known as preferences) and now also to RAM
 - in both cases, values are identified by a _key-name_, which can hold a value (assigned to by "=" in preferences in case of NVS).
-	- example from preferences: _pin_ir = 0_ defines the value of _pin_ir_ to be 5.
+	- example from preferences: _pin_ir = 5_ defines the value of _pin_ir_ to be 5.
 - there is some mixup between commands and preferences. For instance you will find _volume = 75_ in preferences. This line is (at startup) interpreted
   as command to set the volume to 75, but it might also change during runtime to store the current value of volume setting.
 - the value associated to a key can be any arbritrary string constant. 
@@ -1685,6 +1689,24 @@ To achieve what was wanted, you have to use round brackets in this case:
 ```
 
 You can verify by listening the content of the key using _.?=:home_ Or you can just use that entry by _call = :home_
+
+## Text substitution for command arguments
+
+Besides the "simple" dereferencing of RAM/NVS keys, you can also do a more complex substitution of a value passed to a command. If (the argument) to any comments start with an double quotation mark:
+- the remainder of the argument is searched (from left to right) for identifiers pointing either to NVS (if preceeded by '&'), RAM (preceeded by '.'), RAM or NVS (preceeded by '@') or a system variable (preceeded by '~').
+- the identifier following the preceeding character must only contain letters, digits, the '$'-sign or the underscore character '_'.
+- if no valid identifier is found, no substitution will take place.
+- if the same character is found again after the preceeding character, it will be reduced to one remaining character (i. e. "@@" will be replaced by "@", "~~" by "~" etc.)
+- if a valid identifier has been found, the appropriate content will be inserted into the argument string (empty string if identifier is not known in the specified context)
+
+As an example, if you want to store a String in RAM that contains the current time into RAM using the identifier *clock*, you could use:
+```
+	.clock = "It is now ~hour o'clock and ~minute minutes.
+```
+Verify the result by entering:
+```
+	.?=clock
+```
 
 
 ## Control flow 

@@ -382,6 +382,8 @@ struct {                           // A table of known internal variables that c
   {"favorite", &currentFavorite, readInt16},
   {"mute", &muteflag, readBool},
   {"mute_before", &muteBefore, readBool},
+  {"hour", &timeinfo.tm_hour, readInt16},
+  {"minute", &timeinfo.tm_min, readInt16},
 };
 
 
@@ -4386,8 +4388,76 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     String group, dummy;
     parseGroup ( value, group, dummy );
     value = group;
-  } else
+  } 
+  else if (value.c_str()[0] != '"')
+  {
     chomp_nvs(value);
+  }
+  else if (value.length() > 1)
+  {
+    //chomp_nvs(value);
+    char valueCopyLen = value.length() + 50;
+
+    char* valueCopy = (char *)malloc(valueCopyLen + 1);
+    strcpy(valueCopy, value.c_str() + 1);
+
+    bool haveReplaced;
+    do
+    {
+      char *searchStart = valueCopy;
+      haveReplaced = false;
+      while (searchStart)
+      {
+        char *nextfound = strpbrk(searchStart, "@&.~");
+        if (!nextfound)
+        {
+          searchStart = NULL;
+        }
+        else if (*nextfound == nextfound[1])
+        {
+          memmove(nextfound, nextfound + 1, strlen(nextfound));
+          searchStart = nextfound + 1;
+        }
+        else
+        {
+          char *endfound = nextfound + 1;
+          int identlen;
+          while (isalnum(*endfound) || ('$' == *endfound) || ('_' == *endfound))
+            endfound++;
+          if ((identlen = (endfound - nextfound)) > 1)
+          {
+            char identifier[identlen + 1];
+            haveReplaced = true;
+            memcpy(identifier, nextfound, endfound - nextfound);
+            identifier[identlen] = 0;
+            String replacement(identifier);
+            chomp_nvs(replacement);
+            int replacelen = replacement.length();
+            int newLen = strlen(valueCopy) + replacelen - identlen;
+            if (newLen > valueCopyLen)
+            {
+              valueCopyLen = newLen + 50;
+              char *newValueCopy = (char *)malloc(valueCopyLen);
+              strcpy(newValueCopy, valueCopy);
+              nextfound = newValueCopy + (nextfound - valueCopy);
+              endfound = nextfound + identlen;
+              free(valueCopy);
+              valueCopy = newValueCopy;
+            }
+            memmove(nextfound + replacelen, endfound, strlen(endfound) + 1);
+            if (replacelen)
+              memcpy(nextfound, replacement.c_str(), replacelen);
+            searchStart = nextfound + replacelen;
+          }
+          else
+            searchStart = nextfound + 1;
+        }
+      }
+    }
+    while (haveReplaced);
+    value = String(valueCopy);
+    free(valueCopy);
+  }
   *reply = '\0';
   if (!isalpha(firstChar))
   {
