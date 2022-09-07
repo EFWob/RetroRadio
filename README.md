@@ -875,7 +875,39 @@ So if you want to try "Hello World!" in German, use _alert.tde=Hallo Welt!_
 
 This functionality can be used for instance for "headless" units to read the current stream title using _alert.t=~icystreamtitle_
 
-As a more sofisticated example, you can use a [MQTT-Input](#using-inputs-to-read-mqtt-messages) to react on incoming MQTT-Messages. Suppose you have an doorbell that sends a message to the topic _door/bell_ whenever someone rings your doorbell. In that case, you can define the input as: _in.mqttbell=src=m /door/bell,onchange={alert.t=There is someone at the door!},start_ to get notified if that happens.
+As a more sofisticated example, you can use a [MQTT-Input](#using-inputs-to-read-mqtt-messages) to react on incoming MQTT-Messages. Suppose you have an doorbell that sends a message to the topic _door/bell_ whenever someone rings your doorbell. In that case, you can define the input as: 
+```
+_in.mqttbell=src=m /door/bell,onchange={alert.t=There is someone at the door!},start_ 
+```
+to get notified if that happens.
+
+With [text substitution](#text-substitution-for-command-arguments) (please make sure to read and understand this section first) you can teach your radio to say the current time for you. The most simple example is:
+```
+alert.t="It is now ~hour o'clock and ~minute minutes.
+```
+
+This works pretty well, but has a shortcomming: if the current minute is 0, the minutes should not be announced at all and if the current minute is one the announcement should read "1 minute" (and not "1 minutes"). That can be improved with the following line:
+
+```
+if(~minute)={if(~minute>1)={._mtxt=and ~minute minutes}{._mtxt=and 1 minute}}{._mtxt=};alert.t="It is now ~hour o'clock ._mtxt
+```
+
+Whats happening here is that (depending on the current minute) the RAM-variable *_mtxt* will be set:
+- to the empty string, if current minute is 0
+- to "and 1 minute", if the current minute is 1
+- to "and ~minute minutes" in any other case.
+
+That will then used to feed the command _alert.t_ with the argument:
+```
+alert.t="It is now ~hour o'clock ._mtxt
+```
+
+Which will be evaluated to:
+- It is now x o'clock (if _~minute_ is at 0)
+- It is now x o'clock and 1 minute. (if _~minute_ is at 1)
+- It is now x o'clock and n minutes. (if _~minute_ is between 2 and 59)
+
+You can try self to further improve the announcements to include noon/midnight/A.M./P.M. if you whish so.
 
 # Extended Input Handling
 ## General
