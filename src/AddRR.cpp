@@ -19,7 +19,7 @@
 
 
 #if !defined(WRAPPER)
-#define TIME_DEBOUNCE 0
+#define TIME_DEBOUNCE 50
 #define TIME_CLICK    300
 #define TIME_LONG     500
 #define TIME_REPEAT   500    
@@ -54,7 +54,7 @@ struct IR_data
 class RetroRadioInputReader {
   public:
     virtual ~RetroRadioInputReader() {deleteContent();};
-    virtual int16_t read()  { return 0;};
+    virtual int32_t read(int8_t& forceMode)  { (void)forceMode;return 0;};
     virtual void mode(int mod)  {_mode = 0;} ;
     virtual String info() {return String("");};
     virtual void start() {_started = true;};
@@ -62,11 +62,12 @@ class RetroRadioInputReader {
     virtual void specialInfo() {};
     bool started() {return _started;};
     char type() {return _type;};
-
+    bool isVolatile() {return _volatile;};
   protected:
     virtual void deleteContent() {};
     int _mode;
     bool _started = false;
+    bool _volatile = false;
     char _type = 0;
 };
 
@@ -85,7 +86,7 @@ class RetroRadioInput {
     String getEventCommands(String type, char* srcInfo = NULL);
     void setEvent(String type, const char* name);
     void setEvent(String type, String name);
-    int read(bool doStart);
+    int32_t read(bool doStart);
     void setParameters(String parameters);
     static RetroRadioInput* get(const char *id);
     static void checkAll();
@@ -103,13 +104,13 @@ class RetroRadioInput {
     virtual void setParameter(String param, String value, int32_t ivalue);
     void setValueMap(String value, bool extend = false);
 //    void clearValueMap();
-    int16_t physRead();
-    std::vector<int16_t> _valueMap;
+    int32_t physRead(int8_t& forceMode);
+    std::vector<int32_t> _valueMap;
 //    bool _valid;
-    int16_t _maximum;
-  private:
+    int32_t _maximum;
+  protected:
     uint32_t _lastReadTime, _show, _lastShowTime;// _debounceTime;
-    int16_t _lastRead, _lastUndebounceRead, _delta, _step, _fastStep, _mode;
+    int32_t _lastRead, _lastUndebounceRead, _delta, _step, _fastStep, _mode;
     LastInputType _lastInputType;
 //    bool _calibrate;
     char *_id;
@@ -323,16 +324,20 @@ uint8_t volumeBefore = 0;             // how was volume set before announceMode 
 uint32_t announceStart = 0;           // when has announceMode started?
 int connectDelayBefore = 0;           // what was connectDelay before announceMode started?
 extern int connectDelay;
+static char cmdReply[8000] ;             // Reply to client, will be returned
 
 String readUint8(void *);                // Takes a void pointer and returns the content, assumes ptr to uint8_t
 String readInt8(void *);                 // Takes a void pointer and returns the content, assumes ptr to int8_t
 String readInt16(void *);                // Takes a void pointer and returns the content, assumes ptr to int16_t
 String readBool(void *);                 // Takes a void pointer and returns the content, assumes ptr to bool
 String readString(void *);               // Takes a void pointer and returns the content, assumes ptr to String
+String readCharStr(void *);              // Takes a void pointer and returns the content, assumes ptr to char* 
 String readVolume(void *);                // Returns current volume setting from VS1053 (pointer is ignored)
 String readGenrePlaylist(void *);       // Returns playable genres (with at least one station). Parameter is ignored
 String readGenreName(void *);           // Returns name of current genre. Parameter is ignored.
 String readMqttStatus(void *);          // Returns "1" if MQTT is connected, "0" else
+String readMillis(void *);              // returns millis() as String
+String readGenreCount(void *);          // returns count of known genres
 
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
@@ -369,6 +374,7 @@ struct {                           // A table of known internal variables that c
   {"channels", &numChannels, readInt16},
   {"volume_vs", &numChannels, readVolume},
   {"genre", &genreId, readInt16},
+  {"genres", NULL, readGenreCount},
   {"gname", NULL, readGenreName},
   {"gpresets", &genrePresets, readInt16},
   {"gpreset", &genrePreset, readInt16},
@@ -384,6 +390,9 @@ struct {                           // A table of known internal variables that c
   {"mute_before", &muteBefore, readBool},
   {"hour", &timeinfo.tm_hour, readInt16},
   {"minute", &timeinfo.tm_min, readInt16},
+  {"second", &timeinfo.tm_sec, readInt16},
+  {"uptime", NULL, readMillis},
+  {"cmdreply", &cmdReply, readCharStr},
 };
 
 
@@ -504,6 +513,20 @@ String readString(void *ref) {
   return  (*((String*)ref));
 }
 
+String readCharStr(void *ref) {
+  return  (String((char*)ref));
+}
+
+
+String readMillis(void *)
+{
+  return String(millis());
+}
+
+String readGenreCount(void *) 
+{
+  return String(genres.size());
+} 
 
 
 String readVolume(void* ref) {
@@ -1136,11 +1159,11 @@ int parseGroup(String & inValue, String& left, String& right, const char** delim
 
 
 
-int doCalculation(String& value, bool show, const char* ramKey = NULL) {
+int32_t doCalculation(String& value, bool show, const char* ramKey = NULL) {
   const char *operators[] = {"==", "!=", "<=", "><" , ">=", "<", "+", "^", "*", "/", "%", "&&", "&", "||", "|", "-", ">", "..", NULL};
   String opLeft, opRight;
   int idx = parseGroup(value, opLeft, opRight, operators, true);
-  int op1, op2, ret = 0;
+  int32_t op1, op2, ret = 0;
   if (show) doprint("Calculate: (\"%s\" [%d] \"%s\")", opLeft.c_str(), idx, opRight.c_str());
   if (opLeft.c_str()[0] == '(')
     op1 = doCalculation(opLeft, show);
@@ -1267,7 +1290,7 @@ void doCalc(String value, bool show, bool& returnFlag) {
 
 void doIf(String condition, String value, bool show, String ramKey, bool& returnFlag, bool invertedLogic) {
   if (show) doprint("Start if(%s)=\"%s\"", condition.c_str(), value.c_str());
-  int result = doCalculation(condition, show, ramKey.c_str());
+  int32_t result = doCalculation(condition, show, ramKey.c_str());
 
   String ifCommand, elseCommand;
   String dummy;
@@ -1295,7 +1318,7 @@ void doIf(String condition, String value, bool show, String ramKey, bool& return
 
 void doCalc(String expression, String value, bool show, String ramKey, bool& returnFlag) {
   if (show) doprint("Start calc(%s)=\"%s\"", expression.c_str(), value.c_str());
-  int result = doCalculation(expression, show, ramKey.c_str());
+  int32_t result = doCalculation(expression, show, ramKey.c_str());
 
   String calcCommand;
   String dummy;
@@ -1363,24 +1386,6 @@ String searchElement(String input, int& idx, bool show = false, int* elements = 
   }
   return result;
 }
-
-const char* doZeit() {
-static char zeitStr[80];
-  strcpy(zeitStr, "");
-  gettime();
-  if (timeinfo.tm_year) {
-    String cmd;
-    if (1 == timeinfo.tm_sec)
-      timeinfo.tm_sec = 2;
-    sprintf(zeitStr, "Es ist jetzt schon %d Uhr %d und %d Sekunden!", 
-          timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec
-          );
-    cmd = String("alert.tde=") + String(zeitStr);  
-    cmd_backlog.push_back(cmd);
-  }
-  return (const char*)&zeitStr;
-}
-
 
 void doIdx(String expression, String value, bool show, String ramKey, bool& returnFlag) {
   bool hasAnyEntry,justCount;
@@ -1604,7 +1609,7 @@ RetroRadioInput::RetroRadioInput(const char* id):
   
   
   {
-  _maximum = _lastRead = _lastUndebounceRead = INT16_MIN;                 // _maximum holds the highest value ever read, _lastRead the
+  _maximum = _lastRead = _lastUndebounceRead = INT32_MIN;                 // _maximum holds the highest value ever read, _lastRead the
   // last read value (after mapping. Is below 0 if no valid read so far)
   setId(id);
   _inputList.push_back(this);
@@ -2319,7 +2324,7 @@ void RetroRadioInput::showInfo(bool hintToOthers) {
 //       0, 4095 = 100, 0  will convert input values between 0-4095 (i. e. from analog input) to   *
 //                 an output range of 100 to 0                                                     *
 //  - A map entry with empty left part is also possible. In that case the left part will be set to *
-//    x1 = INT16_MIN and x2 = INT16_MAX. This cancels also the map setting, as this entry will     *
+//    x1 = INT32_MIN and x2 = INT32_MAX. This cancels also the map setting, as this entry will     *
 //    cover the full possible input range.                                                         *
 //  - In case of overlapping map ranges, the first defined map enty will fire. Example:            *
 //    (1000..3000 = 1)(=2)(4000..4050=3)                                                           *
@@ -2341,8 +2346,9 @@ void RetroRadioInput::setValueMap(String value, bool extend) {
       const char *delimiters[] = {"..", NULL};
       String from1, from2, to1, to2;
       if (mapEntryLeft.length() == 0) {
-        from1 = String(INT16_MIN);
-        from2 = String(INT16_MAX);
+        from1 = String(INT32_MIN);
+        from2 = String(INT32_MAX);
+        //Serial.printf("From: %s, to: %s\r\n", from1.c_str(), from2.c_str());
       }
       else if (-1 == parseGroup(mapEntryLeft, from1, from2, delimiters, true))
         from2 = from1;
@@ -2363,7 +2369,8 @@ class RetroRadioInputReaderDigital: public RetroRadioInputReader {
       _pin = pin;
       mode(mod);
     };
-    int16_t read() {
+    int32_t read(int8_t& forceMode) {
+      (void)forceMode;
       return _inverted ? !digitalRead(_pin) : digitalRead(_pin);
     };
     void mode(int mod) {
@@ -2390,13 +2397,20 @@ class RetroRadioInputReaderRam: public RetroRadioInputReader {
       if (key)
         if (strlen(key))
           _key = strdup(key);
+      _lastKnown = false;
     };
-    int16_t read() {
-      int16_t res = 0;
-      String resultString;
-      if (_key)
-        resultString = ramgetstr(_key);
-      res = atoi(resultString.c_str());
+    int32_t read(int8_t& forceMode) {
+      int32_t res = 0;
+      if (ramsearch(_key))
+      {
+        res = atoi(ramgetstr(_key).c_str());
+        _lastKnown = true;
+      }
+      else
+      {
+        forceMode = -1;
+        _lastKnown = false;
+      }
       return res;
     };
     void mode(int mod) {
@@ -2413,6 +2427,7 @@ class RetroRadioInputReaderRam: public RetroRadioInputReader {
 
   private:
     const char *_key;
+    bool _lastKnown;
 };
 
 
@@ -2433,7 +2448,8 @@ class RetroRadioInputReaderAnalog: public RetroRadioInputReader {
         pinMode(_pin, INPUT);
       _filter = (0b11100 & mod) >> 2;
     }
-    int16_t read() {
+    int32_t read(int8_t &forceMode) {
+      (void)forceMode;
       uint32_t t = millis();
       if (_last >= 0)
         if ((t - _lastReadTime) < 20)
@@ -2494,8 +2510,9 @@ class RetroRadioInputReaderTouch: public RetroRadioInputReader {
         _maxTouch = _minTouch = 50;
     }
 
-    int16_t read() {
+    int32_t read(int8_t& forceMode) {
       uint16_t x;
+      (void)forceMode;
       touch_pad_read_filtered((touch_pad_t)_pin, &x);
       if (x == 0) {
         return _digital ? 1 : 1023;
@@ -2535,12 +2552,16 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
   public:
     RetroRadioInputReaderSystem(const char* reference): _ref(NULL), _refname(NULL), _readf(NULL) {
       for (int i = 0; (_readf == NULL) && (i < KNOWN_SYSVARIABLES); i++)
+      {
+        //dbgprint("%d: strcmp(%s, %s) = %d", i, reference, sysVarReferences[i].id, strcmp(reference, sysVarReferences[i].id));
         if (0 == strcmp(reference, sysVarReferences[i].id))
-          if ((NULL != sysVarReferences[i].ref) && (NULL != sysVarReferences[i].readf)) {
+          if (NULL != sysVarReferences[i].readf) {
             _ref = sysVarReferences[i].ref;
             _readf = sysVarReferences[i].readf;
             _refname = sysVarReferences[i].id;
+            _volatile = true;
           }
+      }
       if (NULL == _refname)
         _refname = strdup(reference);
     };
@@ -2548,7 +2569,8 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
     void mode(int mod) {
     }
 
-    int16_t read() {
+    int32_t read(int8_t& forceMode) {
+      (void)forceMode;
       if (_readf)
         return _readf(_ref).toInt();
       return 0;
@@ -2556,10 +2578,10 @@ class RetroRadioInputReaderSystem: public RetroRadioInputReader {
 
     String info() {
       String ret;
-      if (!_ref)
+      if (!_readf)
         ret = "Set to unknown ";
       ret = ret + "Variable: " + _refname;
-      if (!_ref)
+      if (!_readf)
         ret += " (will always read as 0)";
       return ret;   
     }
@@ -2601,8 +2623,10 @@ void RetroRadioInput::setReader(String value) {
       break;
     case '.': 
       reader = new RetroRadioInputReaderRam(value.c_str() + 1);
+      _timing[T_DEB_IDX] = 0;
       break;
     case '~': reader = new RetroRadioInputReaderSystem(value.c_str() + 1);
+      _timing[T_DEB_IDX] = 0;
       break;
     case 'm': 
     //case 'M':
@@ -2643,18 +2667,20 @@ void RetroRadioInput::setReader(String value) {
 //  - Virtual method, must be overidden by subclasses. Returns an int16 as current read value.     *
 //  - Invalid, if below 0                                                                          *
 //**************************************************************************************************
-int16_t RetroRadioInput::physRead() {
+int32_t RetroRadioInput::physRead(int8_t& forceMode) {
   if (!_reader) {
     _lastInputType = NONE;
+    forceMode = -1;
     return 0;
   } else if (0 != _reader->type() ) {
     _lastInputType = NONE;
+    forceMode = -1;
     return 0;
   }
   else {
     if (_lastInputType == NONE)
       _lastInputType = HIT;
-    return _reader->read();
+    return _reader->read(forceMode);
   }
 }
 
@@ -2674,15 +2700,15 @@ RetroRadioInput::~RetroRadioInput() {
     delete _reader;
 };
 
-int RetroRadioInput::read(bool doStart) {
+int32_t RetroRadioInput::read(bool doStart) {
   if (_reader)
     if (_reader->type() != 0)
       return 0;
-  bool forced = (_lastInputType == NONE);
-  bool show = (_show > 0) && ((millis() - _lastShowTime > _show) || forced);
+  int8_t forced = (_lastInputType == NONE)?1:0;
+  bool show = (_show > 0) && ((millis() - _lastShowTime > _show) || (1 == forced));
   String showStr;
-  int16_t x = physRead();
-  int16_t nearest = 0;
+  int32_t x = physRead(forced);
+  int32_t nearest = 0;
   if (show)
     _lastShowTime = millis();
   if (NONE == _lastInputType) {
@@ -2694,23 +2720,27 @@ int RetroRadioInput::read(bool doStart) {
     sprintf(xbuf, "%5d", x);
     showStr = String("Input \"in.") + getId() + "\" (is " + (doStart ? "running" : "stopped") + ") physRead=" + xbuf;
   }
+  if (forced < 0)
+    return x;
 
   bool found = true;
   if (_valueMap.size() >= 4) {
     size_t idx = 0;
-    uint16_t maxDelta = UINT16_MAX;
+    uint32_t maxDelta = UINT32_MAX;
     found = false;
+    //if (show) Serial.printf("\r\nVALUE-MAP-SIZE: %d\r\n", )
+
     while (idx < _valueMap.size() && !found) {
-      int16_t c1, c2;
-      int16_t x1, x2, y1, y2;
-      x1 = _valueMap[idx++];
-      x2 = _valueMap[idx++];
+      int32_t c1, c2;
+      int32_t x1, x2, y1, y2;
+      c1 = x1 = _valueMap[idx++];
+      c2 = x2 = _valueMap[idx++];
       y1 = _valueMap[idx++];
       y2 = _valueMap[idx++];
-      c1 = x1 = (x1 < 0 ? _maximum + x1 : x1);
-      c2 = x2 = (x2 < 0 ? _maximum + x2 : x2);
+      //c1 = x1 = (x1 < 0 ? _maximum + x1 : x1);
+      //c2 = x2 = (x2 < 0 ? _maximum + x2 : x2);
       if (c1 > c2) {
-        int16_t t = c1;
+        int32_t t = c1;
         c1 = c2;
         c2 = t;
       }
@@ -2721,8 +2751,8 @@ int RetroRadioInput::read(bool doStart) {
         else
           x = map(x, x1, x2, y1, y2);
       } else {
-        int16_t newNearest;
-        uint16_t myDelta = x < c1 ? c1 - x : x - c2;
+        int32_t newNearest;
+        uint32_t myDelta = x < c1 ? c1 - x : x - c2;
         if (x < c1) {
           //newNearest = -y1 - 1;
           newNearest = y1;
@@ -2765,7 +2795,7 @@ int RetroRadioInput::read(bool doStart) {
     } else
       x = _lastRead;
   }
-  int lastRead = 0;
+  int32_t lastRead = 0;
   if (show)
     doprint(showStr.c_str());
   if (!doStart) {
@@ -2779,7 +2809,11 @@ int RetroRadioInput::read(bool doStart) {
     if (x != _lastUndebounceRead) {
       _lastUndebounceRead = x;
       _lastReadTime = millis();
-      x = _lastRead;
+      if (forced = (0 == _timing[T_DEB_IDX]))
+        lastRead = _lastRead = x;
+      else
+        x = _lastRead;
+
     } else if (x != _lastRead) {
       if ((millis() - _lastReadTime < _timing[T_DEB_IDX]) || (_delta > abs(_lastRead - x)))
         x = _lastRead;
@@ -2895,13 +2929,35 @@ void RetroRadioInput::checkAll() {
 }
 
 void RetroRadioInput::showAll(const char *p) {
-  Serial.printf("Running showAll! p=%ld\r\n", (unsigned long)p);
-  for (int i = 0; i < _inputList.size(); i++) {
-    bool match = (p == NULL);
-    if (!match)
-      match = (strstr(_inputList[i]->getId(), p) != NULL);
-    if (match)
-      _inputList[i]->showInfo(false);
+  int count = 0;
+  if (_inputList.size() == 0)
+  {
+    dbgprint("There are no inputs defined!");
+  }
+  else
+  {
+    if (p)
+      if (0 == strlen(p))
+        p = NULL;
+    if (p)
+      dbgprint("Info for all Inputs with \"%s\" in their name", p);
+    else
+      dbgprint("Info for all known Inputs");
+    for (int i = 0; i < _inputList.size(); i++) {
+      bool match = (p == NULL);
+      if (!match)
+        match = (strstr(_inputList[i]->getId(), p) != NULL);
+      if (match)
+      {
+        dbgprint("---------------------------------------------------------------------------");
+        _inputList[i]->showInfo(false);
+        count++;
+      }
+    }
+    if (count)
+      dbgprint("%d (of %d) Inputs shown", count, _inputList.size());
+    else
+      dbgprint("None of the known Inputs matched the criteria. Use command \"in\" (without parameter) to list all known Inputs.");
   }
 }
 
@@ -2946,9 +3002,13 @@ void ramsetstr ( const char* key, String val )
 //**************************************************************************************************
 bool ramsearch ( const char* key )
 {
-  auto search = ramContent.find(String(key));
-  // if (search == ramContent.end()) Serial.printf("RAM search failed for key=%s\r\n", key);
-  return (search != ramContent.end());
+  if (key)
+  {
+    auto search = ramContent.find(String(key));
+    // if (search == ramContent.end()) Serial.printf("RAM search failed for key=%s\r\n", key);
+    return (search != ramContent.end());
+  }
+  return false;
 }
 
 //**************************************************************************************************
@@ -4022,6 +4082,8 @@ void setupRR(uint8_t setupLevel) {
     {
       doprint("LITTLEFS open for genres was a success!");
     }
+    analyzeCmdsRR("volume=&volume;preset=&preset;toneha=&toneha;tonela=&toneloa;tonehf=&tonehf;"
+                  "tonelf=&tonelf;station=&station");
     doprint("Running commands from NVS '%s'", s);
     analyzeCmdsRR ( nvsgetstr(s) );
     s[l + 1] = 0;
@@ -4182,6 +4244,59 @@ static int calllevel = 0;
     else  
       if (doShow)
         doprint("No entry found!");
+    calllevel--;
+}
+
+void doCmd ( String param, String value ) {
+//bool returnFlag = false;
+static int calllevel = 0;
+bool doShow = (param.c_str()[3] == 'v') || (param.c_str()[3] == 'V');
+    if (param.length() > (doShow?4:3))
+    {
+      param = param.substring( doShow?5:4 );
+      chomp ( param ) ;
+      const char *s = param.c_str();
+      if ( *s == '.' )
+      {
+        const char *p;
+        s++;
+        if ( NULL == (p = strchr(s, '(')) )
+          p = s + strlen(s);
+        char buf[p - s + 1];
+        strncpy(buf, s, p - s + 1);
+        buf[p - s] = 0;
+        String dummy = String(buf);
+        chomp ( dummy );
+        if ( dummy.length() > 0 )
+          value = dummy;
+        param = String ( p );
+      }
+      if ( param.c_str()[0] == '(') 
+      {
+        String group, dummy;
+        parseGroup (param, group, dummy);
+        param = group;
+      } else
+        param = "";
+    } else
+      param = "";
+    if (doShow) doprint ( "cmd(%s)=%s", param.c_str(), value.c_str());  
+    //value = ramsearch(value.c_str())?ramgetstr(value.c_str()):nvsgetstr(value.c_str()) ;
+    value.trim();
+    if (value.length() > 0)
+    {
+      substitute(value, param.c_str());
+      if (doShow) doprint ( "cmd sequence (after substitution): %s", value.c_str());
+      doprint("callLevel: %d", ++calllevel);
+      analyzeCmdsRR ( value );
+      ramsetstr("_reply", cmdReply);  
+    }
+    else  
+    {
+      if (doShow)
+        doprint("Commands to execute");
+      ramsetstr("_reply", "");
+    }
     calllevel--;
 }
 
@@ -4371,18 +4486,158 @@ void getTTSUrl(const char* cmd, String& value, int len) {
       }
 }
 
+String chomp_nvs_ram_sys(const char *keyWithPrefix) {
+  char firstChar = *keyWithPrefix;
+  const char* key = keyWithPrefix + 1;
+  String ret = "";
+  char nextChar = *key;
+
+  if (isalnum(nextChar) || ('_' == nextChar) || ('$' == nextChar))
+  {
+    bool replaced = false;
+    if (('@' == firstChar) || ('.' == firstChar))
+    {
+      replaced = ramsearch(key);
+      if (replaced)
+        ret =ramgetstr(key);
+    }
+    if (!replaced)
+    {
+      if (('@' == firstChar) || ('&' == firstChar))
+      {
+        replaced = nvssearch(key);
+        if (replaced)
+          ret =nvsgetstr(key);
+      }
+      else
+      {
+        replaced = true;
+        ret = readSysVariable(key);
+      }
+    }
+  }
+  else
+    ret = String(keyWithPrefix);
+  chomp(ret);
+  return ret;
+}
+
+
+void chompValue (String& value) {
+  const char* valuec_str = value.c_str();
+  chomp(value);
+  if (value.length() > 0) {
+    char firstChar = value.c_str()[0];
+    if ('(' == firstChar)
+    {
+      String group, dummy;
+      parseGroup ( value, group, dummy );
+      value = group;
+    } 
+    else if (('"' != firstChar) && ('\'' != firstChar))
+    {
+      if (strchr("@&.~", firstChar))
+      {
+        value = chomp_nvs_ram_sys(valuec_str);
+      }
+    }
+    else
+    {
+      uint8_t count = 0;
+
+      while ( '\'' == valuec_str[count])
+        count++;
+      valuec_str = valuec_str + (count?count:1) ;
+      //chomp_nvs(value);
+      if (0 != valuec_str[0])
+      {
+        char valueCopyLen = strlen(valuec_str) + 50;
+
+        char* valueCopy = (char *)malloc(valueCopyLen + 1);
+        strcpy(valueCopy, valuec_str);
+
+        bool haveReplaced;
+        do
+        {
+          char *searchStart = valueCopy;
+          haveReplaced = false;
+          while (searchStart)
+          {
+            char *nextfound = strpbrk(searchStart, "@&.~");
+            if (!nextfound)
+            {
+              searchStart = NULL;
+            }
+            else if ((*nextfound == nextfound[1]) && ('@' == *nextfound))
+            {
+
+              memmove(nextfound, nextfound + 1, strlen(nextfound));
+              *nextfound = '#';
+              searchStart = nextfound + 1;
+            }
+            else
+            {
+              char *endfound = nextfound + 1;
+              int identlen;
+              while (isalnum(*endfound) || ('$' == *endfound) || ('_' == *endfound))
+                endfound++;
+              if ((identlen = (endfound - nextfound)) > 1)
+              {
+                char identifier[identlen + 1];
+                haveReplaced = true;
+                memcpy(identifier, nextfound, endfound - nextfound);
+                identifier[identlen] = 0;
+                String replacement(identifier);
+                replacement = chomp_nvs_ram_sys(identifier);
+                int replacelen = replacement.length();
+                int newLen = strlen(valueCopy) + replacelen - identlen;
+                if (newLen > valueCopyLen)
+                {
+                  valueCopyLen = newLen + 50;
+                  char *newValueCopy = (char *)malloc(valueCopyLen);
+                  strcpy(newValueCopy, valueCopy);
+                  nextfound = newValueCopy + (nextfound - valueCopy);
+                  endfound = nextfound + identlen;
+                  free(valueCopy);
+                  valueCopy = newValueCopy;
+                }
+                memmove(nextfound + replacelen, endfound, strlen(endfound) + 1);
+                if (replacelen)
+                  memcpy(nextfound, replacement.c_str(), replacelen);
+                searchStart = nextfound + replacelen;
+              }
+              else
+                searchStart = nextfound + 1;
+            }
+          }
+        }
+        while (haveReplaced && (--count > 0));
+        value = String(valueCopy);
+        free(valueCopy);
+        value.trim();
+      }
+      else
+        value = "";
+    }
+  }
+}
 
 const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFlag) {
   const char *s; 
   char firstChar; 
   bool ret = false;
   chomp(param);
+  if (0 == param.length())
+    return "";
   String paramOriginal = param;
   param.toLowerCase();
-  chomp ( value ) ;
 
   s = paramOriginal.c_str();
   firstChar = *s; 
+
+  chompValue (value);
+/*
+  chomp ( value ) ;
   if ( ( value.c_str()[0] == '(' ) )
   {
     String group, dummy;
@@ -4458,6 +4713,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
     value = String(valueCopy);
     free(valueCopy);
   }
+*/
   *reply = '\0';
   if (!isalpha(firstChar))
   {
@@ -4491,6 +4747,10 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     doCall ( paramOriginal, value, param[4] == 'v' );
   }
+  else if ( (ret = ( param.startsWith ( "cmd"))) )
+  {
+    doCmd ( paramOriginal, value );
+  }
   else if ( (ret = ( param.startsWith ( "genre" ))) ) 
   {
     strcpy(reply, doGenre ( param, value ).c_str());
@@ -4499,14 +4759,6 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   {
     strcpy(reply, doGpreset ( value ).c_str());
   }
-  else if ( (ret = (param == "zeit")))
-  {
-    strcpy(reply, doZeit());
-  }
-//  else if ( (ret = param.startsWith("ifnot")) )
-//  {
-//    doCalcIfWhile(param, "if", value, returnFlag, true);
-//  } 
   else if ( (ret = param.startsWith("if")) )
   {
     doCalcIfWhile(paramOriginal, "if", value, returnFlag);//doIf(value, argument.c_str()[2] == 'v');
@@ -4538,14 +4790,21 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   }
   else if ( (ret = (param.startsWith("in"))) )
   {
-    const char *s = paramOriginal.c_str() + 2;
-    while (*s && (*s != '.'))
-      s++;
-    if ( (ret = (*s == '.')))
-    //Serial.println("RAM FROM NEW SOURCE!!!");
-      doInput ( s + 1, value ) ;
+    if (param == "in")
+    {
+      doInlist(value.length() > 0?value.c_str(): NULL);
+    }
     else
-      ret = false;
+    {
+      const char *s = paramOriginal.c_str() + 2;
+      while (*s && (*s != '.'))
+        s++;
+      if ( (ret = (*s == '.')))
+      //Serial.println("RAM FROM NEW SOURCE!!!");
+        doInput ( s + 1, value ) ;
+      else
+        ret = false;
+    }
   }
   else if ( (ret = (param.startsWith("nvs" ))) ) 
   {
@@ -4726,7 +4985,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
 }
 
 
-static char cmdReply[8000] ;                      // Reply to client, will be returned
+
 
 //**************************************************************************************************
 //                                   A N A L Y Z E C M D R R                                       *
@@ -4746,8 +5005,20 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
   if ( cmds )
   {
     char *s = strchr ( cmds, '#' ) ;
-    if ( NULL != s )
-      *s = '\0';
+    while (s) 
+    {
+      char *s1 = s + 1;
+      if ('#' == *s1)
+      {
+        memmove(s, s1, strlen(s));
+        s = s1;
+      }
+      else
+      {
+        *s = 0;
+        s = NULL;
+      }
+    }
     s = cmds;
     if (!setupDone) {
       s = strchr(cmds, ';');
@@ -4823,6 +5094,31 @@ const char* analyzeCmdsRR( String s) {
 const char* analyzeCmdsRR( String s, bool& returnFlag) {
   return analyzeCmdRR ( s.c_str() , returnFlag );
 }
+
+
+
+
+const char* analyzeCmdsFromKey ( const char * key )
+{
+  if (key)
+    if (strlen(key))
+    {
+    String commands = ramsearch(key)?ramgetstr(key) : (nvssearch(key)?nvsgetstr(key):"");
+      if (commands.length())
+      {
+        dbgprint("Now execute commands (from key=%s): %s" , key, commands.c_str());
+        return analyzeCmd(commands.c_str());
+      }
+    }
+  return "";
+};
+
+const char* analyzeCmdsFromKey ( String key )
+{
+  return analyzeCmdsFromKey(key.c_str());
+}
+
+
 #endif //if !defined(WRAPPER)
 
 

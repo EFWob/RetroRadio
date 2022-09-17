@@ -35,11 +35,16 @@ void dsp_fillRect ( int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color )
 {} ;                                                        // Fill a rectange
 
 
-#define TFTSECS 1
+// Data to display.  There are TFTSECS sections
+#define TFTSECS 4
 scrseg_struct     tftdata[TFTSECS] =                        // Screen divided in 3 segments + 1 overlay
 {                                                           // One text line is 8 pixels
   { false, WHITE,   0,  8, "" },                            // 1 top line
+  { false, CYAN,   20, 64, "" },                            // 8 lines in the middle
+  { false, YELLOW, 90, 32, "" },                            // 4 lines at the bottom
+  { false, GREEN,  90, 32, "" }                             // 4 lines at the bottom for rotary encoder
 } ;
+
 
 //**************************************************************************************************
 //                                      D I S P L A Y B A T T E R Y                                *

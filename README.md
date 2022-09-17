@@ -132,6 +132,12 @@ build_flags =
 ```
 If that flag is not defined, (or below 9216), stack size will be set at 9126, which is sufficent for simple commands. That stack size is used for the additional task (named _looptask_) that will handle the main loop for command handling (among other stuff).
 
+You can also define the following setting in NVS preferences:
+```
+stack=12000
+```
+If such an entry is found in preferences, the stack size will be set (to 12.000 in this example) overriding the build-flag define above. Even though the setting in preferences can be lower than the build-flag setting, it can not be lower than 9126.
+
 In the original implementation there was a task called _spftask_ that is now gone. The task will be executed in the context of the _maintask_ now (which handled the main loop originally).
 
 You can use the command _test_ to observe the maximum stack usage for the task _looptask_ (the number shown is the lowest number of unused bytes in the stack that has been seen until now).

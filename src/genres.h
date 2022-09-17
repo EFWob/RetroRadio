@@ -77,6 +77,7 @@ friend class GenreConfig;
         bool loop();
         bool begun() {return _begun;};
         bool isSD() {return _begun?_isSD:false;};
+        int size() {return _knownGenres;};
     protected:
         bool _begun = false;
         bool _wasBegun = false;

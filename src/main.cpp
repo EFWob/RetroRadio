@@ -467,7 +467,9 @@ uint16_t          ir_value = 0 ;                         // IR code
 uint32_t          ir_0 = 550 ;                           // Average duration of an IR short pulse
 uint32_t          ir_1 = 1650 ;                          // Average duration of an IR long pulse
 struct tm         timeinfo ;                             // Will be filled by NTP server
+volatile bool     hourflag = false ;                     // Will be set, if a minute (of NTP time) has elapsed
 volatile bool     minuteflag = false ;                   // Will be set, if a minute (of NTP time) has elapsed
+volatile bool     secondflag = false ;                   // Will be set, if a minute (of NTP time) has elapsed
 bool              time_req = false ;                     // Set time requested
 uint16_t          adcval ;                               // ADC value (battery voltage)
 uint32_t          clength ;                              // Content length found in http header
@@ -1817,13 +1819,15 @@ void IRAM_ATTR timer100()
   {
     scaniocount = scanios ;                       // TEST*TEST*TEST
     scanios = 0 ;
+    secondflag = true;
     if ( ++timeinfo.tm_sec >= 60 )                // Yes, update number of seconds
     {
       timeinfo.tm_sec = 0 ;                       // Wrap after 60 seconds
-      minuteflag = true;
+      minuteflag = true ;
       if ( ++timeinfo.tm_min >= 60 )
       {
         timeinfo.tm_min = 0 ;                     // Wrap after 60 minutes
+        hourflag = true ;
         if ( ++timeinfo.tm_hour >= 24 )
         {
           timeinfo.tm_hour = 0 ;                  // Wrap after 24 hours
@@ -2242,7 +2246,7 @@ bool connecttohost()
   dbgprint ( "Connect to new host %s", host.c_str() ) ;
 
   stop_mp3client() ;                                // Disconnect if still connected
-  tftset ( 0, "ESP32-Radio" ) ;                     // Set screen segment text top line
+  tftset ( 0, RADIONAME ) ;                     // Set screen segment text top line
   tftset ( 1, "" ) ;                                // Clear song and artist
   displaytime ( "" ) ;                              // Clear time on TFT screen
   setdatamode ( INIT ) ;                            // Start default in metamode
@@ -3997,9 +4001,9 @@ void setup()
 
 #if defined(RETRORADIO)  
   setupRR (SETUP_START);
-#endif
+#else
   readprogbuttons() ;                                    // Program the free input pins
-
+#endif
   dbgprint("SDCARD geht los\r\n\r\n\r\n\r\n");
   setup_SDCARD() ;                                       // Set-up SD card (if configured)
 #if defined(RETRORADIO)
@@ -4015,8 +4019,9 @@ void setup()
   listNetworks() ;                                       // Find WiFi networks
 #if defined(RETRORADIO)
   }
-#endif
+#else
   readprefs ( false ) ;                                  // Read preferences
+#endif
   tcpip_adapter_set_hostname ( TCPIP_ADAPTER_IF_STA,
                                RADIONAME ) ;
   setup_CH376() ;                                        // Init CH376 if configured
@@ -4115,6 +4120,9 @@ void setup()
   setupRR ( SETUP_DONE ) ;
 #endif  
 //  if (bootmode != "ap")
+  int stacksize = nvssearch("stack")?nvsgetstr("stack").toInt():LOOPTASKSTACK;
+  if (stacksize < 9216)
+    stacksize = 9216;
   {
     xTaskCreatePinnedToCore (
       playtask,                                             // Task to play data in dataqueue.
@@ -4136,7 +4144,7 @@ void setup()
     xTaskCreate (
       looptask,                                             // Task to handle special functions.
       "Looptask",                                           // name of task.
-      LOOPTASKSTACK,                                        // Stack size of task
+      stacksize,                                            // Stack size of task
       NULL,                                                 // parameter of the task
       1,                                                    // priority of the task
       &xlooptask                                            // Task handle to keep track of created task
@@ -5745,6 +5753,7 @@ void chomp ( String &str )
 
   if ( ( inx = str.indexOf ( "#" ) ) >= 0 )           // Comment line or partial comment?
   {
+    
     str.remove ( inx ) ;                              // Yes, remove
   }
   str.trim() ;                                        // Remove spaces and CR
@@ -5897,16 +5906,10 @@ const char* analyzeCmd ( const char* par, const char* val )
     {
       reqvol = 100 ;                        // Limit to normal values
     }
-    String cmds = "@:~volume";
-    chomp_nvs(cmds);
-    if (cmds.length() > 0)
-    {
-      ramsetstr("_para", String(reqvol));
-      analyzeCmdsRR(cmds);
-      if(ramsearch("_para"))
-        reqvol = ramgetstr("_para").toInt();
-    }
-    ini_block.reqvol = reqvol;
+
+    ramsetstr("_~volume", String(reqvol));
+    analyzeCmdsFromKey(":~volume");
+    ini_block.reqvol = ramgetstr("_~volume").toInt();
 
     muteflag = false ;                                // Stop possibly muting
     sprintf ( reply, "Volume is now %d",              // Reply new volume
@@ -5963,7 +5966,8 @@ const char* analyzeCmd ( const char* par, const char* val )
       dbgprint ( "Connected to %s", WiFi.SSID().c_str() ) ;
       dbgprint ( "WiFi RSSI: %d", WiFi.RSSI());
       dbgprint ( "IP = %s", ipaddress.c_str() ) ;   // String to dispay on TFT
-      dbgprint ( "DEBUG icyname = %s", icyname.c_str() ) ;
+      for(int i = 0;i < TFTSECS;i++)
+        dbgprint ( "DEBUG tftsec[%d] = %s", i, tftdata[i].str.c_str() ) ;
     }
     else 
       sprintf ( reply, "Free memory is %d",
@@ -6024,6 +6028,7 @@ const char* analyzeCmd ( const char* par, const char* val )
       if ( relative )                                 // Relative argument?
       {
         currentpreset = ini_block.newpreset ;         // Remember currentpreset
+        playlist_num = 0;
         ini_block.newpreset += ivalue ;               // Yes, adjust currentpreset
       }
       else
@@ -6286,7 +6291,7 @@ void gettime()
 {
   static int16_t delaycount = 0 ;                           // To reduce number of NTP requests
   static int16_t retrycount = 100 ;
-
+  static bool synchronized = false ;
 //  if ( tft )                                                // TFT used?
   {
     if ( timeinfo.tm_year )                                 // Legal time found?
@@ -6316,6 +6321,14 @@ void gettime()
       }
       else
       {
+        if (!synchronized)
+        {
+          synchronized = true;
+          secondflag = true;
+          minuteflag = true;
+          hourflag = true;
+          retrycount = 100;
+        }
         sprintf ( timetxt, "%02d:%02d:%02d",                // Format new time to a string
                   timeinfo.tm_hour,
                   timeinfo.tm_min,
@@ -6490,6 +6503,26 @@ void spftask ( void * parameter )
 }
 
 
+void handletimers()
+{
+  if (secondflag)
+  {
+    if (minuteflag)
+    {
+      if (hourflag)
+      {
+        hourflag = false;
+        analyzeCmdsFromKey(":~hour");
+      }
+      minuteflag = false;
+      analyzeCmdsFromKey(":~minute");
+    }
+    secondflag = false;
+    analyzeCmdsFromKey(":~second");
+  }
+}
+
+
 void looptask ( void * parameter )
 {
 
@@ -6532,6 +6565,7 @@ void looptask ( void * parameter )
     scanIR() ;                                        // See if IR input
     ArduinoOTA.handle() ;                             // Check for OTA
     mp3loop() ;                                       // Do more mp3 related actions
+    handletimers();
     handlehttpreply() ;
     cmdclient = cmdserver.available() ;               // Check Input from client?
     if ( cmdclient )                                  // Client connected?

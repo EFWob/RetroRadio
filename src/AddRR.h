@@ -373,6 +373,9 @@ String ramgetstr ( const char* key ) ;
 void ramsetstr ( const char* key, String val ) ;
 bool ramsearch ( const char* key ) ;
 void ramdelkey ( const char* key) ;
+const char* analyzeCmdsFromKey ( const char * key ) ;
+const char* analyzeCmdsFromKey ( String key ) ;
+
 
 
 #endif
