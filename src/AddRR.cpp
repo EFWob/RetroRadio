@@ -379,7 +379,7 @@ struct {                           // A table of known internal variables that c
   {"gpresets", &genrePresets, readInt16},
   {"gpreset", &genrePreset, readInt16},
   {"glist", NULL, readGenrePlaylist},
-  {"url", &currentStation, readString},
+  //{"url", &currentStation, readString},
   {"url_before", &stationBefore, readString},
   {"icyname", &icyname, readString},
   {"icystreamtitle", &icystreamtitle, readString},
@@ -393,6 +393,8 @@ struct {                           // A table of known internal variables that c
   {"second", &timeinfo.tm_sec, readInt16},
   {"uptime", NULL, readMillis},
   {"cmdreply", &cmdReply, readCharStr},
+  {"connecthost", &connecttohoststat, readInt8},
+  {"host", &host, readString}
 };
 
 
@@ -594,7 +596,7 @@ void announceRecoveryPrio3()
   }
   else
   {
-    host = currentStation;
+    //host = currentStation;
     idx = host.indexOf('#');
     if (idx>0)
     {
@@ -681,7 +683,7 @@ bool ret = false;
       dbgprint("OK, An new announcement with at least same priority...");
       if (0 == announceMode)
       {
-        stationBefore = currentStation;
+        stationBefore = host;//currentStation;
         muteBefore = muteflag ;
         volumeBefore = ini_block.reqvol ;
         muteflag = false ;
@@ -6184,7 +6186,7 @@ char tkey[12];
   httpfavlistdirty = true;
   favlistversion++;
   sprintf(tkey, "fav_%02d", i);
-  nvssetstr ( tkey, currentStation ) ;
+  nvssetstr ( tkey, host ) ; //currentStation ) ;
   setmqttfavidx(i, i);
   currentFavorite = i;
   return String("Added Favorite as number ") + i;
@@ -6198,7 +6200,7 @@ String getFavoriteJson(int idx, int rMin, int rMax)
   String favinfo = String("{\"idx\": \"") + idx;
   String url = readfavfrompref ( idx );
   //Serial.printf("readfavfrompref(%d) is: '%s'\r\n", idx, url.c_str());
-  String lastHost = currentStation;
+  String lastHost = host ; //currentStation;
   chomp(lastHost);
   String name;
   int delim = url.indexOf('#');
@@ -6281,7 +6283,7 @@ String doFavorite (String param, String value)
   {
     int emptyIndex = 0;
     int foundIndex = 0;
-    String currentUrl = currentStation;
+    String currentUrl = host ; //currentStation;
     chomp(currentUrl);
     bool deleted = false;
     for(int i = rMin;i <= rMax;i++)
@@ -6376,7 +6378,7 @@ String doFavorite (String param, String value)
 
 void scanFavorite()
 {
-String currentUrl = currentStation;
+String currentUrl = host ; //currentStation;
 chomp(currentUrl);
   int foundIndex = 0;
   for (int i = 1;(i < 101) && (0 == foundIndex);i++)

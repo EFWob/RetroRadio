@@ -240,7 +240,7 @@ static bool bt_mode = false;
 // "ESP32Radio/command" if mqttprefix is "ESP32Radio".
 #define MQTT_SUBTOPIC     "command"           // Command to receive from MQTT
 //
-#define otaclient mp3client                   // OTA uses mp3client for connection to host
+//#define otaclient mp3client                   // OTA uses mp3client for connection to host
 #if (LOOPTASKSTACK < 9216)
 #define LOOPTASKSTACK 9216
 #endif
@@ -385,13 +385,14 @@ enum display_t { T_UNDEFINED, T_BLUETFT, T_OLED,             // Various types of
                  T_DUMMYTFT, T_LCD1602I2C, T_LCD2004I2C,
                  T_ILI9341, T_NEXTION } ;
 
-enum datamode_t { INIT = 0x1, HEADER = 0x2, DATA = 0x4,      // State for datastream
-                  METADATA = 0x8, PLAYLISTINIT = 0x10,
-                  PLAYLISTHEADER = 0x20, PLAYLISTDATA = 0x40,
+enum datamode_t { INIT = 0x1, HEADER = 0x2, PLAYLISTINIT = 0x4,   // State for datastream
+                  PLAYLISTDATA = 0x8, PLAYLISTHEADER = 0x10, 
+                  DATA = 0x20, METADATA = 0x40, 
                   STOPREQD = 0x80, STOPPED = 0x100
                 } ;
 
 // Global variables
+int8_t            connecttohoststat = 127 ;              // Status of connecttohost
 #if defined(RETRORADIO)
 int               connectDelay = 0 ;                     // Station with ConnectDelay 
 #endif
@@ -403,7 +404,10 @@ int               bestSsid = -1 ;                        // Best (acceptable) SS
 WiFiMulti         wifiMulti ;                            // Possible WiFi networks
 ini_struct        ini_block ;                            // Holds configurable data
 WiFiServer        cmdserver ( 80 ) ;                     // Instance of embedded webserver, port 80
-WiFiClient        mp3client ;                            // An instance of the mp3 client, also used for OTA
+//WiFiClient        staticmp3client ;                      // An instance of the mp3 client, also used for OTA
+WiFiClient        *mp3client = NULL;                     // An instance of the mp3 client, also used for OTA
+WiFiClient        *newmp3client = NULL;                  // An instance of the mp3 client, also used for OTA
+WiFiClient        otaclient ;                            // Instance of the OTA-client
 WiFiClient        cmdclient ;                            // An instance of the client for commands
 WiFiClient        wmqttclient ;                          // An instance for mqtt
 PubSubClient      mqttclient ( wmqttclient ) ;           // Client for MQTT subscriber
@@ -440,7 +444,7 @@ int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
 int16_t           currentpreset = -1 ;                   // Preset station playing
 String            host ;                                 // The URL to connect to or file to play
-String            currentStation ;                       // The URL to connect to or file to play (incl. name)
+//String            currentStation ;                       // The URL to connect to or file to play (incl. name)
 String            stationBefore ;                        // One before...
 String            playlist ;                             // The URL of the specified playlist
 bool              hostreq = false ;                      // Request for new host
@@ -2214,20 +2218,62 @@ void setdatamode ( datamode_t newmode )
 //**************************************************************************************************
 void stop_mp3client ()
 {
-  if (!mp3client.connected())
-    return;
-  while ( mp3client.connected() )
+  if (mp3client)
   {
-    dbgprint ( "Stopping client" ) ;               // Stop connection to host
-    //mp3client.flush() ;
-    mp3client.stop() ;
-    delay ( 250 ) ;
+    setdatamode ( STOPPED );
+    xQueueReset ( dataqueue );
+    dbgprint("Force client to stop");
+    delete mp3client;
+    mp3client = NULL;
+    //vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;                 // Pause for a short time
+    return;
+    while ( mp3client->connected() )
+    {
+      dbgprint ( "Stopping client" ) ;               // Stop connection to host
+      //mp3client.flush() ;
+      mp3client->stop() ;
+      delay ( 250 ) ;
+    }
+    dbgprint("Client stopped");
+    //mp3client.flush() ;                              // Flush stream client
+    mp3client->stop() ;                               // Stop stream client
+    delete mp3client ;
+    mp3client = NULL ;
   }
-  dbgprint("Client stopped");
-  //mp3client.flush() ;                              // Flush stream client
-  mp3client.stop() ;                               // Stop stream client
 }
 
+void setnewmp3client ( )
+{
+  stop_mp3client() ;
+  mp3client = newmp3client ;
+  newmp3client = NULL ;
+}
+
+void setconnecttohost(int8_t stat)
+{
+  if (stat != connecttohoststat)
+  {
+    connecttohoststat = stat;
+    const char *key = ":~connecthost";
+    String cmds = ramsearch(key)?ramgetstr(key):(nvssearch(key)?nvsgetstr(key):"");
+    cmds.trim();
+    if (cmds.length() > 0)
+      analyzeCmd(cmds.c_str());
+    switch(stat)
+    {
+      case 0:
+        dbgprint("Connecttohost start, host=%s", host.c_str());
+        break;
+      case 1:
+        dbgprint("Connecttohost success, host=%s", host.c_str());
+        break;
+      case -1:
+        dbgprint("Connecttohost failed, host=%s", host.c_str());
+        break;
+    }
+
+  }
+}
 
 //**************************************************************************************************
 //                                    C O N N E C T T O H O S T                                    *
@@ -2242,30 +2288,24 @@ bool connecttohost()
   String      hostwoext = host ;                    // Host without extension and portnumber
   String      auth  ;                               // For basic authentication
   String      getreq ;                              // Get request
+  setconnecttohost ( 0 ) ;
+  if (newmp3client)
+    delete newmp3client ;
+  newmp3client = new WiFiClient ;
+  if (!newmp3client)
+  {
+    dbgprint("FATAL: could not start client to connect to new host!") ;
+    return false ;
+  }
+  //dbgprint ( "Connect to new host %s", host.c_str() ) ;
 
-  dbgprint ( "Connect to new host %s", host.c_str() ) ;
-
-  stop_mp3client() ;                                // Disconnect if still connected
-  tftset ( 0, RADIONAME ) ;                     // Set screen segment text top line
-  tftset ( 1, "" ) ;                                // Clear song and artist
-  displaytime ( "" ) ;                              // Clear time on TFT screen
-  setdatamode ( INIT ) ;                            // Start default in metamode
-  chunked = false ;                                 // Assume not chunked
+  //stop_mp3client() ;                                // Disconnect if still connected
 
   //favplayrequestinfo(host);
 
   //announceMode = 0;
 
-  if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
-  {
-    playlist = host ;                               // Save copy of playlist URL
-    setdatamode ( PLAYLISTINIT ) ;                  // Yes, start in PLAYLIST mode
-    if ( playlist_num == 0 )                        // First entry to play?
-    {
-      playlist_num = 1 ;                            // Yes, set index
-    }
-    dbgprint ( "Playlist request, entry %d", playlist_num ) ;
-  }
+
   // In the URL there may be an extension, like noisefm.ru:8000/play.m3u&t=.m3u
   inx = host.indexOf ( "/" ) ;                      // Search for begin of extension
   if ( inx > 0 )                                    // Is there an extension?
@@ -2280,18 +2320,9 @@ bool connecttohost()
     port = host.substring ( inx + 1 ).toInt() ;     // Get portnumber as integer
     hostwoext = host.substring ( 0, inx ) ;         // Host without portnumber
   }
-  setLastStation(host);
-  if (knownstationname.length() > 0)
-    if (icyname != knownstationname)
-    {
-      icyname = knownstationname;
-      tftset ( 2, icyname ) ;                         // Set screen segment bottom part
-      mqttpub.trigger ( MQTT_ICYNAME ) ;              // Request publishing to MQTT
-      icystreamtitle = "";
-    }
   dbgprint ( "Connect to %s on port %d, extension %s",
              hostwoext.c_str(), port, extension.c_str() ) ;
-  if ( mp3client.connect ( hostwoext.c_str(), port ) )
+  if ( newmp3client->connect ( hostwoext.c_str(), port ) )
   {
     dbgprint ( "Connected to server" ) ;
     if ( nvssearch ( "basicauth" ) )                // Does "basicauth" exists?
@@ -2313,16 +2344,46 @@ bool connecttohost()
              String ( "Icy-MetaData: 1\r\n" ) +
              auth +
              String ( "Connection: close\r\n\r\n" ) ;
-    mp3client.print ( getreq ) ;                            // Send get request
+    newmp3client->print ( getreq ) ;                            // Send get request
 #if defined(RETRORADIO)
     //connectDelay = true;
     dbgprint("CONNECTTOHOST connectDelay: %d", connectDelay );
     if (connectDelay)
 #endif
     vTaskDelay ( connectDelay * 100 / portTICK_PERIOD_MS ) ;              // Give some time to react
+    //setLastStation(host);
+    if (knownstationname.length() > 0)
+      if (icyname != knownstationname)
+        {
+          icyname = knownstationname;
+          tftset ( 2, icyname ) ;                         // Set screen segment bottom part
+          mqttpub.trigger ( MQTT_ICYNAME ) ;              // Request publishing to MQTT
+          icystreamtitle = "";
+        }
+    setnewmp3client ();
+    tftset ( 0, RADIONAME ) ;                     // Set screen segment text top line
+    tftset ( 1, "" ) ;                                // Clear song and artist
+    displaytime ( "" ) ;                              // Clear time on TFT screen
+    if ( host.endsWith ( ".m3u" ) )                   // Is it an m3u playlist?
+    {
+      playlist = host ;                               // Save copy of playlist URL
+      setdatamode ( PLAYLISTINIT ) ;                  // Yes, start in PLAYLIST mode
+      if ( playlist_num == 0 )                        // First entry to play?
+      {
+        playlist_num = 1 ;                            // Yes, set index
+      }
+      dbgprint ( "Playlist request, entry %d", playlist_num ) ;
+    }
+    else
+      setdatamode ( INIT ) ;                            // Start default in metamode
+    chunked = false ;                                 // Assume not chunked
+    setconnecttohost ( 1 ) ;
     return true ;                                           // Send is probably okay
   }
   dbgprint ( "Request %s failed!", host.c_str() ) ;
+  delete newmp3client ;
+  newmp3client = NULL;
+  setconnecttohost ( -1 );
   return false ;
 }
 
@@ -4539,20 +4600,17 @@ String xmlgethost  ( String mount )
   char     tmpstr[200] ;                            // Full GET command, later stream URL
   String   urlout ;                                 // Result URL
 
-  stop_mp3client() ; // Stop any current wificlient connections.
   dbgprint ( "Connect to new iHeartRadio host: %s", mount.c_str() ) ;
-  setdatamode ( INIT ) ;                            // Start default in metamode
-  chunked = false ;                                   // Assume not chunked
   sprintf ( tmpstr, xmlget, mount.c_str() ) ;         // Create a GET commmand for the request
   dbgprint ( "%s", tmpstr ) ;
-  if ( mp3client.connect ( xmlhost, 80 ) )            // Connect to XML stream
+  if ( otaclient.connect ( xmlhost, 80 ) )            // Connect to XML stream
   {
     dbgprint ( "Connected to %s", xmlhost ) ;
-    mp3client.print ( String ( tmpstr ) + " HTTP/1.1\r\n"
+    otaclient.print ( String ( tmpstr ) + " HTTP/1.1\r\n"
                       "Host: " + xmlhost + "\r\n"
                       "User-Agent: Mozilla/5.0\r\n"
                       "Connection: close\r\n\r\n" ) ;
-    while ( mp3client.available() == 0 )
+    while ( otaclient.available() == 0 )
     {
       delay ( 200 ) ;                                 // Give server some time
       if ( ++timeout > 25 )                           // No answer in 5 seconds?
@@ -4561,9 +4619,9 @@ String xmlgethost  ( String mount )
       }
     }
     dbgprint ( "XML parser processing..." ) ;
-    while ( mp3client.available() )
+    while ( otaclient.available() )
     {
-      sreply = mp3client.readStringUntil ( '>' ) ;
+      sreply = otaclient.readStringUntil ( '>' ) ;
       sreply.trim() ;
       // Search for relevant info in in reply and store in variable
       xmlparse ( sreply, "status-code", statuscode ) ;
@@ -4594,7 +4652,7 @@ String xmlgethost  ( String mount )
     dbgprint ( "Can't connect to XML host!" ) ;       // Connection failed
     tmpstr[0] = '\0' ;
   }
-  mp3client.stop() ;
+  otaclient.stop() ;
   return String ( tmpstr ) ;                          // Return final streaming URL.
 }
 
@@ -4917,7 +4975,8 @@ void mp3loop()
     }
     else
     {
-      av = mp3client.available() ;                       // Available from stream
+      if (mp3client)
+        av = mp3client->available() ;                       // Available from stream
       if ( av < maxchunk )                               // Limit read size
       {
         maxchunk = av ;
@@ -4935,13 +4994,13 @@ void mp3loop()
         }
       */
       if ( ( maxchunk > 1000 ) ||
-           ( !mp3client.connected() ) ||
+           ( !mp3client->connected() ) ||
            ( datamode == INIT ) ||                       // Only read if worthwile or during INIT
            ( datamode == PLAYLISTINIT ) )
       {
         if ( maxchunk )                                  // Zero bytes not allowed
         {
-          res = mp3client.read ( tmpbuff, maxchunk ) ;   // Read a number of bytes from the stream
+          res = mp3client->read ( tmpbuff, maxchunk ) ;   // Read a number of bytes from the stream
           /*
           if (clength_host && (datamode == DATA))
             if (clength_host != 0xffffffff)
@@ -5108,11 +5167,13 @@ void mp3loop()
   if ( ini_block.newpreset != currentpreset )            // New station or next from playlist requested?
   {
     dbgprint("New request: %d, current preset is: %d", ini_block.newpreset, currentpreset);
+    /*
     if ( datamode != STOPPED )                           // Yes, still busy?
     {
       setdatamode ( STOPREQD ) ;                         // Yes, request STOP
     }
     else
+    */
     {
       if ( playlist_num )                                 // Playing from playlist?
       { // Yes, retrieve URL of playlist
@@ -5167,17 +5228,27 @@ void mp3loop()
     }
     else
     {
+      bool validhost = true ;
       if ( host.startsWith ( "ihr/" ) )                   // iHeartRadio station requested?
       {
+        setconnecttohost ( 0 );
         host = host.substring ( 4 ) ;                     // Yes, remove "ihr/"
         host = xmlgethost ( host ) ;                      // Parse the xml to get the host
+        if (validhost = (host.length() > 0))
+        {
+          //setdatamode ( INIT ) ;                            // Start default in metamode
+          chunked = false ;                                   // Assume not chunked
+        }
       }
-      connecttohost() ;                                   // Switch to new host
+      if (validhost)
+        connecttohost() ;                                   // Switch to new host
+      else
+        setconnecttohost ( -1 );
     }
   }
 }
 
-
+/*
 void setLastStation(String latest)
 {
   //if ( 0 == announceMode )
@@ -5191,7 +5262,7 @@ void setLastStation(String latest)
   }
   scanFavorite();
 }
-
+*/
 
 //**************************************************************************************************
 //                                           L O O P                                               *
@@ -5371,7 +5442,7 @@ void handlebyte_ch ( uint8_t b )
             dbgprint ( "Content len seen in host req, announceMode is: %d", announceMode);
             if (0 != announceMode)
             {
-              dbgprint ( "Announcement started, playing: %s", currentStation.c_str());
+              dbgprint ( "Announcement started, playing: %s", host.c_str() ) ; //currentStation.c_str());
               dbgprint ( "Station before is: %s", stationBefore.c_str());
               //announceMode = 1;
             }
@@ -5946,7 +6017,8 @@ const char* analyzeCmd ( const char* par, const char* val )
     }
     else
     {
-      av = mp3client.available() ;                    // Available in stream
+      if (mp3client)
+        av = mp3client->available() ;                    // Available in stream
     }
     if (!bt_mode)
     {
@@ -6037,22 +6109,25 @@ const char* analyzeCmd ( const char* par, const char* val )
         playlist_num = 0 ;                            // Absolute, reset playlist
         currentpreset = -1 ;                          // Make sure current is different
       }
-      setdatamode ( STOPREQD ) ;                      // Force stop MP3 player
+      //setdatamode ( STOPREQD ) ;                      // Force stop MP3 player
       sprintf ( reply, "Preset is now %d",            // Reply new preset
                 ini_block.newpreset ) ;
     }
   }
   else if ( argument == "stop" )                      // (un)Stop requested?
   {
-    if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
-                      PLAYLISTHEADER | PLAYLISTDATA ) )
-
+    //if ( datamode & ( HEADER | DATA | METADATA | PLAYLISTINIT |
+    //                  PLAYLISTHEADER | PLAYLISTDATA ) )
+    if (mp3client)
     {
-      setdatamode ( STOPREQD ) ;                      // Request STOP
+      
+      stop_mp3client();
+      //setdatamode ( STOPREQD ) ;                      // Request STOP
     }
     else
     {
-      hostreq = true ;                                // Request UNSTOP
+      if (connecttohoststat == 1)
+        hostreq = true ;                                // Request UNSTOP
     }
   }
   else if ( ( value.length() > 0 ) &&

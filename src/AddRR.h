@@ -283,6 +283,7 @@ private:
 };
 
 // prototypes for functions/global data in main.cpp()
+extern int8_t            connecttohoststat ;                    // Status of connecttohost
 extern UploadFile        uploadfile ;                           // File to upload alarm/alert sound to...
 extern String            host;                                  // host to connect to
 extern String            bootmode ;
