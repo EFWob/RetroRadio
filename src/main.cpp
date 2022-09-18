@@ -385,8 +385,8 @@ enum display_t { T_UNDEFINED, T_BLUETFT, T_OLED,             // Various types of
                  T_DUMMYTFT, T_LCD1602I2C, T_LCD2004I2C,
                  T_ILI9341, T_NEXTION } ;
 
-enum datamode_t { INIT = 0x1, HEADER = 0x2, PLAYLISTINIT = 0x4,   // State for datastream
-                  PLAYLISTDATA = 0x8, PLAYLISTHEADER = 0x10, 
+enum datamode_t { IDLE = 0, INIT = 0x1, HEADER = 0x2, PLAYLISTINIT = 0x4,   // State for datastream
+                  PLAYLISTHEADER = 0x8, PLAYLISTDATA = 0x10,
                   DATA = 0x20, METADATA = 0x40, 
                   STOPREQD = 0x80, STOPPED = 0x100
                 } ;
@@ -427,10 +427,13 @@ qdata_struct      inchunk ;                              // Data from queue
 uint8_t*          outqp = outchunk.buf ;                 // Pointer to buffer in outchunk
 uint32_t          totalcount = 0 ;                       // Counter mp3 data
 datamode_t        datamode ;                             // State of datastream
+datamode_t        mp3datamode ;                          // State of datastream while playing stream
 int               metacount ;                            // Number of bytes in metadata
 int               datacount ;                            // Counter databytes before metadata
 char              metalinebf[METASIZ + 1] ;              // Buffer for metaline/ID3 tags
 int16_t           metalinebfx ;                          // Index for metalinebf
+char              mp3metalinebf[METASIZ + 1] ;           // Buffer for metaline/ID3 tags
+int16_t           mp3metalinebfx ;                       // Index for metalinebf
 String            icystreamtitle ;                       // Streamtitle from metadata
 String            icystreamurl ;                         // StreamURL from metadata
 String            icyname ;                              // Icecast station name
@@ -442,6 +445,7 @@ String            favnotplaymsg ;
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
+int               mp3metaint = 0 ;                       // Number of databytes between metadata
 int16_t           currentpreset = -1 ;                   // Preset station playing
 String            host ;                                 // The URL to connect to or file to play
 //String            currentStation ;                       // The URL to connect to or file to play (incl. name)
@@ -463,7 +467,9 @@ fs_type           usb_sd = FS_USB ;                      // SD or USB interface
 uint32_t          mp3filelength ;                        // File length
 bool              localfile = false ;                    // Play from local mp3-file or not
 bool              chunked = false ;                      // Station provides chunked transfer
+bool              mp3chunked = false ;                   // Station provides chunked transfer
 int               chunkcount = 0 ;                       // Counter for chunked transfer
+int               mp3chunksize = 0;
 String            http_getcmd ;                          // Contents of last GET command
 String            http_rqfile ;                          // Requested file
 uint8_t           http_response_flag = 0 ;               // Response required: 1 GET, 2 POST, 3 OPTIONS
@@ -2218,14 +2224,15 @@ void setdatamode ( datamode_t newmode )
 //**************************************************************************************************
 void stop_mp3client ()
 {
+  setdatamode ( STOPPED );
   if (mp3client)
   {
-    setdatamode ( STOPPED );
     xQueueReset ( dataqueue );
     dbgprint("Force client to stop");
     delete mp3client;
     mp3client = NULL;
     //vTaskDelay ( 100 / portTICK_PERIOD_MS ) ;                 // Pause for a short time
+    mp3datamode = IDLE;
     return;
     while ( mp3client->connected() )
     {
@@ -2247,6 +2254,7 @@ void setnewmp3client ( )
   stop_mp3client() ;
   mp3client = newmp3client ;
   newmp3client = NULL ;
+  mp3datamode = DATA;
 }
 
 void setconnecttohost(int8_t stat)
@@ -4994,7 +5002,7 @@ void mp3loop()
         }
       */
       if ( ( maxchunk > 1000 ) ||
-           ( !mp3client->connected() ) ||
+//           ( !mp3client->connected() ) ||
            ( datamode == INIT ) ||                       // Only read if worthwile or during INIT
            ( datamode == PLAYLISTINIT ) )
       {
@@ -5323,6 +5331,111 @@ void scan_content_length ( const char* metalinebf )
 
 
 //**************************************************************************************************
+//                         H A N D L E B Y T E S T R E A M_ C H                                    *
+//**************************************************************************************************
+// Handle the next byte of data from server. Datamode is either DATA or METADATA (stream is on)    *
+// Chunked transfer encoding aware. Chunk extensions are not supported.                            *
+//**************************************************************************************************
+void handlebytestream_ch ( uint8_t b) 
+{
+  if ((DATA == mp3datamode) || (METADATA == mp3datamode))
+  {
+    if (mp3chunked)
+    {
+      if ( chunkcount == 0 )                             // Expecting a new chunkcount?
+      {
+        if ( b == '\r' )                                 // Skip CR
+        {
+          return ;
+        }
+        else if ( b == '\n' )                            // LF ?
+        {
+          chunkcount = mp3chunksize ;                       // Yes, set new count
+          mp3chunksize = 0 ;                                // For next decode
+          return ;
+        }
+        // We have received a hexadecimal character.  Decode it and add to the result.
+        b = toupper ( b ) - '0' ;                        // Be sure we have uppercase
+        if ( b > 9 )
+        {
+          b = b - 7 ;                                    // Translate A..F to 10..15
+        }
+        mp3chunksize = ( mp3chunksize << 4 ) + b ;
+        return  ;
+      }
+      chunkcount-- ;                                     // Update count to next chunksize block
+    }
+    if ( mp3datamode == DATA )                              // Handle next byte of MP3/Ogg data
+    {
+      *outqp++ = b ;
+      if ( outqp == ( outchunk.buf + sizeof(outchunk.buf) ) ) // Buffer full?
+      {
+        // Send data to playtask queue.  If the buffer cannot be placed within 200 ticks,
+        // the queue is full, while the sender tries to send more.  The chunk will be dis-
+        // carded it that case.
+        xQueueSend ( dataqueue, &outchunk, 200 ) ;       // Send to queue
+        outqp = outchunk.buf ;                           // Item empty now
+      }
+      if ( mp3metaint )                                     // No METADATA on Ogg streams or mp3 files
+      {
+        if ( --datacount == 0 )                          // End of datablock?
+        {
+          mp3datamode = METADATA ;
+          mp3metalinebfx = -1 ;                           // Expecting first metabyte (counter)
+        }
+      }
+    }
+    else                                                 // METADATA from here on
+    {
+      if ( mp3metalinebfx < 0 )                             // First byte of metadata?
+      {
+        mp3metalinebfx = 0 ;                                // Prepare to store first character
+        metacount = b * 16 + 1 ;                         // New count for metadata including length byte
+        if ( metacount > 1 )
+        {
+          dbgprint ( "Metadata block %d bytes",
+                    metacount - 1 ) ;                   // Most of the time there are zero bytes of metadata
+        }
+      }
+      else
+      {
+        mp3metalinebf[mp3metalinebfx++] = (char)b ;            // Normal character, put new char in metaline
+        if ( mp3metalinebfx >= METASIZ )                    // Prevent overflow
+        {
+          mp3metalinebfx-- ;
+        }
+      }
+      if ( --metacount == 0 )
+      {
+        mp3metalinebf[mp3metalinebfx] = '\0' ;                 // Make sure line is limited
+        if ( strlen ( mp3metalinebf ) )                     // Any info present?
+        {
+          // metaline contains artist and song name.  For example:
+          // "StreamTitle='Don McLean - American Pie';StreamUrl='';"
+          // Sometimes it is just other info like:
+          // "StreamTitle='60s 03 05 Magic60s';StreamUrl='';"
+          // Isolate the StreamTitle, remove leading and trailing quotes if present.
+          showstreamtitle ( mp3metalinebf ) ;               // Show artist and title if present in metadata
+          mqttpub.trigger ( MQTT_STREAMTITLE ) ;         // Request publishing to MQTT
+          if (icystreamurl.length() > 0)
+            mqttpub.trigger ( MQTT_STREAMURL ) ;         // Request publishing to MQTT
+
+        }
+        if ( mp3metalinebfx  > ( METASIZ - 10 ) )           // Unlikely metaline length?
+        {
+          dbgprint ( "Metadata block too long! Skipping all Metadata from now on." ) ;
+          metaint = 0 ;                                  // Probably no metadata
+        }
+        datacount = metaint ;                            // Reset data count
+        //bufcnt = 0 ;                                   // Reset buffer count
+        mp3datamode = DATA  ;                            // Expecting data
+      }
+
+    }
+  }
+}
+
+//**************************************************************************************************
 //                                   H A N D L E B Y T E _ C H                                     *
 //**************************************************************************************************
 // Handle the next byte of data from server.                                                       *
@@ -5426,12 +5539,12 @@ void handlebyte_ch ( uint8_t b )
           host = metaline.substring ( 18 ) ;           // Yes, get new URL
           hostreq = true ;                             // And request this one
         }
-        if ( lcml.indexOf ( "content-type" ) >= 0)     // Line with "Content-Type: xxxx/yyy"
+        if ( lcml.indexOf ( "content-type" ) == 0)     // Line with "Content-Type: xxxx/yyy"
         {
-          ctseen = true ;                              // Yes, remember seeing this
           String ct = metaline.substring ( 13 ) ;      // Set contentstype. Not used yet
           ct.trim() ;
-          dbgprint ( "%s seen.", ct.c_str() ) ;
+          ctseen = ct.startsWith("audio");             // Yes, remember seeing this
+          dbgprint ( "%s seen. valid=%d", ct.c_str() , ctseen) ;
         }
         if ( lcml.indexOf ( "content-length") >= 0)    // Line with "Content-Length: nnnnn"
         {
