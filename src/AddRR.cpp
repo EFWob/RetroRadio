@@ -4587,16 +4587,16 @@ void chompValue (String& value) {
       //chomp_nvs(value);
       if (0 != valuec_str[0])
       {
-        char valueCopyLen = strlen(valuec_str) + 50;
+        int valueCopyLen = strlen(valuec_str) + 50;
 
         char* valueCopy = (char *)malloc(valueCopyLen + 1);
         strcpy(valueCopy, valuec_str);
 
         bool haveReplaced;
-        do
-        {
+        //do
+        //{
           //char *searchStart = valueCopy;
-          char *searchEnd = valueCopy - strlen(valueCopy) - 1;
+          char *searchEnd = valueCopy + strlen(valueCopy) - 1;
           haveReplaced = false;
           // 
           char* identBegin;char *identEnd = identBegin = NULL;
@@ -4606,6 +4606,17 @@ void chompValue (String& value) {
             char c = *searchEnd;
             if (NULL != strchr("@&.~%", c))
             {
+              /*
+              if (NULL == identBegin)
+                dbgprint("found '%c' but no identifier");
+              else
+              {
+                char id[identEnd - identBegin + 1];
+                memcpy(id, identBegin, identEnd - identBegin + 1);
+                id[identEnd - identBegin + 1] = 0;
+                dbgprint("found '%c%s", c, id);
+              }
+              */
               if (searchEnd > valueCopy)
                 if (*(searchEnd - 1) == c)
                 {
@@ -4615,16 +4626,18 @@ void chompValue (String& value) {
                 }
               if ((c != 0) && (identBegin != NULL))
               {
-                int identlen = identBegin - identBegin + 1;
+                int identlen = identEnd - identBegin + 1;
                 char id[identlen + 1];
                 memcpy(id + 1, identBegin, identlen);
                 id[identlen + 1] = 0;
                 id[0] = c;
                 String replacement = chomp_nvs_ram_sys(id);
+                //dbgprint("Replacement for '%s' is '%s'", id, replacement.c_str());
                 int replacelen = replacement.length();
                 int newLen = strlen(valueCopy) + replacelen - identlen;
-                if (newLen > valueCopyLen)
+                if (newLen + 2 > valueCopyLen)
                 {
+                  dbgprint("NEWALLOC(%d)!!!!", valueCopyLen);
                   valueCopyLen = newLen + 50;
                   char *newValueCopy = (char *)malloc(valueCopyLen);
                   strcpy(newValueCopy, valueCopy);
@@ -4636,8 +4649,10 @@ void chompValue (String& value) {
                 }
                 memmove(searchEnd + replacelen, 
                             searchEnd + identlen + 1, 
-                            strlen(searchEnd + identlen));
-                memcpy(searchEnd, replacement.c_str(), replacelen);
+                            strlen(searchEnd + identlen) + 1);
+                if (replacelen)
+                  memcpy(searchEnd, replacement.c_str(), replacelen);
+                searchEnd = searchEnd + replacelen;
               }
               identBegin = identEnd = NULL;
             }
@@ -4700,8 +4715,8 @@ void chompValue (String& value) {
             }
           */
           }
-        }
-        while (haveReplaced && (--count > 0));
+        //}
+        //while (haveReplaced && (--count > 0));
         if (haveDouble)
         {
           char *s = strstr(valueCopy, "@@");
