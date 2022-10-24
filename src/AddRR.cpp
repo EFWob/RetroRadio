@@ -4595,10 +4595,62 @@ void chompValue (String& value) {
         bool haveReplaced;
         do
         {
-          char *searchStart = valueCopy;
+          //char *searchStart = valueCopy;
+          char *searchEnd = valueCopy - strlen(valueCopy) - 1;
           haveReplaced = false;
-          while (searchStart)
+          // 
+          char* identBegin;char *identEnd = identBegin = NULL;
+          //while (searchStart)
+          while (searchEnd >= valueCopy)
           {
+            char c = *searchEnd;
+            if (NULL != strchr("@&.~%", c))
+            {
+              if (searchEnd > valueCopy)
+                if (*(searchEnd - 1) == c)
+                {
+                  haveDouble = true;
+                  searchEnd--;
+                  c = 0;
+                }
+              if ((c != 0) && (identBegin != NULL))
+              {
+                int identlen = identBegin - identBegin + 1;
+                char id[identlen + 1];
+                memcpy(id + 1, identBegin, identlen);
+                id[identlen + 1] = 0;
+                id[0] = c;
+                String replacement = chomp_nvs_ram_sys(id);
+                int replacelen = replacement.length();
+                int newLen = strlen(valueCopy) + replacelen - identlen;
+                if (newLen > valueCopyLen)
+                {
+                  valueCopyLen = newLen + 50;
+                  char *newValueCopy = (char *)malloc(valueCopyLen);
+                  strcpy(newValueCopy, valueCopy);
+                  identBegin = newValueCopy + (identBegin - valueCopy);
+                  identEnd = newValueCopy + (identEnd - valueCopy);
+                  searchEnd = newValueCopy + (searchEnd - valueCopy);
+                  free(valueCopy);
+                  valueCopy = newValueCopy;
+                }
+                memmove(searchEnd + replacelen, 
+                            searchEnd + identlen + 1, 
+                            strlen(searchEnd + identlen));
+                memcpy(searchEnd, replacement.c_str(), replacelen);
+              }
+              identBegin = identEnd = NULL;
+            }
+            else if (isalnum(c) || ('$' == c) || ('_' == c))
+            {
+              identBegin = searchEnd;
+              if (NULL == identEnd)
+                identEnd = identBegin;
+            }
+            else
+              identBegin = identEnd = NULL;
+            searchEnd--;
+            /*
             char *nextfound = strpbrk(searchStart, "@&.~%");
             if (!nextfound)
             {
@@ -4646,6 +4698,7 @@ void chompValue (String& value) {
               else
                 searchStart = nextfound + 1;
             }
+          */
           }
         }
         while (haveReplaced && (--count > 0));

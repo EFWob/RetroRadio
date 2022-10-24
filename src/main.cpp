@@ -448,12 +448,7 @@ String            connectcmds ;                          // command(s) to be exe
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
-<<<<<<< HEAD
 volatile int16_t           currentpreset = -1 ;                   // Preset station playing
-=======
-int               mp3metaint = 0 ;                       // Number of databytes between metadata
-int16_t           currentpreset = -1 ;                   // Preset station playing
->>>>>>> b3411d43de5e88bb8496e7ec5309a4a15196e559
 String            host ;                                 // The URL to connect to or file to play
 String            lasthost ;                             // URL of the last successfully connected host
 //String            currentStation ;                       // The URL to connect to or file to play (incl. name)
@@ -5418,7 +5413,7 @@ void handlebytestream_ch ( uint8_t b)
         xQueueSend ( dataqueue, &outchunk, 200 ) ;       // Send to queue
         outqp = outchunk.buf ;                           // Item empty now
       }
-      if ( mp3metaint )                                     // No METADATA on Ogg streams or mp3 files
+      if ( metaint )                                     // No METADATA on Ogg streams or mp3 files
       {
         if ( --datacount == 0 )                          // End of datablock?
         {
@@ -5588,13 +5583,8 @@ void handlebyte_ch ( uint8_t b )
         {
           String ct = metaline.substring ( 13 ) ;      // Set contentstype. Not used yet
           ct.trim() ;
-<<<<<<< HEAD
-          ctseen = ct.startsWith("audio");
-          dbgprint ( "%s seen (valid=%d).", ct.c_str(), ctseen ) ;
-=======
           ctseen = ct.startsWith("audio");             // Yes, remember seeing this
           dbgprint ( "%s seen. valid=%d", ct.c_str() , ctseen) ;
->>>>>>> b3411d43de5e88bb8496e7ec5309a4a15196e559
         }
         if ( lcml.indexOf ( "content-length") >= 0)    // Line with "Content-Length: nnnnn"
         {
