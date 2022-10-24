@@ -338,6 +338,7 @@ String readGenreName(void *);           // Returns name of current genre. Parame
 String readMqttStatus(void *);          // Returns "1" if MQTT is connected, "0" else
 String readMillis(void *);              // returns millis() as String
 String readGenreCount(void *);          // returns count of known genres
+String getHost(void *);                 // returns the (last successfully) connected host
 
 String readSysVariable(const char *n);   // Read current value of system variable by given name (see table below for mapping)
 const char* analyzeCmdsRR ( String commands );   // ToDo: Stringfree!!
@@ -353,6 +354,8 @@ extern WiFiClient        cmdclient ;                        // An instance of th
 extern String httpheader ( String contentstype );           // get httpheader for OK response with contentstype
 extern WiFiClient        wmqttclient ;                          // An instance for mqtt
 extern bool mqtt_on;
+extern int8_t            connecttohoststat ;              // Status of connecttohost
+
 
 #define KNOWN_SYSVARIABLES   (sizeof(sysVarReferences) / sizeof(sysVarReferences[0]))
 
@@ -391,10 +394,11 @@ struct {                           // A table of known internal variables that c
   {"hour", &timeinfo.tm_hour, readInt16},
   {"minute", &timeinfo.tm_min, readInt16},
   {"second", &timeinfo.tm_sec, readInt16},
+  {"time", &timetxt, readCharStr},
   {"uptime", NULL, readMillis},
-  {"cmdreply", &cmdReply, readCharStr},
   {"connecthost", &connecttohoststat, readInt8},
-  {"host", &host, readString}
+  {"url", NULL, getHost},
+  {"announce", &announceMode, readUint8}
 };
 
 
@@ -504,6 +508,7 @@ String readInt8(void *ref) {
 }
 
 String readInt16(void *ref) {
+  dbgprint("Inblock.newpreset = %d", ini_block.newpreset);
   return String( (*((int16_t*)ref)));
 }
 
@@ -543,6 +548,12 @@ String readMqttStatus(void *) {
     if (wmqttclient.connected())
       return "1";
   return "0";
+}
+
+String getHost(void *) {
+  if (1 == connecttohoststat)
+    return host;
+  return lasthost;
 }
 
 String doSysList(const char* p) {
@@ -683,17 +694,20 @@ bool ret = false;
       dbgprint("OK, An new announcement with at least same priority...");
       if (0 == announceMode)
       {
-        stationBefore = host;//currentStation;
+        stationBefore = lasthost;//currentStation;
         muteBefore = muteflag ;
         volumeBefore = ini_block.reqvol ;
         muteflag = false ;
       }
-
+      connectDelay = 0 ;
+      streamDelay = 500;
       mode = newPrio | (mode & ~ANNOUNCEMODE_PRIOALL);
       if (((mode & 2) == 2) && ((announceMode & 2) != 2))
       {
         const char *s = "::alertstart";
-        String commands = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        //String commands = 
+        connectcmds = ramsearch(s)?ramgetstr(s) : nvsgetstr(s);
+        /*
         if (commands.length() > 0)
           {
             //dbgprint("Now execute commands: %s", commands.c_str());
@@ -701,6 +715,7 @@ bool ret = false;
           }
         else
           dbgprint("Nothing to do for '%s'!", s);
+        */
       }
       announceMode = mode;
     }
@@ -1041,8 +1056,8 @@ bool getPairInt16(String& value, int16_t& x1, int16_t& x2, bool duplicate, char 
 }
 
 String extractgroup(String& inValue) {
-  String(ret);
-  chomp(inValue);
+  String ret;
+  inValue.trim();
   if (inValue.c_str()[0] != '(') {
     ret = inValue;
     inValue = "";
@@ -1086,11 +1101,11 @@ String extractgroup(String& inValue) {
 //  - If extendNvs (defaults to false) is true, left and right will be assumed to be reference to  *
 //    nvs-key if preceeded by '@'                                                                  *
 //**************************************************************************************************
-int parseGroup(String & inValue, String& left, String& right, const char** delimiters = NULL, bool extendNvs = false,
-        bool extendNvsLeft = false, bool extendNvsRight = false) {
+int parseGroup(String & inValue, String& left, String& right, const char** delimiters, bool extendNvs,
+        bool extendNvsLeft, bool extendNvsRight) {
   int idx = -1, i;
   bool found;
-  chomp(inValue);
+  inValue.trim();
   int nesting = 0;
   bool commandGroup = (inValue.c_str()[0] == '{');
   char groupStart = '(';
@@ -1167,6 +1182,7 @@ int32_t doCalculation(String& value, bool show, const char* ramKey = NULL) {
   int idx = parseGroup(value, opLeft, opRight, operators, true);
   int32_t op1, op2, ret = 0;
   if (show) doprint("Calculate: (\"%s\" [%d] \"%s\")", opLeft.c_str(), idx, opRight.c_str());
+  if (show) doprint("Remains: %s", value.c_str());
   if (opLeft.c_str()[0] == '(')
     op1 = doCalculation(opLeft, show);
   else
@@ -4160,11 +4176,15 @@ void loopRR() {
     espnowBacklog.erase(espnowBacklog.begin());
     free(s0);
   }
+
   if (numLoops) {
     static int step = 0;
     int deb = DEBUG;
-    DEBUG = 0;
+    //bool info = (currentpreset == ini_block.newpreset) && currentpreset >= 0;
+    DEBUG = 0;//info?1:0;
+    //if (info) dbgprint("\r\nBEFORE ::loop[%d] currentpreset=%d, ini_block.newpreset=%d", step, currentpreset, ini_block.newpreset);
     analyzeCmdsRR(String(retroRadioLoops[step++]));
+    //if (info) dbgprint("\r\nAFTER ::loop[] currentpreset=%d, ini_block.newpreset=%d", currentpreset, ini_block.newpreset);
     DEBUG = deb;
     if (step >= numLoops)
       step = 0;
@@ -4175,9 +4195,11 @@ void loopRR() {
       analyzeCmdsRR(String(retroRadioLoops[i]));
       yield();
     }
-    DEBUG = deb;
     */
+    DEBUG = deb;
   }
+  
+
   for (i = 0; i < cmd_backlog.size();i++)
   {
     dbgprint(analyzeCmdsRR(cmd_backlog[i]));
@@ -4291,13 +4313,13 @@ bool doShow = (param.c_str()[3] == 'v') || (param.c_str()[3] == 'V');
       if (doShow) doprint ( "cmd sequence (after substitution): %s", value.c_str());
       doprint("callLevel: %d", ++calllevel);
       analyzeCmdsRR ( value );
-      ramsetstr("_reply", cmdReply);  
+      ramsetstr("__cmdreply", cmdReply);  
     }
     else  
     {
       if (doShow)
         doprint("Commands to execute");
-      ramsetstr("_reply", "");
+      ramsetstr("__cmdreply", "");
     }
     calllevel--;
 }
@@ -4511,23 +4533,32 @@ String chomp_nvs_ram_sys(const char *keyWithPrefix) {
         if (replaced)
           ret =nvsgetstr(key);
       }
-      else
+      if (!replaced)
       {
-        replaced = true;
-        ret = readSysVariable(key);
+        if ('%' == firstChar)
+        {
+          replaced = nvssearch(key);
+          if (replaced)
+            ret = nvsgetstr(key, false);
+        }
+        else if ('~' == firstChar)
+        {
+          replaced = true;
+          ret = readSysVariable(key);
+        }
       }
     }
   }
   else
     ret = String(keyWithPrefix);
-  chomp(ret);
+  ret.trim();
   return ret;
 }
 
 
 void chompValue (String& value) {
+  value.trim();
   const char* valuec_str = value.c_str();
-  chomp(value);
   if (value.length() > 0) {
     char firstChar = value.c_str()[0];
     if ('(' == firstChar)
@@ -4538,15 +4569,18 @@ void chompValue (String& value) {
     } 
     else if (('"' != firstChar) && ('\'' != firstChar))
     {
-      if (strchr("@&.~", firstChar))
+      dbgprint("Check first char of value: %c", firstChar);
+      if (strchr("@&.~%", firstChar))
       {
+        dbgprint("Run chomp_all for: %s", valuec_str);
+
         value = chomp_nvs_ram_sys(valuec_str);
       }
     }
     else
     {
       uint8_t count = 0;
-
+      int haveDouble = 0;
       while ( '\'' == valuec_str[count])
         count++;
       valuec_str = valuec_str + (count?count:1) ;
@@ -4565,17 +4599,18 @@ void chompValue (String& value) {
           haveReplaced = false;
           while (searchStart)
           {
-            char *nextfound = strpbrk(searchStart, "@&.~");
+            char *nextfound = strpbrk(searchStart, "@&.~%");
             if (!nextfound)
             {
               searchStart = NULL;
             }
-            else if ((*nextfound == nextfound[1]) && ('@' == *nextfound))
+            else if (*nextfound == nextfound[1])// && ('@' == *nextfound))
             {
 
-              memmove(nextfound, nextfound + 1, strlen(nextfound));
-              *nextfound = '#';
-              searchStart = nextfound + 1;
+              //memmove(nextfound, nextfound + 1, strlen(nextfound));
+              //*nextfound = '#';
+              haveDouble++;
+              searchStart = nextfound + 2;
             }
             else
             {
@@ -4614,6 +4649,56 @@ void chompValue (String& value) {
           }
         }
         while (haveReplaced && (--count > 0));
+        if (haveDouble)
+        {
+          char *s = strstr(valueCopy, "@@");
+          while (s && haveDouble)
+          {
+            memmove(s+1, s+2, strlen(s +1));
+            haveDouble--;
+            s = strstr(s+1, "@@");
+          }
+        }
+        if (haveDouble)
+        {
+          char *s = strstr(valueCopy, "&&");
+          while (s && haveDouble)
+          {
+            memmove(s+1, s+2, strlen(s +1));
+            haveDouble--;
+            s = strstr(s+1, "&&");
+          }
+        }
+        if (haveDouble)
+        {
+          char *s = strstr(valueCopy, "..");
+          while (s && haveDouble)
+          {
+            memmove(s+1, s+2, strlen(s +1));
+            haveDouble--;
+            s = strstr(s+1, "..");
+          }
+        }
+        if (haveDouble)
+        {
+          char *s = strstr(valueCopy, "~~");
+          while (s && haveDouble)
+          {
+            memmove(s+1, s+2, strlen(s +1));
+            haveDouble--;
+            s = strstr(s+1, "~~");
+          }
+        }
+        if (haveDouble)
+        {
+          char *s = strstr(valueCopy, "%%");
+          while (s && haveDouble)
+          {
+            memmove(s+1, s+2, strlen(s +1));
+            haveDouble--;
+            s = strstr(s+1, "%%");
+          }
+        }
         value = String(valueCopy);
         free(valueCopy);
         value.trim();
@@ -4831,6 +4916,7 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
   else if ((param == "preset") && ((value == "--stop") || (value.toInt() == -1)))
   {
     currentpreset = ini_block.newpreset = -1;
+    dbgprint("\r\n\r\nRESET CURRENTPRESET\r\n\r\n");
     ret = true;
   }
   else if ( ret = param.startsWith("gcfg.") )
@@ -5003,9 +5089,16 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
   *cmdReply = 0;
   if (returnFlag)
     return cmdReply;
-  char * cmds = strdup ( commands ) ;
+  String cmdstr = String( commands );
+  chomp(cmdstr);
+  char *cmds = NULL;
+  //char * cmds = strdup ( commands ) ;
+  if (cmdstr.length() > 0)
+    cmds = strdup(cmdstr.c_str());
   if ( cmds )
   {
+    char *s = cmds;
+/*
     char *s = strchr ( cmds, '#' ) ;
     while (s) 
     {
@@ -5022,6 +5115,7 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
       }
     }
     s = cmds;
+*/
     if (!setupDone) {
       s = strchr(cmds, ';');
       if (s)
@@ -5108,6 +5202,7 @@ const char* analyzeCmdsFromKey ( const char * key )
     String commands = ramsearch(key)?ramgetstr(key) : (nvssearch(key)?nvsgetstr(key):"");
       if (commands.length())
       {
+        commands.trim();
         dbgprint("Now execute commands (from key=%s): %s" , key, commands.c_str());
         return analyzeCmd(commands.c_str());
       }
@@ -6059,7 +6154,7 @@ String readfavfrompref ( int16_t idx )
   }
   // Get the contents
   
-  s = nvsgetstr ( tkey ) ;                          // Get the station (or empty sring)
+  s = nvsgetstr ( tkey, false ) ;                          // Get the station (or empty sring)
   s.trim();
   favPresent[idx] = s.length() > 0;
   return s;
@@ -6246,6 +6341,7 @@ String doFavorite (String param, String value)
         ret = String("Favorite[") + idx + "] is not defined!";
       else
       {
+        /*
         String s = readfavfrompref(idx);
         String temp = "";
         int nameIdx = s.indexOf('#');
@@ -6256,13 +6352,15 @@ String doFavorite (String param, String value)
         }
         chomp(s);
         s = "station=" + s;
+        */
+        String s = "station=" + readfavfrompref(idx);
         ini_block.newpreset = currentpreset;
         analyzeCmd(s.c_str());
         //setLastStation(temp);
         //lastStation = temp;
         currentFavorite = idx;
-        if (nameIdx >= 0)
-          knownstationname = temp;
+        //if (nameIdx >= 0)
+          //knownstationname = temp;
         ret = String("Favorite is now ") + idx;
       }  
       //setmqttfavidx(idx, idx);

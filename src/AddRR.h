@@ -286,13 +286,17 @@ private:
 extern int8_t            connecttohoststat ;                    // Status of connecttohost
 extern UploadFile        uploadfile ;                           // File to upload alarm/alert sound to...
 extern String            host;                                  // host to connect to
+extern String            lasthost;                              // last successfully connected host
 extern String            bootmode ;
 extern bool              hostreq ;                              // Request for new host
 extern bool              muteflag ;
 extern uint8_t           announceMode ;                         // Announcement mode...
 extern uint32_t          announceStart ;                        // when has announceMode started?
+extern int               connectDelay ;                         // Station with ConnectDelay 
+extern uint32_t          streamDelay ;
 
 
+extern String            connectcmds ;                          // command(s) to be executed at (successfull) host connect
 extern String            currentStation ;                       // URL [optional #name] of last host request (not chomped)
 extern String            stationBefore;
 extern String            ipaddress ;                            // Own IP-address
@@ -316,7 +320,7 @@ extern TaskHandle_t      maintask ;                             // Taskhandle fo
 extern TaskHandle_t      xplaytask ;                            // Task handle for playtask
 extern TaskHandle_t      xspftask ;                             // Task handle for special functions
 extern uint8_t           gmaintain ;                            // Genre-Maintenance-mode? (play is suspended)
-extern int16_t           currentpreset ;                        // Preset station playing
+extern volatile int16_t           currentpreset ;                        // Preset station playing
 extern int               mqttfavidx;                            // idx of favorite info to publish on MQTT
 extern int               mqttfavendidx;                         // last idx of favorite info to publish on MQTT
 //extern std::vector<keyname_t> keynames ;                        // Keynames in NVS
@@ -331,6 +335,7 @@ extern bool              mqtt_on;
 extern void              mqttInputBegin() ;
 extern void        claimSPI ( const char* p ) ;                // Claim SPI bus for exclusive access
 extern void        releaseSPI() ;                              // Release the claim
+extern char              timetxt[9] ;                           // Converted timeinfo
 
 char*       dbgprint( const char* format, ... ) ;
 void        tftlog ( const char *str ) ;
@@ -338,7 +343,7 @@ void        chomp ( String &str ) ;
 void        chomp_nvs ( String &str ) ;
 
 esp_err_t   nvsclear ( ) ;
-String      nvsgetstr ( const char* key ) ;
+String      nvsgetstr ( const char* key, bool uncomment = true ) ;
 bool        nvssearch ( const char* key ) ;
 esp_err_t   nvssetstr ( const char* key, String val ) ;
 void        nvsdelkey ( const char* k);
@@ -376,6 +381,9 @@ bool ramsearch ( const char* key ) ;
 void ramdelkey ( const char* key) ;
 const char* analyzeCmdsFromKey ( const char * key ) ;
 const char* analyzeCmdsFromKey ( String key ) ;
+extern String extractgroup(String& inValue);
+extern int parseGroup(String & inValue, String& left, String& right, const char** delimiters = NULL, bool extendNvs = false,
+        bool extendNvsLeft = false, bool extendNvsRight = false);
 
 
 

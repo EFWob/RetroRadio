@@ -395,6 +395,8 @@ enum datamode_t { INIT = 0x1, HEADER = 0x2, PLAYLISTINIT = 0x4,   // State for d
 int8_t            connecttohoststat = 127 ;              // Status of connecttohost
 #if defined(RETRORADIO)
 int               connectDelay = 0 ;                     // Station with ConnectDelay 
+uint32_t          streamDelay = 0 ;                      // Station with StreamDelay 
+uint32_t          streamStart = 0 ;
 #endif
 bool              dsp_available = false ;                // Display available?
 int               DEBUG = 1 ;                            // Debug on/off
@@ -438,12 +440,14 @@ String            knownstationname ;                     // Station name in pres
 String            knownstationnamebefore ;               // Station name in presets (overriden by icyname)
 String            ipaddress ;                            // Own IP-address
 String            favnotplaymsg ;
+String            connectcmds ;                          // command(s) to be executed at (successfull) host connect
 //              "{\"idx\":\"0\", \"name\":\"\", \"url\":\"\", \"play\":\"1\"}";
 int               bitrate ;                              // Bitrate in kb/sec
 int               mbitrate ;                             // Measured bitrate
 int               metaint = 0 ;                          // Number of databytes between metadata
-int16_t           currentpreset = -1 ;                   // Preset station playing
+volatile int16_t           currentpreset = -1 ;                   // Preset station playing
 String            host ;                                 // The URL to connect to or file to play
+String            lasthost ;                             // URL of the last successfully connected host
 //String            currentStation ;                       // The URL to connect to or file to play (incl. name)
 String            stationBefore ;                        // One before...
 String            playlist ;                             // The URL of the specified playlist
@@ -651,7 +655,7 @@ class mqttpubc                                           // For MQTT publishing
       { "icy/name",        MQSTRING, &icyname,          false }, // Definition for MQTT_ICYNAME
       { "icy/streamtitle", MQSTRING, &icystreamtitle,   false }, // Definition for MQTT_STREAMTITLE
       { "nowplaying",      MQSTRING, &ipaddress,        false }, // Definition for MQTT_NOWPLAYING
-      { "preset" ,         MQINT8,   &currentpreset,    false }, // Definition for MQTT_PRESET
+      { "preset" ,         MQINT8,   (void *)&currentpreset,    false }, // Definition for MQTT_PRESET
       { "volume" ,         MQINT8,   &ini_block.reqvol, false }, // Definition for MQTT_VOLUME
       { "playing",         MQINT8,   &playingstat,      false }, // Definition for MQTT_PLAYING
       { "playlist/pos",    MQINT16,  &playlist_num,     false }, // Definition for MQTT_PLAYLISTPOS
@@ -1362,7 +1366,7 @@ esp_err_t nvsclear()
 //**************************************************************************************************
 // Read a string from nvs.                                                                         *
 //**************************************************************************************************
-String nvsgetstr ( const char* key )
+String nvsgetstr ( const char* key , bool uncomment)
 {
   static char   nvs_buf[NVSBUFSIZE] ;       // Buffer for contents
   size_t        len = NVSBUFSIZE ;          // Max length of the string, later real length
@@ -1376,6 +1380,12 @@ String nvsgetstr ( const char* key )
                nvserr, key, strlen ( key), len ) ;
     dbgprint ( "Contents: %s", nvs_buf ) ;
     nvs_buf[0] = 0;
+  }
+  else if (uncomment)
+  {
+    char *s = strchr(nvs_buf, '#');
+    if (s)
+      *s = 0;
   }
   return String ( nvs_buf ) ;
 }
@@ -2254,23 +2264,33 @@ void setconnecttohost(int8_t stat)
   if (stat != connecttohoststat)
   {
     connecttohoststat = stat;
-    const char *key = ":~connecthost";
-    String cmds = ramsearch(key)?ramgetstr(key):(nvssearch(key)?nvsgetstr(key):"");
-    cmds.trim();
-    if (cmds.length() > 0)
-      analyzeCmd(cmds.c_str());
     switch(stat)
     {
       case 0:
         dbgprint("Connecttohost start, host=%s", host.c_str());
+        streamStart = millis();
         break;
       case 1:
         dbgprint("Connecttohost success, host=%s", host.c_str());
+        if (connectcmds.length() > 0)
+          analyzeCmdsRR (connectcmds);
         break;
-      case -1:
-        dbgprint("Connecttohost failed, host=%s", host.c_str());
+      case -1:case -2:
+        dbgprint("Connecttohost failed, fallback to host=%s", lasthost.c_str());
+        break;
+      case -3:
+        dbgprint("Connecttohost failed, no fallback host known.");
         break;
     }
+      if (0 != stat)
+      {
+        connectcmds = "";
+        connectDelay = 0;
+        streamDelay = 0;
+      }
+      if (0 > stat)
+        announceMode = 0;
+      analyzeCmdsFromKey(":~connecthost");
 
   }
 }
@@ -2377,7 +2397,7 @@ bool connecttohost()
     else
       setdatamode ( INIT ) ;                            // Start default in metamode
     chunked = false ;                                 // Assume not chunked
-    setconnecttohost ( 1 ) ;
+    //setconnecttohost ( 1 ) ;
     return true ;                                           // Send is probably okay
   }
   dbgprint ( "Request %s failed!", host.c_str() ) ;
@@ -2742,7 +2762,7 @@ String readhostfrompref ( int16_t preset )
   }
   // Get the contents
 #if defined(RETRORADIO)
-  String s = nvsgetstr ( tkey ) ;
+  String s = nvsgetstr ( tkey, false ) ;
   connectDelay = (s.indexOf("##") > 0)?10:0;
   if ( connectDelay) 
   {
@@ -2999,7 +3019,7 @@ String readprefs ( bool output )
     key = keynames[i];
     dbgprint("NVSKEY[%d]='%s'", i, key);
 
-    val = nvsgetstr ( key ) ;                               // Read value of this key
+    val = nvsgetstr ( key , false) ;                               // Read value of this key
     cmd = String ( key ) +                                  // Yes, form command
           String ( " = " ) +
           val ;
@@ -4944,6 +4964,8 @@ void mp3loop()
 
   if (bootmode == "ap")
     return;
+  //dbgprint("\r\nBEFORE mp3loop() currentpreset=%d, ini_block.newpreset=%d", currentpreset, ini_block.newpreset);
+
   // Try to keep the Queue to playtask filled up by adding as much bytes as possible
   if ( datamode & ( INIT | HEADER | DATA |               // Test op playing
                     METADATA | PLAYLISTINIT |
@@ -4975,6 +4997,7 @@ void mp3loop()
     }
     else
     {
+
       if (mp3client)
         av = mp3client->available() ;                       // Available from stream
       if ( av < maxchunk )                               // Limit read size
@@ -5186,16 +5209,24 @@ void mp3loop()
         host = readhostfrompref() ;                       // Lookup preset in preferences
         //lastStation = host;
         //setLastStation(host);
+        if (host.c_str()[0] == '{')
+        {
+          String dummy;
+          parseGroup(host, connectcmds, dummy);
+          dbgprint("Commands before preset: %s", connectcmds.c_str());
+        }
         int inx = host.indexOf('#');
         if (inx > 0)
         {
           knownstationname = host.substring(inx + 1) ;
+          host = host.substring(0, inx) ;
           knownstationname.trim();
-          chomp ( host ) ;                                  // Get rid of part after "#"
         }
         else
           knownstationname = "" ;
         //favplayrequestinfo ( host );
+        host.trim () ;                                  // Get rid of part after "#"
+  
       }
       dbgprint ( "New preset/file requested (%d/%d) from %s",
                  ini_block.newpreset, playlist_num, host.c_str() ) ;
@@ -5213,10 +5244,13 @@ void mp3loop()
   }
   if ( hostreq )                                          // New preset or station?
   {
-    dbgprint ( "New station request" ) ;
+    
     hostreq = false ;
     currentpreset = ini_block.newpreset ;                 // Remember current preset
-    mqttpub.trigger ( MQTT_PRESET ) ;                     // Request publishing to MQTT
+    
+    dbgprint ( "New station request=%s (currentpreset=%d)" , host.c_str(), currentpreset) ;
+    
+    //mqttpub.trigger ( MQTT_PRESET ) ;                     // Request publishing to MQTT
     // Find out if this URL is on localhost (SD).
     localfile = ( host.indexOf ( "localhost/" ) >= 0 ) ;
     if ( localfile )                                      // Play file from localhost?
@@ -5229,6 +5263,8 @@ void mp3loop()
     else
     {
       bool validhost = true ;
+      //dbgprint("\r\nBEFORE connecttohost currentpreset=%d, ini_block.newpreset=%d", currentpreset, ini_block.newpreset);
+
       if ( host.startsWith ( "ihr/" ) )                   // iHeartRadio station requested?
       {
         setconnecttohost ( 0 );
@@ -5245,7 +5281,9 @@ void mp3loop()
       else
         setconnecttohost ( -1 );
     }
+    //dbgprint("\r\nAFTER connecttohost currentpreset=%d, ini_block.newpreset=%d", currentpreset, ini_block.newpreset);
   }
+  //dbgprint("\r\nAFTER mp3loop() currentpreset=%d, ini_block.newpreset=%d", currentpreset, ini_block.newpreset);
 }
 
 /*
@@ -5395,6 +5433,7 @@ void handlebyte_ch ( uint8_t b )
     totalcount = 0 ;                                   // Reset totalcount
     metalinebfx = 0 ;                                  // No metadata yet
     metalinebf[0] = '\0' ;
+    hostreq = false;
     //clength_host = 0;
   }
   if ( datamode == HEADER )                            // Handle next byte of MP3 header
@@ -5411,27 +5450,30 @@ void handlebyte_ch ( uint8_t b )
       metalinebf[metalinebfx] = '\0' ;                 // Take care of delimiter
       if ( chkhdrline ( metalinebf ) )                 // Reasonable input?
       {
-        dbgprint ( "Headerline: %s",                   // Show headerline
-                   metalinebf ) ;
+        dbgprint ( "Headerline: %s (currentpreset: %d)",                   // Show headerline
+                   metalinebf , currentpreset) ;
         String metaline = String ( metalinebf ) ;      // Convert to string
         String lcml = metaline ;                       // Use lower case for compare
         lcml.toLowerCase() ;
         if ( lcml.startsWith ( "location: http://" ) ) // Redirection?
         {
-          host = metaline.substring ( 17 ) ;           // Yes, get new URL
-          hostreq = true ;                             // And request this one
+          hostreq = (host != metaline.substring ( 17 )) ;           // Yes, get new URL
+          if (hostreq)
+           host = metaline.substring ( 17 );
         }
         if ( lcml.startsWith ("location: https://") )  // Redirection?
         {
-          host = metaline.substring ( 18 ) ;           // Yes, get new URL
-          hostreq = true ;                             // And request this one
+          hostreq = (host != metaline.substring ( 18 )) ;           // Yes, get new URL
+          if (hostreq)
+           host = metaline.substring ( 18 );
         }
-        if ( lcml.indexOf ( "content-type" ) >= 0)     // Line with "Content-Type: xxxx/yyy"
+        if ( lcml.indexOf ( "content-type" ) == 0)     // Line with "Content-Type: xxxx/yyy"
         {
           ctseen = true ;                              // Yes, remember seeing this
           String ct = metaline.substring ( 13 ) ;      // Set contentstype. Not used yet
           ct.trim() ;
-          dbgprint ( "%s seen.", ct.c_str() ) ;
+          ctseen = ct.startsWith("audio");
+          dbgprint ( "%s seen (valid=%d).", ct.c_str(), ctseen ) ;
         }
         if ( lcml.indexOf ( "content-length") >= 0)    // Line with "Content-Length: nnnnn"
         {
@@ -5482,14 +5524,37 @@ void handlebyte_ch ( uint8_t b )
         }
       }
       metalinebfx = 0 ;                                // Reset this line
-      if ( ( LFcount == 2 ) && ctseen )                // Content type seen and a double LF?
+      if ( LFcount == 2 )                             // double lf?
       {
-        dbgprint ( "Switch to DATA, bitrate is %d"     // Show bitrate
-                   ", metaint is %d",                  // and metaint
-                   bitrate, metaint ) ;
-        setdatamode ( DATA ) ;                         // Expecting data now
-        datacount = metaint ;                          // Number of bytes before first metadata
-        queuefunc ( QSTARTSONG ) ;                     // Queue a request to start song
+        dbgprint("2LF. End of Header! hostreq=%d", hostreq);
+        if ( ctseen )                // Content type seen and a double LF?
+          {
+            dbgprint ( "Switch to DATA, bitrate is %d"     // Show bitrate
+                      ", metaint is %d",                  // and metaint
+                      bitrate, metaint ) ;
+            queuefunc ( QSTARTSONG ) ;                     // Queue a request to start song
+            if (0 != streamDelay)
+            {
+              vTaskDelay( streamDelay / portTICK_PERIOD_MS);
+              streamDelay = 0;
+            }
+            setdatamode ( DATA ) ;                         // Expecting data now
+            datacount = metaint ;                          // Number of bytes before first metadata
+            setconnecttohost (1);
+            if (0 == announceMode)
+              lasthost = host;
+          }
+        else if (!hostreq)
+        {
+          if (lasthost.length() > 0)
+          {
+            setconnecttohost (-2);
+            host = lasthost;
+            hostreq = true;
+          }
+          else
+            setconnecttohost (-3);
+        }
       }
     }
     else
@@ -5820,14 +5885,25 @@ void handleFSf ( const String& pagename )
 //**************************************************************************************************
 void chomp ( String &str )
 {
-  int   inx ;                                         // Index in de input string
+  str.trim();
+  return;
 
+  int   inx ;                                         // Index in de input string
+  dbgprint("call chomp(%s)", str.c_str());
   if ( ( inx = str.indexOf ( "#" ) ) >= 0 )           // Comment line or partial comment?
   {
-    
-    str.remove ( inx ) ;                              // Yes, remove
+    if (str.c_str()[inx + 1] != '#')
+      str.remove ( inx ) ;                              // Yes, remove
+    else
+    {
+      String right = str.substring(inx + 2);
+      chomp(right);
+      str = str.substring(0, inx+2) + right;
+    }
+
   }
   str.trim() ;                                        // Remove spaces and CR
+  dbgprint("chomp result=%s", str.c_str());
 }
 
 
@@ -5978,9 +6054,9 @@ const char* analyzeCmd ( const char* par, const char* val )
       reqvol = 100 ;                        // Limit to normal values
     }
 
-    ramsetstr("_~volume", String(reqvol));
+    ramsetstr("__volume", String(reqvol));
     analyzeCmdsFromKey(":~volume");
-    ini_block.reqvol = ramgetstr("_~volume").toInt();
+    ini_block.reqvol = ramgetstr("__volume").toInt();
 
     muteflag = false ;                                // Stop possibly muting
     sprintf ( reply, "Volume is now %d",              // Reply new volume
@@ -6099,6 +6175,7 @@ const char* analyzeCmd ( const char* par, const char* val )
       }
       if ( relative )                                 // Relative argument?
       {
+        dbgprint("currentpreset=%d, ini_block=%d", currentpreset, ini_block.newpreset);
         currentpreset = ini_block.newpreset ;         // Remember currentpreset
         playlist_num = 0;
         ini_block.newpreset += ivalue ;               // Yes, adjust currentpreset
@@ -6108,6 +6185,7 @@ const char* analyzeCmd ( const char* par, const char* val )
         ini_block.newpreset = ivalue ;                // Otherwise set station
         playlist_num = 0 ;                            // Absolute, reset playlist
         currentpreset = -1 ;                          // Make sure current is different
+        dbgprint ( "\r\nCURRENT PRESET SET TO -1\r\n");
       }
       //setdatamode ( STOPREQD ) ;                      // Force stop MP3 player
       sprintf ( reply, "Preset is now %d",            // Reply new preset
@@ -6155,14 +6233,39 @@ const char* analyzeCmd ( const char* par, const char* val )
       return reply;
     }
     //setLastStation(value);
-    host = value ;                                    // Save it for storage and selection later
-    //favplayrequestinfo ( host );
-    hostreq = true ;                                  // Force this station as new preset
-    knownstationname = "" ;
-    sprintf ( reply,
+    if (value.c_str()[0] == '{')
+    {
+      String dummy;
+      parseGroup(value, connectcmds, dummy);
+      dbgprint("Commands before station: %s", connectcmds.c_str());
+    }
+    int inx = value.indexOf('#');
+    if ( inx > 0)
+    {
+      host = value.substring(0, inx);
+      knownstationname = value.substring(inx + 1);
+      host.trim();
+      knownstationname.trim();
+    }
+    else if (inx < 0)
+    {
+      host = value ;                                    // Save it for storage and selection later
+    }
+    else
+      host = "";
+    if (host.length() > 0)
+    {
+      hostreq = true;
+      if (inx < 0)
+        knownstationname = "" ;
+      sprintf ( reply,
               "Select %s",                            // Format reply
               host.c_str() ) ;
-    utf8ascii_ip ( reply ) ;                          // Remove possible strange characters
+      utf8ascii_ip ( reply ) ;                          // Remove possible strange characters
+    }
+    else
+      strcpy(reply, "No URL for host specified.") ;
+    //favplayrequestinfo ( host );
   }
   else if ( argument == "status" )                    // Status request
   {
@@ -6465,6 +6568,7 @@ void playtask ( void * parameter )
             totalcount += sizeof(inchunk.buf) ;                       // Count the bytes
             break ;
           case QSTARTSONG:
+            xQueueReset ( dataqueue );
             playingstat = 1 ;                                         // Status for MQTT
             mqttpub.trigger ( MQTT_PLAYING ) ;                        // Request publishing to MQTT
             claimSPI ( "startsong" ) ;                                // Claim SPI bus
@@ -6603,7 +6707,7 @@ void looptask ( void * parameter )
 
   while ( true )
   {
-    loopRR();
+      loopRR();
     if ( gmaintain )
     {
       scanserial() ;                                    // Handle serial input
