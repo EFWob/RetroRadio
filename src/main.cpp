@@ -5216,6 +5216,13 @@ void mp3loop()
         host = readhostfrompref() ;                       // Lookup preset in preferences
         //lastStation = host;
         //setLastStation(host);
+        if (host.c_str()[0] == '(')
+        {
+          String dummy, val;
+          parseGroup(host, val, dummy);
+          connectDelay = val.toInt();
+          dbgprint("Connect delay for preset is: %d ms", connectDelay * 100);
+        }
         if (host.c_str()[0] == '{')
         {
           String dummy;
@@ -6344,10 +6351,18 @@ const char* analyzeCmd ( const char* par, const char* val )
       return reply;
     }
     //setLastStation(value);
+
     if (value.c_str()[0] == '{')
     {
       String dummy;
       parseGroup(value, connectcmds, dummy);
+      if (connectcmds.c_str()[0] == '(')
+      {
+        String val;
+        parseGroup(connectcmds, val, dummy);
+        connectDelay = val.toInt();
+        dbgprint("Connect delay for station is: %d ms", connectDelay * 100);
+      }
       dbgprint("Commands before station: %s", connectcmds.c_str());
     }
     int inx = value.indexOf('#');

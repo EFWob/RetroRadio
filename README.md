@@ -1,4 +1,4 @@
-latest...Error correction.
+latest...Single/Multipath. Connectdelay
 # Latest changes
 *20220907*
   - [Text substitution](#text-substitution-for-command-arguments) is now possible for command arguments.

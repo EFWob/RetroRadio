@@ -4579,11 +4579,11 @@ void chompValue (String& value) {
     }
     else
     {
-      uint8_t count = 0;
+      bool multipath;
+      
       int haveDouble = 0;
-      while ( '\'' == valuec_str[count])
-        count++;
-      valuec_str = valuec_str + (count?count:1) ;
+      multipath = ('"' == *valuec_str);
+      valuec_str++;
       //chomp_nvs(value);
       if (0 != valuec_str[0])
       {
@@ -4652,7 +4652,8 @@ void chompValue (String& value) {
                             strlen(searchEnd + identlen) + 1);
                 if (replacelen)
                   memcpy(searchEnd, replacement.c_str(), replacelen);
-                searchEnd = searchEnd + replacelen;
+                if (multipath)
+                  searchEnd = searchEnd + replacelen;
               }
               identBegin = identEnd = NULL;
             }
