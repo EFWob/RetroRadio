@@ -20,6 +20,10 @@
 
 
 #define UP_AND_RUNNING() (NULL != xplaytask)
+#define IDENT_SPECIALCHARS   "$_:"
+#define isIdentchar(c)    (isalnum(c) || (NULL != strchr(IDENT_SPECIALCHARS, c)))
+extern bool isIdentifier(const char *s);
+
 
 //extern void retroRadioInit();
 extern void setupRR(uint8_t setupLevel);
@@ -344,7 +348,7 @@ void        chomp_nvs ( String &str ) ;
 
 esp_err_t   nvsclear ( ) ;
 String      nvsgetstr ( const char* key, bool uncomment = true ) ;
-bool        nvssearch ( const char* key ) ;
+int         nvssearch ( const char* key ) ;
 esp_err_t   nvssetstr ( const char* key, String val ) ;
 void        nvsdelkey ( const char* k);
 

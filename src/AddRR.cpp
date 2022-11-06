@@ -442,10 +442,11 @@ uint32_t eth_timeout =  ETHERNET_TIMEOUT ;    // Ethernet timeout (in seconds)
 //**************************************************************************************************
 void nvsdelkey ( const char* k)
 {
-
-  if ( nvssearch ( k ) )                                   // Key in nvs?
+  int idx = nvssearch(k);
+  if ( idx )                                   // Key in nvs?
   {
     nvs_erase_key ( nvshandle, k ) ;                        // Remove key
+    keynames.erase(keynames.begin() + idx - 1);
   }
 }
 
@@ -4516,7 +4517,7 @@ String chomp_nvs_ram_sys(const char *keyWithPrefix) {
   String ret = "";
   char nextChar = *key;
 
-  if (isalnum(nextChar) || ('_' == nextChar) || ('$' == nextChar))
+  if (isIdentifier(key)) //(isIdentchar(nextChar)) ----- (isalnum(nextChar) || ('_' == nextChar) || ('$' == nextChar))
   {
     bool replaced = false;
     if (('@' == firstChar) || ('.' == firstChar))
@@ -4555,6 +4556,18 @@ String chomp_nvs_ram_sys(const char *keyWithPrefix) {
   return ret;
 }
 
+bool isIdentifier(const char *id) {
+const char* s= id;  
+  if (!*s)
+    return false;
+  while(*s)
+    if (!isIdentchar(*s))
+      return false;
+    else
+      s++;
+  return true;
+}
+
 
 void chompValue (String& value) {
   value.trim();
@@ -4569,21 +4582,26 @@ void chompValue (String& value) {
     } 
     else if (('"' != firstChar) && ('\'' != firstChar))
     {
-      dbgprint("Check first char of value: %c", firstChar);
+      //dbgprint("Check first char of value: %c", firstChar);
       if (strchr("@&.~%", firstChar))
       {
-        dbgprint("Run chomp_all for: %s", valuec_str);
+        //dbgprint("Run chomp_all for: %s", valuec_str);
 
         value = chomp_nvs_ram_sys(valuec_str);
       }
     }
     else
     {
-      bool multipath;
+      bool multipath, doublepath;
       
       int haveDouble = 0;
       multipath = ('"' == *valuec_str);
       valuec_str++;
+      if (!multipath)
+      {
+        if ((doublepath = '\'' == *valuec_str))
+          valuec_str++;
+      }
       //chomp_nvs(value);
       if (0 != valuec_str[0])
       {
@@ -4652,12 +4670,12 @@ void chompValue (String& value) {
                             strlen(searchEnd + identlen) + 1);
                 if (replacelen)
                   memcpy(searchEnd, replacement.c_str(), replacelen);
-                if (multipath)
+                if (multipath  || (doublepath && isIdentifier(replacement.c_str())))
                   searchEnd = searchEnd + replacelen;
               }
               identBegin = identEnd = NULL;
             }
-            else if (isalnum(c) || ('$' == c) || ('_' == c))
+            else if (isIdentchar(c)) //(isalnum(c) || ('$' == c) || ('_' == c))
             {
               identBegin = searchEnd;
               if (NULL == identEnd)
@@ -5116,11 +5134,15 @@ const char* analyzeCmdRR(char* reply, String param, String value, bool& returnFl
         namespaces.erase(namespaces.begin());
       }
   }
+  else if ((ret = (param == "nop")))
+  {
+    //strcpy(reply, value.c_str());
+  }
   if ( ret ) 
   {
     if ( value.length() )
     {
-      dbgprint ( "Command: %s with parameter %s",
+      dbgprint ( "Command: %s with parameter '%s'",
                param.c_str(), value.c_str() ) ;
     }
     else

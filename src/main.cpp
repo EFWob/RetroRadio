@@ -260,7 +260,7 @@ const char* analyzeCmd ( const char* str ) ;
 const char* analyzeCmd ( const char* par, const char* val ) ;
 void        chomp ( String &str ) ;
 String      httpheader ( String contentstype ) ;
-bool        nvssearch ( const char* key ) ;
+int         nvssearch ( const char* key ) ;
 void        mp3loop() ;
 void        stop_mp3client () ;
 void        tftlog ( const char *str ) ;
@@ -1333,6 +1333,22 @@ void IRAM_ATTR blset ( bool enable )
   }
 }
 
+//**************************************************************************************************
+//                                       E R A S E Y L I S T                                       *
+//**************************************************************************************************
+// Empty list of all keys stored to parameter std::vector keynames.                                *
+// Frees the allocated memory for key list entries.                                                *
+//**************************************************************************************************
+void erasekeylist(std::vector<const char *>& keynames)
+{
+  
+  while (keynames.size() > 0)                                   // Empty the keylist if needed    
+  {
+    free((void *)keynames[0]);
+    keynames.erase(keynames.begin());
+  }
+}
+
 
 //**************************************************************************************************
 //                                      N V S O P E N                                              *
@@ -1341,7 +1357,7 @@ void IRAM_ATTR blset ( bool enable )
 // has to use namespace name to prevent key name collisions. We will open storage in               *
 // RW-mode (second parameter has to be false).                                                     *
 //**************************************************************************************************
-void nvsopen()
+bool nvsopen()
 {
   if ( ! nvshandle )                                         // Opened already?
   {
@@ -1349,8 +1365,10 @@ void nvsopen()
     if ( nvserr )
     {
       dbgprint ( "nvs_open failed!" ) ;
+      return false;
     }
   }
+  return true;
 }
 
 
@@ -1361,7 +1379,12 @@ void nvsopen()
 //**************************************************************************************************
 esp_err_t nvsclear()
 {
+  esp_err_t ret = ESP_OK;
   nvsopen() ;                                         // Be sure to open nvs
+  for (int i = 0;i < keynames.size();i++)
+    ret = nvs_erase_key(nvshandle, keynames[i]);
+  erasekeylist(keynames);
+  return ret;
   return nvs_erase_all ( nvshandle ) ;                // Clear all keys
 }
 
@@ -1375,9 +1398,27 @@ String nvsgetstr ( const char* key , bool uncomment)
 {
   static char   nvs_buf[NVSBUFSIZE] ;       // Buffer for contents
   size_t        len = NVSBUFSIZE ;          // Max length of the string, later real length
-
-  nvsopen() ;                               // Be sure to open nvs
+  int i = 0;
+  if (!nvsopen())                                // Be sure to open nvs
+    return String("");
   nvs_buf[0] = '\0' ;                       // Return empty string on error
+  if (!isIdentifier(key))
+    return String("");
+  if (keynames.size() > 0)
+  {
+    for (;i < keynames.size();i++)
+    { 
+      int cmp = strcmp(keynames[i], key);
+      if (cmp < 0)
+        continue;
+      else if (cmp > 0)
+        return String("");
+      else
+        break;
+    }
+    if (i >= keynames.size())
+      return String("");
+  }
   nvserr = nvs_get_str ( nvshandle, key, nvs_buf, &len ) ;
   if ( nvserr )
   {
@@ -1408,6 +1449,8 @@ esp_err_t nvssetstr ( const char* key, String val )
   bool   wflag = true  ;                                   // Assume update or new key
   bool   nflag = true  ;
   //dbgprint ( "Setstring for %s: %s", key, val.c_str() ) ;
+  if (!isIdentifier(key))
+    return ESP_FAIL;
   if ( val.length() >= NVSBUFSIZE )                        // Limit length of string to store
   {
     dbgprint ( "nvssetstr length failed!" ) ;
@@ -1432,6 +1475,10 @@ esp_err_t nvssetstr ( const char* key, String val )
       if (nflag)
       {
         keynames.push_back(strdup(key));
+        std::sort(keynames.begin(), keynames.end(), 
+          [](const char* x, const char* y) {
+            return strcmp(x, y) < 0;
+          });
       }
     }
 
@@ -1448,12 +1495,21 @@ esp_err_t nvssetstr ( const char* key, String val )
 void nvschkey ( const char* oldk, const char* newk )
 {
   String curcont ;                                         // Current contents
-
-  if ( nvssearch ( oldk ) )                                // Old key in nvs?
+  if (!isIdentifier(newk))
+    return;
+  int idx = nvssearch ( oldk );
+  if ( idx )                                               // Old key in nvs?
   {
     curcont = nvsgetstr ( oldk ) ;                         // Read current value
     nvs_erase_key ( nvshandle, oldk ) ;                    // Remove key
-    nvssetstr ( newk, curcont ) ;                          // Insert new
+    idx--;
+    free((void *)keynames[idx]);
+    keynames[idx] = strdup(newk);
+    nvs_set_str(nvshandle, newk, curcont.c_str());
+    std::sort(keynames.begin(), keynames.end(), 
+      [](const char* x, const char* y) {
+        return strcmp(x, y) < 0;
+      });    
   }
 }
 
@@ -1520,14 +1576,15 @@ void queuefunc ( int func )
 //**************************************************************************************************
 // Check if key exists in nvs.                                                                     *
 //**************************************************************************************************
-bool nvssearch ( const char* key )
+int nvssearch ( const char* key )
 {
-
+  if (!nvsopen())
+    return 0;
   if (keynames.size() > 0)
     for (int i = 0; i < keynames.size();i++)
       if (0 == strcmp(key, keynames[i]))
-        return true;
-  return false;
+        return i+1;
+  return 0;
   size_t        len = NVSBUFSIZE ;                      // Length of the string
 
   nvsopen() ;                                           // Be sure to open nvs
@@ -3590,21 +3647,6 @@ uint8_t FindNsID ( const char* ns_full )
 }
 
 
-//**************************************************************************************************
-//                                       E R A S E Y L I S T                                       *
-//**************************************************************************************************
-// Empty list of all keys stored to parameter std::vector keynames.                                *
-// Frees the allocated memory for key list entries.                                                *
-//**************************************************************************************************
-void erasekeylist(std::vector<const char *>& keynames)
-{
-  
-  while (keynames.size() > 0)                                   // Empty the keylist if needed    
-  {
-    free((void *)keynames[0]);
-    keynames.erase(keynames.begin());
-  }
-}
 
 //**************************************************************************************************
 //                                      F I L L K E Y L I S T                                      *
@@ -3643,7 +3685,8 @@ void fillkeylist(std::vector<const char *>& keynames, uint8_t namespaceid)
         {
           if (NVS_TYPE_STR   == nvsbuf.Entry[i].Type)
           {
-            keynames.push_back( strdup(nvsbuf.Entry[i].Key) ) ;           // Yes, save in table
+            if (isIdentifier(nvsbuf.Entry[i].Key))
+              keynames.push_back( strdup(nvsbuf.Entry[i].Key) ) ;           // Yes, save in table
 //            ++nvsinx;
           }
           else
@@ -6172,10 +6215,12 @@ const char* analyzeCmd ( const char* par, const char* val )
       reqvol = 100 ;                        // Limit to normal values
     }
 
-    ramsetstr("__volume", String(reqvol));
-    analyzeCmdsFromKey(":~volume");
-    ini_block.reqvol = ramgetstr("__volume").toInt();
-
+    ramsetstr("_volume", String(reqvol));
+    analyzeCmdsFromKey(":_volume");
+    ini_block.reqvol = ramgetstr("_volume").toInt();
+/*
+nvs.:_volume=(if(._volume < 50)={if(._volume)={if(~volume)={._volume=0}{._volume=50}}})
+*/
     muteflag = false ;                                // Stop possibly muting
     sprintf ( reply, "Volume is now %d",              // Reply new volume
               ini_block.reqvol ) ;
