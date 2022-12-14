@@ -519,6 +519,7 @@ sv bool           tripleclick = false ;                  // True if triple click
 sv bool           longclick = false ;                    // True if longclick detected
 enum enc_menu_t { VOLUME, PRESET, TRACK } ;              // State for rotary encoder menu
 enc_menu_t        enc_menu_mode = VOLUME ;               // Default is VOLUME mode
+//CommandReply      commandReply ;                         // Container for command reply/replies
 
 #if !defined(RETRORADIO)
 struct progpin_struct                                    // For programmable input pins
@@ -1738,7 +1739,6 @@ char* dbgprint ( const char* format, ... )
   }
   return sbuf ;                                        // Return stored string
 }
-
 
 //**************************************************************************************************
 //                                     G E T E N C R Y P T I O N T Y P E                           *
@@ -6153,10 +6153,7 @@ const char* analyzeCmd ( const char* par, const char* val )
   uint32_t           av ;                             // Available in stream/file
 
   blset ( true ) ;                                    // Enable backlight of TFT
-  strcpy ( reply, "Command accepted" ) ;              // Default reply
-  argument = String ( par ) ;                         // Get the argument
-  chomp ( argument ) ;                                // Remove comment and useless spaces
-  if ( argument.length() == 0 )                       // Lege commandline (comment)?
+  strcpy ( reply, "Command accepted" ) ;              // Default replyReply.be
   {
     return reply ;                                    // Ignore
   }

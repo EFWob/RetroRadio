@@ -3117,8 +3117,9 @@ nvs_stats_t nvs_stats;
 
   fillkeylist( keynames, namespace_ID );
   int i = 0;
-  int idx = 0;
-  doprint("NVS content");
+  int count = 0;
+  //doprint("NVS content");
+  //commandReply.add("\"NVS\": \"entry\":[\r\n");
   for(int i = 0; i < keynames.size();i++)
 //  while (nvskeys[i][0] != '\0') {
     {
@@ -3126,16 +3127,26 @@ nvs_stats_t nvs_stats;
     bool match = (p == NULL);
     if (!match)
       match =  strstr(key, p) != NULL;
-    if (match)
-      doprint(" %3d: '%s' = '%s'", ++idx, key, nvsgetstr(key).c_str());
+    if (match) {
+      String value = nvsgetstr(key);
+      value.trim();
+      //doprint(" %3d: '%s' = '%s'", ++idx, key, value.c_str() );
+      //commandReply.vadd("{\"key\":\"%s\", \"value\":\"%s\"},\r\n", key, value.c_str());
+      count++;
+      //commandReply.add("This is another line\r\n");
+    }
   }
   nvs_get_stats(NULL, &nvs_stats);
+  //commandReply.vadd("], \"count\": %d\r\n", count);
+  //commandReply.print();
+  /*
   doprint ("NVS-Count: UsedEntries = (%d), FreeEntries = (%d), AllEntries = (%d)",
               nvs_stats.used_entries, nvs_stats.free_entries, nvs_stats.total_entries);  
   if ( nvs_stats.free_entries < 2 )  
     doprint ("WARNING: NVS is exhausted. You probably need a bigger partition!");
   else if ( nvs_stats.free_entries < 10 )
     doprint ("Warning: NVS space seems to run low!");
+  */
 }
 
 void doNvs(const char* param, String value) {
@@ -5275,6 +5286,7 @@ const char* analyzeCmdRR ( const char* commands, bool& returnFlag )
 
 const char* analyzeCmdsRR( String s) {
   bool returnFlag = false;
+  //commandReply.begin();
   return analyzeCmdRR ( s.c_str() , returnFlag );
 }
 

@@ -298,6 +298,7 @@ extern uint8_t           announceMode ;                         // Announcement 
 extern uint32_t          announceStart ;                        // when has announceMode started?
 extern int               connectDelay ;                         // Station with ConnectDelay 
 extern uint32_t          streamDelay ;
+//extern CommandReply      commandReply ;                         // Container for command reply/replies
 
 
 extern String            connectcmds ;                          // command(s) to be executed at (successfull) host connect
@@ -364,6 +365,24 @@ void reservepin ( int8_t rpinnr ) ;
 bool connecttohost();
 void mqttpubFavNotPlaying();
 bool setAnnouncemode(uint8_t mode);
+class CommandReply {
+  public:
+    CommandReply() {};
+    ~CommandReply() {clear();};
+    void begin() {clear();};
+    void print();
+    void invlidate() {_sane = false;};
+    bool add(const char* s);
+    bool vadd ( const char* format, ... );
+  protected:
+    void clear();
+    bool addPage();
+    std::vector<char *>_content;
+    const size_t _pageSize = 1024;
+    bool _sane = true;
+    size_t _size = 0;
+};
+
 bool isAnnouncemode();
 /*
 void favplayreport(String url);
